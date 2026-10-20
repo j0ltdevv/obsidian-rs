@@ -23,12 +23,17 @@ use crate::vault::history::{list_snapshots, restore_snapshot};
 use crate::vault::index::NoteIndex;
 use crate::vault::meta::{remove_frontmatter_property, set_frontmatter_property};
 use crate::vault::ops::write_note;
+use crate::vault::search::{build_text_index, FullTextIndex};
+use crate::vault::tasks::{aggregate_tasks, Task as VaultTask};
 use crate::vault::{scan_vault, Note, NoteMetadata};
 use iced::widget::text_editor;
 use iced::{Element, Task};
 
 /// Nombre maximal de résultats affichés par la recherche rapide.
 const SEARCH_LIMIT: usize = 10;
+
+/// Nombre maximal de résultats affichés par le panneau de recherche.
+const SEARCH_PANEL_LIMIT: usize = 50;
 
 /// Racine du vault de démonstration, relative à la racine du dépôt.
 const DEMO_VAULT: &str = "demo-vault";
@@ -96,6 +101,16 @@ pub enum Message {
     CommandPaletteSelect(usize),
     /// Touche Échap : ferme l'overlay courant (palette ou switcher).
     Escape,
+    /// Bascule la vue Plan (plan de la note ouverte).
+    ToggleOutline,
+    /// Bascule le panneau de recherche full-text.
+    ToggleSearch,
+    /// Change la requête du panneau de recherche (résultats recalculés).
+    SearchQuery(String),
+    /// Sélectionne un résultat de recherche (indice dans `App::notes`).
+    SearchSelect(usize),
+    /// Bascule la vue Tâches (vue globale des tâches du vault).
+    ToggleTasks,
 }
 
 /// Note actuellement ouverte : chemin, métadonnées du dernier scan et tampon
@@ -128,6 +143,16 @@ pub struct CommandPaletteState {
     /// Requête courante.
     pub query: String,
     /// Indices des commandes affichées (dans `App::commands`).
+    pub results: Vec<usize>,
+}
+
+/// Panneau de recherche full-text ouvert : requête courante et résultats
+/// (indices de notes).
+#[derive(Debug)]
+pub struct SearchPanelState {
+    /// Requête courante.
+    pub query: String,
+    /// Indices des notes affichées, dans l'ordre de score décroissant.
     pub results: Vec<usize>,
 }
 
@@ -201,6 +226,18 @@ pub struct App {
     pub commands: Vec<Command>,
     /// Palette de commandes ouverte (overlay), si présente.
     pub command_palette: Option<CommandPaletteState>,
+    /// Affiche la vue Plan à la place de l'éditeur/prévisualisation.
+    pub show_outline: bool,
+    /// Affiche le panneau de recherche full-text à la place de l'éditeur.
+    pub show_search: bool,
+    /// Affiche la vue Tâches à la place de l'éditeur/prévisualisation.
+    pub show_tasks: bool,
+    /// Panneau de recherche full-text ouvert, si présent.
+    pub search_panel: Option<SearchPanelState>,
+    /// Index full-text des notes (construit au scan, via `build_text_index`).
+    pub fulltext: Option<FullTextIndex>,
+    /// Tâches agrégées de toutes les notes (construites au scan).
+    pub tasks: Vec<VaultTask>,
 }
 
 impl App {
@@ -259,6 +296,7 @@ pub fn boot() -> (App, Task<Message>) {
         note_count,
     };
     let plugin_error = plugins.load_all(&ctx).err();
+    let (fulltext, tasks) = build_search_data(Path::new(DEMO_VAULT), &notes);
     let app = App {
         notes,
         index,
@@ -279,6 +317,12 @@ pub fn boot() -> (App, Task<Message>) {
         show_plugins: false,
         commands: default_commands(),
         command_palette: None,
+        show_outline: false,
+        show_search: false,
+        show_tasks: false,
+        search_panel: None,
+        fulltext,
+        tasks,
     };
     (app, Task::none())
 }
@@ -302,10 +346,16 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 notes.as_ref().map(|n| n.as_slice()).unwrap_or_default(),
                 &index,
             );
+            let (fulltext, tasks) = build_search_data(&app.vault_root, &notes);
+            app.fulltext = fulltext;
+            app.tasks = tasks;
             app.notes = notes;
             app.index = index;
             app.canvas = canvas;
             app.error = None;
+            if let Some(state) = &mut app.search_panel {
+                state.results = search_results(&app.fulltext, &app.notes, &state.query);
+            }
             if let Some(state) = &mut app.switcher {
                 state.results = switcher_results(&app.notes, &app.index, &state.query);
             }
@@ -456,6 +506,65 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                         }
                     }
                 }
+            }
+        }
+        Message::ToggleOutline => {
+            app.show_outline = !app.show_outline;
+            if app.show_outline {
+                app.show_themes = false;
+                app.show_history = false;
+                app.show_dataview = false;
+                app.show_graph = false;
+                app.show_canvas = false;
+                app.show_plugins = false;
+                app.show_search = false;
+                app.show_tasks = false;
+            }
+        }
+        Message::ToggleSearch => {
+            app.show_search = !app.show_search;
+            if app.show_search {
+                app.show_themes = false;
+                app.show_history = false;
+                app.show_dataview = false;
+                app.show_graph = false;
+                app.show_canvas = false;
+                app.show_plugins = false;
+                app.show_outline = false;
+                app.show_tasks = false;
+                if app.search_panel.is_none() {
+                    app.search_panel = Some(SearchPanelState {
+                        query: String::new(),
+                        results: search_results(&app.fulltext, &app.notes, ""),
+                    });
+                }
+            }
+        }
+        Message::SearchQuery(query) => {
+            if let Some(state) = &mut app.search_panel {
+                state.query = query.clone();
+                state.results = search_results(&app.fulltext, &app.notes, &query);
+            }
+        }
+        Message::SearchSelect(index) => {
+            if let Some(note) = app.notes.as_ref().ok().and_then(|notes| notes.get(index)) {
+                let path = note.path.clone();
+                app.search_panel = None;
+                app.show_search = false;
+                open_note(app, &path);
+            }
+        }
+        Message::ToggleTasks => {
+            app.show_tasks = !app.show_tasks;
+            if app.show_tasks {
+                app.show_themes = false;
+                app.show_history = false;
+                app.show_dataview = false;
+                app.show_graph = false;
+                app.show_canvas = false;
+                app.show_plugins = false;
+                app.show_outline = false;
+                app.show_search = false;
             }
         }
         Message::ToggleGraph => {
@@ -668,6 +777,50 @@ fn switcher_results(
         .into_iter()
         .filter_map(|hit| notes.iter().position(|note| note == hit))
         .collect()
+}
+
+/// Recherche full-text : indices des notes correspondant à `query`, triés
+/// par score décroissant (via `FullTextIndex`). Une requête vide retourne
+/// une liste vide.
+fn search_results(
+    fulltext: &Option<FullTextIndex>,
+    notes: &Result<Vec<Note>, String>,
+    query: &str,
+) -> Vec<usize> {
+    let (Some(fulltext), Ok(notes)) = (fulltext, notes) else {
+        return Vec::new();
+    };
+    fulltext
+        .search_text(query, SEARCH_PANEL_LIMIT)
+        .into_iter()
+        .filter(|&i| i < notes.len())
+        .collect()
+}
+
+/// Construit l'index full-text et les tâches agrégées du vault. Les lectures
+/// de fichiers sont best-effort : un fichier illisible contribue avec un
+/// texte vide et n'est pas inclus dans l'agrégat de tâches.
+fn build_search_data(
+    vault_root: &Path,
+    notes: &Result<Vec<Note>, String>,
+) -> (Option<FullTextIndex>, Vec<VaultTask>) {
+    let Ok(notes) = notes else {
+        return (None, Vec::new());
+    };
+    let mut items = Vec::with_capacity(notes.len());
+    let mut contents = std::collections::HashMap::new();
+    for note in notes {
+        match fs::read_to_string(vault_root.join(&note.path)) {
+            Ok(text) => {
+                items.push((note.name.clone(), text.clone()));
+                contents.insert(note.path.clone(), text);
+            }
+            Err(_) => items.push((note.name.clone(), String::new())),
+        }
+    }
+    let fulltext = Some(build_text_index(&items));
+    let tasks = aggregate_tasks(notes, &contents);
+    (fulltext, tasks)
 }
 
 /// Définit/remplace une propriété du frontmatter de la note ouverte, puis
