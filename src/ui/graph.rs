@@ -45,6 +45,33 @@ const INNER_RING_FRACTION: f32 = 0.35;
 const MIDDLE_RING_FRACTION: f32 = 0.65;
 const OUTER_RING_FRACTION: f32 = 0.95;
 
+/// Couleurs de groupes (par dossier) pour les nœuds.
+const FOLDER_PALETTE: [Color; 6] = [
+    Color::from_rgb(0.25, 0.45, 0.75),
+    Color::from_rgb(0.75, 0.40, 0.25),
+    Color::from_rgb(0.25, 0.60, 0.40),
+    Color::from_rgb(0.60, 0.35, 0.65),
+    Color::from_rgb(0.70, 0.60, 0.20),
+    Color::from_rgb(0.35, 0.50, 0.70),
+];
+
+/// Clé de groupe d'une note : son dossier parent ("" pour la racine).
+fn folder_key(note: &Note) -> String {
+    note.path
+        .parent()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default()
+}
+
+/// Couleur déterministe d'un groupe (dossier).
+fn folder_color(key: &str) -> Color {
+    let mut hash: u32 = 5381;
+    for b in key.bytes() {
+        hash = hash.wrapping_mul(33).wrapping_add(u32::from(b));
+    }
+    FOLDER_PALETTE[(hash as usize) % FOLDER_PALETTE.len()]
+}
+
 /// Arêtes dont les deux extrémités sont présentes dans `positions`.
 fn visible_edges(
     edges: &[(NodeId, NodeId)],
@@ -67,6 +94,8 @@ pub struct GraphScene {
     paths: HashMap<usize, PathBuf>,
     /// Arêtes du graphe.
     edges: Vec<(NodeId, NodeId)>,
+    /// Couleurs de groupe par nœud (dossier).
+    colors: HashMap<usize, Color>,
 }
 
 impl GraphScene {
@@ -77,6 +106,7 @@ impl GraphScene {
         let mut positions: HashMap<usize, Point> = HashMap::new();
         let mut names: HashMap<usize, String> = HashMap::new();
         let mut paths: HashMap<usize, PathBuf> = HashMap::new();
+        let mut colors: HashMap<usize, Color> = HashMap::new();
 
         if notes.is_empty() || size.width <= 0.0 || size.height <= 0.0 {
             let edges = visible_edges(&graph.edges, &positions);
@@ -84,6 +114,7 @@ impl GraphScene {
                 positions,
                 names,
                 paths,
+                colors,
                 edges,
             };
         }
@@ -98,6 +129,7 @@ impl GraphScene {
                 positions,
                 names,
                 paths,
+                colors,
                 edges,
             };
         }
@@ -119,6 +151,7 @@ impl GraphScene {
         for (rank, &node) in ranked.iter().enumerate() {
             names.insert(node, notes[node].name.clone());
             paths.insert(node, notes[node].path.clone());
+            colors.insert(node, folder_color(&folder_key(&notes[node])));
             let degree = graph.degree(node);
             let ring = ring_of(degree);
             let ring_radius = match ring {
@@ -206,6 +239,7 @@ impl GraphScene {
             positions,
             names,
             paths,
+            colors,
             edges,
         }
     }
@@ -242,12 +276,13 @@ impl GraphScene {
             }
         }
 
-        // Nœuds.
-        for pos in self.positions.values() {
+        // Nœuds, colorés par groupe (dossier).
+        for (node, pos) in &self.positions {
+            let color = self.colors.get(node).copied().unwrap_or(NODE_COLOR);
             frame.fill(
                 &canvas::Path::circle(*pos, NODE_RADIUS),
                 canvas::Fill {
-                    style: canvas::Style::Solid(NODE_COLOR),
+                    style: canvas::Style::Solid(color),
                     ..Default::default()
                 },
             );
