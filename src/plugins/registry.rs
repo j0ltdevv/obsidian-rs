@@ -15,6 +15,9 @@ use super::api::{Plugin, PluginContext, PluginInfo};
 #[derive(Default)]
 pub struct PluginRegistry {
     plugins: Vec<(Box<dyn Plugin>, bool)>,
+    /// Snapshot du dernier contexte de chargement (pour les ré-activations).
+    ctx_vault: String,
+    ctx_note_count: usize,
 }
 
 impl PluginRegistry {
@@ -39,6 +42,8 @@ impl PluginRegistry {
     /// chargés restent activés, le plugin en échec reste désactivé (jamais de
     /// plugin mi-chargé).
     pub fn load_all(&mut self, ctx: &PluginContext) -> Result<(), String> {
+        self.ctx_vault = ctx.vault_name.to_string();
+        self.ctx_note_count = ctx.note_count;
         for (plugin, enabled) in &mut self.plugins {
             if *enabled {
                 continue;
@@ -83,6 +88,31 @@ impl PluginRegistry {
                 enabled: *enabled,
             })
             .collect()
+    }
+
+    /// Active/désactive un plugin par id (on_load/on_unload). Le contexte de
+    /// ré-activation est le dernier contexte passé à `load_all`.
+    pub fn set_enabled(&mut self, id: &str, enabled: bool) -> Result<(), String> {
+        for (plugin, active) in &mut self.plugins {
+            if plugin.id() != id {
+                continue;
+            }
+            if *active == enabled {
+                return Ok(());
+            }
+            if enabled {
+                let ctx = PluginContext {
+                    vault_name: &self.ctx_vault,
+                    note_count: self.ctx_note_count,
+                };
+                plugin.on_load(&ctx)?;
+            } else {
+                plugin.on_unload()?;
+            }
+            *active = enabled;
+            return Ok(());
+        }
+        Err(format!("Plugin inconnu : {id}"))
     }
 }
 

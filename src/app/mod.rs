@@ -157,8 +157,9 @@ pub enum Message {
     CanvasExportJson,
     /// Remplace toutes les occurrences dans tout le vault.
     GlobalReplaceAll,
+    /// Active/désactive un plugin par id.
+    PluginToggle(String),
 }
-
 /// Dialogue de création de note (nom saisi).
 #[derive(Debug)]
 pub struct NewNoteState {
@@ -868,6 +869,18 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 }
             }
             return update(app, Message::Refresh);
+        }
+        Message::PluginToggle(id) => {
+            let enabled = app
+                .plugins
+                .info()
+                .into_iter()
+                .find(|info| info.id == id)
+                .map(|info| !info.enabled)
+                .unwrap_or(false);
+            if let Err(error) = app.plugins.set_enabled(&id, enabled) {
+                app.error = Some(format!("Plugin « {id} » : {error}"));
+            }
         }
         Message::ToggleGraph => {
             app.show_graph = !app.show_graph;

@@ -414,7 +414,9 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
     }
 
     if app.show_plugins {
-        let plugins = plugins_view(&app.plugins.info());
+        let plugins = plugins_view(&app.plugins.info(), |id| {
+            Message::PluginToggle(id.to_string())
+        });
         return row![
             sidebar,
             container(plugins)
