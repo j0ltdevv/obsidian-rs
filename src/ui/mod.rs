@@ -330,10 +330,26 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
             .collect();
         let canvas = canvas_board_view(&app.canvas, &report);
 
+        let toolbar = row![
+            button(text("Auto-layout"))
+                .on_press(Message::CanvasAutoLayout)
+                .style(ghost_button_style),
+            button(text("Exporter JSON"))
+                .on_press(Message::CanvasExportJson)
+                .style(ghost_button_style),
+        ]
+        .spacing(8)
+        .padding([0, 8]);
+
         let mut stack = Column::new()
             .spacing(8)
             .width(Length::Fill)
             .height(Length::Fill);
+        stack = stack.push(
+            container(toolbar)
+                .width(Length::Fill)
+                .height(Length::Shrink),
+        );
         stack = stack.push(
             container(canvas)
                 .width(Length::Fill)
@@ -341,17 +357,19 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         );
         if let Some(id) = app.canvas_selected {
             if let Some(card) = app.canvas.card(id) {
-                let title_input = text_input("Titre", &card.title)
-                    .on_input(move |text| Message::CanvasEditTitle { id, text })
-                    .padding(6);
-                let text_input_editor = text_input("Contenu", &card.text)
-                    .on_input(move |text| Message::CanvasEditText { id, text })
-                    .padding(6);
+                let group_value = card.group().unwrap_or("").to_string();
                 let panel = container(
                     column![
                         text("Carte sélectionnée").size(13).font(bold_font()),
-                        title_input,
-                        text_input_editor,
+                        text_input("Titre", &card.title)
+                            .on_input(move |text| Message::CanvasEditTitle { id, text })
+                            .padding(6),
+                        text_input("Contenu", &card.text)
+                            .on_input(move |text| Message::CanvasEditText { id, text })
+                            .padding(6),
+                        text_input("Groupe (vide = aucun)", &group_value)
+                            .on_input(move |group| Message::CanvasSetGroup { id, group })
+                            .padding(6),
                     ]
                     .spacing(6)
                     .padding(8),

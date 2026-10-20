@@ -149,6 +149,12 @@ pub enum Message {
     NewNoteName(String),
     /// Crée la note (ops atomique) et rafraîchit l'index.
     NewNoteCreate,
+    /// Change le groupe d'une carte du canvas.
+    CanvasSetGroup { id: CardId, group: String },
+    /// Réorganise automatiquement les cartes du canvas.
+    CanvasAutoLayout,
+    /// Exporte le canvas en JSON (`.obsidian/canvas.json`).
+    CanvasExportJson,
 }
 
 /// Dialogue de création de note (nom saisi).
@@ -764,6 +770,41 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 }
                 Err(error) => {
                     app.error = Some(format!("Création impossible : {error}"));
+                }
+            }
+        }
+        Message::CanvasSetGroup { id, group } => {
+            if let Some(card) = app.canvas.card_mut(id) {
+                let group = group.trim();
+                card.set_group(if group.is_empty() {
+                    None
+                } else {
+                    Some(group.to_string())
+                });
+            }
+        }
+        Message::CanvasAutoLayout => {
+            app.canvas.auto_layout();
+        }
+        Message::CanvasExportJson => {
+            let json = match app.canvas.to_json() {
+                Ok(json) => json,
+                Err(error) => {
+                    app.error = Some(format!("Export canvas impossible : {error}"));
+                    return Task::none();
+                }
+            };
+            let dir = app.vault_root.join(".obsidian");
+            if let Err(error) = fs::create_dir_all(&dir) {
+                app.error = Some(format!("Export canvas impossible : {error}"));
+                return Task::none();
+            }
+            let target = dir.join("canvas.json");
+            let tmp = dir.join("canvas.json.tmp");
+            match fs::write(&tmp, &json).and_then(|_| fs::rename(&tmp, &target)) {
+                Ok(()) => app.error = None,
+                Err(error) => {
+                    app.error = Some(format!("Export canvas impossible : {error}"));
                 }
             }
         }
