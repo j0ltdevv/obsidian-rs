@@ -856,8 +856,13 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
             .into();
     };
 
+    let title = if app.open_dirty {
+        format!("{} ●", open.name)
+    } else {
+        open.name.clone()
+    };
     let header = row![
-        text(&open.name).size(16).font(bold_font()),
+        text(title).size(16).font(bold_font()),
         text("").width(Length::Fill),
         button(text("Renommer"))
             .on_press(Message::ToggleRename(open.path.clone()))

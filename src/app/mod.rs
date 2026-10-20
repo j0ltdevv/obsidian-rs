@@ -190,6 +190,8 @@ pub enum Message {
     CanvasImportJson,
     /// Retire une carte du canvas (et ses arêtes incidentes).
     CanvasRemoveCard(CardId),
+    /// Marque la note ouverte comme modifiée (non enregistrée).
+    MarkDirty,
 }
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
@@ -377,6 +379,8 @@ pub struct App {
     pub hotkeys: Vec<crate::vault::settings::Hotkey>,
     /// Dernières notes ouvertes (chemins), plus récente en tête.
     pub recent: Vec<PathBuf>,
+    /// La note ouverte contient des modifications non enregistrées.
+    pub open_dirty: bool,
 }
 impl App {
     /// Scanne le vault donné et reconstitue notes + index.
@@ -482,6 +486,7 @@ pub fn boot() -> (App, Task<Message>) {
         folder_name: String::new(),
         hotkeys: crate::vault::settings::load_hotkeys(Path::new(DEMO_VAULT)).unwrap_or_default(),
         recent: Vec::new(),
+        open_dirty: false,
     };
     (app, Task::none())
 }
@@ -556,6 +561,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::EditorAction(action) => {
             if let Some(open) = &mut app.open {
                 open.content.perform(action);
+                app.open_dirty = true;
             }
         }
         Message::SaveNote => {
@@ -563,6 +569,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 match write_note(&app.vault_root, &open.path, &open.content.text()) {
                     Ok(()) => {
                         app.error = None;
+                        app.open_dirty = false;
                         // Notifie les plugins de la mutation (id = chemin).
                         let note_count = app.notes.as_ref().map(|n| n.len()).unwrap_or(0);
                         let ctx = PluginContext {
@@ -1238,6 +1245,7 @@ fn open_note(app: &mut App, path: &Path) {
                 property_drafts,
             });
             app.error = None;
+            app.open_dirty = false;
         }
         Err(error) => {
             app.error = Some(format!(
