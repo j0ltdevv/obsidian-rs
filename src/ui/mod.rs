@@ -107,16 +107,8 @@ fn new_note_overlay<'a>(app: &'a App) -> Element<'a, Message> {
             text("Nouvelle note").size(16).font(bold_font()),
             ti("Nom de la note…", &state.name)
                 .on_input(Message::NewNoteName)
+                .on_submit(Message::NewNoteCreate)
                 .padding(8),
-            row![
-                button(text("Créer"))
-                    .on_press(Message::NewNoteCreate)
-                    .style(primary_button_style),
-                button(text("Annuler"))
-                    .on_press(Message::NewNoteClose)
-                    .style(ghost_button_style),
-            ]
-            .spacing(8),
         ]
         .spacing(12)
         .padding(20),
@@ -167,9 +159,6 @@ fn title_bar() -> Element<'static, Message> {
             .style(primary_button_style),
         button(text("Chercher"))
             .on_press(Message::ToggleSearch)
-            .style(primary_button_style),
-        button(text("Tâches"))
-            .on_press(Message::ToggleTasks)
             .style(primary_button_style),
         button(text("Tâches"))
             .on_press(Message::ToggleTasks)
@@ -655,6 +644,9 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
                 .width(Length::FillPortion(3)),
             button(text("Tout remplacer"))
                 .on_press(Message::FindReplaceAll)
+                .style(ghost_button_style),
+            button(text("Vault entier"))
+                .on_press(Message::GlobalReplaceAll)
                 .style(ghost_button_style),
             button(text("Fermer"))
                 .on_press(Message::FindClose)

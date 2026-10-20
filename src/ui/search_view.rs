@@ -18,14 +18,14 @@ const NAME_SIZE: f32 = 15.0;
 /// Taille du chemin et des messages discrets.
 const SMALL_SIZE: f32 = 12.0;
 
-/// Indices de notes affichables : ceux de `state.results` qui existent dans
-/// `notes`. Fonction pure, testable sans iced.
-pub fn result_rows(state: &SearchPanelState, notes: &[Note]) -> Vec<usize> {
+/// Résultats affichables : ceux dont l'indice existe dans `notes`.
+/// Fonction pure, testable sans iced.
+pub fn result_rows(state: &SearchPanelState, notes: &[Note]) -> Vec<crate::app::SearchHit> {
     state
         .results
         .iter()
-        .copied()
-        .filter(|&index| index < notes.len())
+        .filter(|hit| hit.index < notes.len())
+        .cloned()
         .collect()
 }
 
@@ -57,8 +57,8 @@ pub fn search_view<'a>(app: &'a App) -> Element<'a, Message> {
             .into()
     } else {
         let mut list: Column<'a, Message> = column![].spacing(4).width(Length::Fill);
-        for index in rows {
-            let Some(note) = notes.get(index) else {
+        for (row_index, hit) in rows.iter().enumerate() {
+            let Some(note) = notes.get(hit.index) else {
                 continue;
             };
             let label = column![
@@ -66,11 +66,14 @@ pub fn search_view<'a>(app: &'a App) -> Element<'a, Message> {
                 text(note.path.display().to_string())
                     .size(SMALL_SIZE)
                     .color(PATH_COLOR),
+                text(hit.snippet.clone())
+                    .size(SMALL_SIZE)
+                    .color(Color::from_rgb(0.35, 0.38, 0.42)),
             ]
             .spacing(1);
             list = list.push(
                 button(label)
-                    .on_press(Message::SearchSelect(index))
+                    .on_press(Message::SearchSelect(row_index))
                     .width(Length::Fill)
                     .padding(6)
                     .style(crate::ui::ghost_button_style),
@@ -105,7 +108,14 @@ mod tests {
         }
     }
 
-    fn state(results: Vec<usize>) -> SearchPanelState {
+    fn hit(index: usize) -> crate::app::SearchHit {
+        crate::app::SearchHit {
+            index,
+            snippet: "…".to_string(),
+        }
+    }
+
+    fn state(results: Vec<crate::app::SearchHit>) -> SearchPanelState {
         SearchPanelState {
             query: "x".to_string(),
             results,
@@ -115,13 +125,15 @@ mod tests {
     #[test]
     fn result_rows_filtre_les_indices_hors_bornes() {
         let notes = vec![note("a"), note("b")];
-        assert_eq!(result_rows(&state(vec![1, 5, 0]), &notes), vec![1, 0]);
+        let hits = result_rows(&state(vec![hit(1), hit(5), hit(0)]), &notes);
+        assert_eq!(hits.iter().map(|h| h.index).collect::<Vec<_>>(), vec![1, 0]);
     }
 
     #[test]
     fn result_rows_conserve_l_ordre_de_score() {
         let notes = vec![note("a"), note("b"), note("c")];
-        assert_eq!(result_rows(&state(vec![2, 0]), &notes), vec![2, 0]);
+        let hits = result_rows(&state(vec![hit(2), hit(0)]), &notes);
+        assert_eq!(hits.iter().map(|h| h.index).collect::<Vec<_>>(), vec![2, 0]);
     }
 
     #[test]

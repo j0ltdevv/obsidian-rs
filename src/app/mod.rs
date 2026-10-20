@@ -155,6 +155,8 @@ pub enum Message {
     CanvasAutoLayout,
     /// Exporte le canvas en JSON (`.obsidian/canvas.json`).
     CanvasExportJson,
+    /// Remplace toutes les occurrences dans tout le vault.
+    GlobalReplaceAll,
 }
 
 /// Dialogue de création de note (nom saisi).
@@ -211,8 +213,17 @@ pub struct CommandPaletteState {
 pub struct SearchPanelState {
     /// Requête courante.
     pub query: String,
-    /// Indices des notes affichées, dans l'ordre de score décroissant.
-    pub results: Vec<usize>,
+    /// Résultats : indice de note + extrait (snippet) avec contexte.
+    pub results: Vec<SearchHit>,
+}
+
+/// Un résultat de recherche : indice de note et extrait autour de la
+/// première correspondance.
+#[derive(Debug, Clone)]
+pub struct SearchHit {
+    pub index: usize,
+    /// Extrait (contexte autour de la correspondance).
+    pub snippet: String,
 }
 
 /// Brouillons d'édition des propriétés du frontmatter de la note ouverte.
@@ -297,6 +308,9 @@ pub struct App {
     pub search_panel: Option<SearchPanelState>,
     /// Index full-text des notes (construit au scan, via `build_text_index`).
     pub fulltext: Option<FullTextIndex>,
+    /// Nombre de lignes par note (indice → lignes), pour les requêtes
+    /// avec opérateur `line:`.
+    pub search_line_counts: HashMap<usize, usize>,
     /// Tâches agrégées de toutes les notes (construites au scan).
     pub tasks: Vec<VaultTask>,
     /// Filtres du graphe (local / tag / dossier).
@@ -373,7 +387,7 @@ pub fn boot() -> (App, Task<Message>) {
         note_count,
     };
     let plugin_error = plugins.load_all(&ctx).err();
-    let (fulltext, tasks) = build_search_data(Path::new(DEMO_VAULT), &notes);
+    let (fulltext, tasks, search_line_counts) = build_search_data(Path::new(DEMO_VAULT), &notes);
     let aliases = notes.as_ref().ok().map(|notes| AliasIndex::build(notes));
     let app = App {
         notes,
@@ -402,6 +416,7 @@ pub fn boot() -> (App, Task<Message>) {
         search_panel: None,
         fulltext,
         tasks,
+        search_line_counts,
         graph_filters: GraphFilters::default(),
         graph_drags: HashMap::new(),
         graph_drag_active: None,
@@ -433,9 +448,10 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 notes.as_ref().map(|n| n.as_slice()).unwrap_or_default(),
                 &index,
             );
-            let (fulltext, tasks) = build_search_data(&app.vault_root, &notes);
+            let (fulltext, tasks, search_line_counts) = build_search_data(&app.vault_root, &notes);
             app.fulltext = fulltext;
             app.tasks = tasks;
+            app.search_line_counts = search_line_counts;
             app.notes = notes;
             app.index = index;
             app.aliases = app
@@ -445,8 +461,11 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 .map(|notes| AliasIndex::build(notes));
             app.canvas = canvas;
             app.error = None;
-            if let Some(state) = &mut app.search_panel {
-                state.results = search_results(&app.fulltext, &app.notes, &state.query);
+            if let Some(query) = app.search_panel.as_ref().map(|s| s.query.clone()) {
+                let hits = search_results(app, &query);
+                if let Some(state) = &mut app.search_panel {
+                    state.results = hits;
+                }
             }
             if let Some(state) = &mut app.switcher {
                 state.results = switcher_results(&app.notes, &app.index, &state.query);
@@ -548,8 +567,10 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::Escape => {
             if app.command_palette.is_some() {
                 app.command_palette = None;
-            } else {
+            } else if app.switcher.is_some() {
                 app.switcher = None;
+            } else if app.new_note.is_some() {
+                app.new_note = None;
             }
         }
         Message::CommandPaletteQuery(query) => {
@@ -632,25 +653,39 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.show_outline = false;
                 app.show_tasks = false;
                 if app.search_panel.is_none() {
+                    let hits = search_results(app, "");
                     app.search_panel = Some(SearchPanelState {
                         query: String::new(),
-                        results: search_results(&app.fulltext, &app.notes, ""),
+                        results: hits,
                     });
                 }
             }
         }
         Message::SearchQuery(query) => {
+            let hits = search_results(app, &query);
             if let Some(state) = &mut app.search_panel {
-                state.query = query.clone();
-                state.results = search_results(&app.fulltext, &app.notes, &query);
+                state.query = query;
+                state.results = hits;
             }
         }
         Message::SearchSelect(index) => {
-            if let Some(note) = app.notes.as_ref().ok().and_then(|notes| notes.get(index)) {
-                let path = note.path.clone();
-                app.search_panel = None;
-                app.show_search = false;
-                open_note(app, &path);
+            let hit_index = app
+                .search_panel
+                .as_ref()
+                .and_then(|s| s.results.get(index))
+                .map(|hit| hit.index);
+            if let Some(note_index) = hit_index {
+                if let Some(note) = app
+                    .notes
+                    .as_ref()
+                    .ok()
+                    .and_then(|notes| notes.get(note_index))
+                {
+                    let path = note.path.clone();
+                    app.search_panel = None;
+                    app.show_search = false;
+                    open_note(app, &path);
+                }
             }
         }
         Message::ToggleTasks => {
@@ -807,6 +842,32 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     app.error = Some(format!("Export canvas impossible : {error}"));
                 }
             }
+        }
+        Message::GlobalReplaceAll => {
+            let Some(find) = &app.find else {
+                return Task::none();
+            };
+            if find.query.is_empty() {
+                app.error = Some("Requête de remplacement vide.".to_string());
+                return Task::none();
+            }
+            let Ok(notes) = &app.notes else {
+                return Task::none();
+            };
+            for note in notes {
+                let Ok(source) = fs::read_to_string(app.vault_root.join(&note.path)) else {
+                    continue;
+                };
+                if !source.contains(&find.query) {
+                    continue;
+                }
+                let replaced = source.replace(&find.query, &find.replace);
+                if let Err(error) = write_note(&app.vault_root, &note.path, &replaced) {
+                    app.error = Some(format!("Remplacement global impossible : {error}"));
+                    return Task::none();
+                }
+            }
+            return update(app, Message::Refresh);
         }
         Message::ToggleGraph => {
             app.show_graph = !app.show_graph;
@@ -1024,21 +1085,64 @@ fn switcher_results(
 }
 
 /// Recherche full-text : indices des notes correspondant à `query`, triés
-/// par score décroissant (via `FullTextIndex`). Une requête vide retourne
-/// une liste vide.
-fn search_results(
-    fulltext: &Option<FullTextIndex>,
-    notes: &Result<Vec<Note>, String>,
-    query: &str,
-) -> Vec<usize> {
-    let (Some(fulltext), Ok(notes)) = (fulltext, notes) else {
+/// Recherche avancée : parse la requête (opérateurs `path:`, `tag:`,
+/// `file:`, `line:N`, `-exclu`) puis filtre les notes. Chaque résultat
+/// porte un extrait autour de la première correspondance.
+fn search_results(app: &App, query: &str) -> Vec<SearchHit> {
+    let (Ok(notes), Some(fulltext)) = (&app.notes, &app.fulltext) else {
         return Vec::new();
     };
-    fulltext
-        .search_text(query, SEARCH_PANEL_LIMIT)
+    if query.trim().is_empty() {
+        return Vec::new();
+    }
+    let parsed = crate::vault::search_ops::parse_query(query);
+    let keyword = first_keyword(query);
+    crate::vault::search_ops::filter_notes(notes, Some(fulltext), &app.search_line_counts, &parsed)
         .into_iter()
-        .filter(|&i| i < notes.len())
+        .take(SEARCH_PANEL_LIMIT)
+        .map(|index| {
+            let snippet = notes
+                .get(index)
+                .and_then(|note| fs::read_to_string(app.vault_root.join(&note.path)).ok())
+                .map(|text| make_snippet(&text, keyword))
+                .unwrap_or_default();
+            SearchHit { index, snippet }
+        })
         .collect()
+}
+
+/// Premier terme de mot-clé d'une requête (ignore les opérateurs `x:` et
+/// les exclusions `-…`), pour construire l'extrait.
+fn first_keyword(query: &str) -> &str {
+    query
+        .split_whitespace()
+        .find(|token| !token.starts_with('-') && !token.contains(':'))
+        .unwrap_or(query)
+}
+
+/// Extrait un contexte autour de la première occurrence de `query`.
+fn make_snippet(content: &str, query: &str) -> String {
+    let lower = content.to_lowercase();
+    let q = query.to_lowercase();
+    if let Some(pos) = lower.find(&q) {
+        let start = char_boundary(content, pos.saturating_sub(40));
+        let end = char_boundary(content, (pos + q.len() + 40).min(content.len()));
+        let mut out = String::from("…");
+        out.push_str(&content[start..end]);
+        out.push('…');
+        out
+    } else {
+        let end = char_boundary(content, 80.min(content.len()));
+        content[..end].to_string()
+    }
+}
+
+/// Ajuste `i` à la frontière de caractère UTF-8 la plus proche.
+fn char_boundary(s: &str, mut i: usize) -> usize {
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i.min(s.len())
 }
 
 /// Résout une cible de lien (`[[cible]]` ou alias) vers les notes
@@ -1068,16 +1172,18 @@ fn resolve_link<'a>(
 fn build_search_data(
     vault_root: &Path,
     notes: &Result<Vec<Note>, String>,
-) -> (Option<FullTextIndex>, Vec<VaultTask>) {
+) -> (Option<FullTextIndex>, Vec<VaultTask>, HashMap<usize, usize>) {
     let Ok(notes) = notes else {
-        return (None, Vec::new());
+        return (None, Vec::new(), HashMap::new());
     };
     let mut items = Vec::with_capacity(notes.len());
     let mut contents = std::collections::HashMap::new();
-    for note in notes {
+    let mut line_counts = HashMap::new();
+    for (i, note) in notes.iter().enumerate() {
         match fs::read_to_string(vault_root.join(&note.path)) {
             Ok(text) => {
                 items.push((note.name.clone(), text.clone()));
+                line_counts.insert(i, text.lines().count());
                 contents.insert(note.path.clone(), text);
             }
             Err(_) => items.push((note.name.clone(), String::new())),
@@ -1085,7 +1191,7 @@ fn build_search_data(
     }
     let fulltext = Some(build_text_index(&items));
     let tasks = aggregate_tasks(notes, &contents);
-    (fulltext, tasks)
+    (fulltext, tasks, line_counts)
 }
 
 /// Définit/remplace une propriété du frontmatter de la note ouverte, puis
