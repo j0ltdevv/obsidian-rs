@@ -6,12 +6,11 @@
 //!   2. quelques passes de répulsion pour éloigner les nœuds proches,
 //!   3. recentrage du barycentre sur le canevas.
 //!
-//! Les clics sont traités dans `canvas::Program::update` : la même fonction
-//! de positionnement est réutilisée pour retrouver le nœud sous le curseur,
-//! puis `Message::OpenNote` est émis avec le chemin de la note.
+//! Le glisser-déposer des nœuds est traité dans `canvas::Program::update` :
+//! la même fonction de positionnement est réutilisée pour retrouver le nœud
+//! sous le curseur (`Message::GraphDragStart` / `GraphDragApply`).
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use iced::widget::canvas;
 use iced::widget::{button, container, text, Row};
@@ -90,8 +89,6 @@ pub struct GraphScene {
     positions: HashMap<usize, Point>,
     /// Noms des notes (indice → nom).
     names: HashMap<usize, String>,
-    /// Chemins des notes (indice → chemin relatif), pour l'ouverture au clic.
-    paths: HashMap<usize, PathBuf>,
     /// Arêtes du graphe.
     edges: Vec<(NodeId, NodeId)>,
     /// Couleurs de groupe par nœud (dossier).
@@ -100,12 +97,19 @@ pub struct GraphScene {
 
 impl GraphScene {
     /// Construit la scène depuis le graphe, les dimensions du canevas et les
-    /// filtres d'affichage (graphe local, tag, dossier).
-    pub fn layout(notes: &[Note], index: &NoteIndex, size: Size, filters: &GraphFilters) -> Self {
+    /// filtres d'affichage (graphe local, tag, dossier). Les décalages
+    /// persistants de glisser-déposer (`drags`) sont appliqués aux positions
+    /// finales des nœuds.
+    pub fn layout(
+        notes: &[Note],
+        index: &NoteIndex,
+        size: Size,
+        filters: &GraphFilters,
+        drags: &HashMap<usize, (f32, f32)>,
+    ) -> Self {
         let graph = build_graph(notes, index);
         let mut positions: HashMap<usize, Point> = HashMap::new();
         let mut names: HashMap<usize, String> = HashMap::new();
-        let mut paths: HashMap<usize, PathBuf> = HashMap::new();
         let mut colors: HashMap<usize, Color> = HashMap::new();
 
         if notes.is_empty() || size.width <= 0.0 || size.height <= 0.0 {
@@ -113,7 +117,6 @@ impl GraphScene {
             return Self {
                 positions,
                 names,
-                paths,
                 colors,
                 edges,
             };
@@ -128,7 +131,6 @@ impl GraphScene {
             return Self {
                 positions,
                 names,
-                paths,
                 colors,
                 edges,
             };
@@ -150,7 +152,6 @@ impl GraphScene {
 
         for (rank, &node) in ranked.iter().enumerate() {
             names.insert(node, notes[node].name.clone());
-            paths.insert(node, notes[node].path.clone());
             colors.insert(node, folder_color(&folder_key(&notes[node])));
             let degree = graph.degree(node);
             let ring = ring_of(degree);
@@ -234,11 +235,20 @@ impl GraphScene {
             }
         }
 
+        // Décalages persistants du glisser-déposer : appliqués après le
+        // placement, pour que `hit_test` et le dessin utilisent les positions
+        // finales (offsets additifs, déjà stockés par l'application).
+        for (node, (dx, dy)) in drags {
+            if let Some(pos) = positions.get_mut(node) {
+                pos.x += dx;
+                pos.y += dy;
+            }
+        }
+
         let edges = visible_edges(&graph.edges, &positions);
         Self {
             positions,
             names,
-            paths,
             colors,
             edges,
         }
@@ -256,8 +266,16 @@ impl GraphScene {
         None
     }
 
-    /// Dessine le graphe (arêtes, nœuds, noms) dans le cadre donné.
-    pub fn draw(&self, renderer: &iced::Renderer, bounds: Rectangle) -> Vec<canvas::Geometry> {
+    /// Dessine le graphe (arêtes, nœuds, noms) dans le cadre donné. Si un
+    /// glisser-déposer est en cours (`dragged`), le nœud concerné est dessiné
+    /// à sa position décalée.
+    pub fn draw(
+        &self,
+        renderer: &iced::Renderer,
+        bounds: Rectangle,
+        dragged: Option<DragState>,
+    ) -> Vec<canvas::Geometry> {
+        let dragged_delta = dragged.map(|d| (d.node, d.delta));
         let mut frame = canvas::Frame::new(renderer, bounds.size());
 
         // Arêtes (en arrière-plan) : un segment par lien.
@@ -278,9 +296,15 @@ impl GraphScene {
 
         // Nœuds, colorés par groupe (dossier).
         for (node, pos) in &self.positions {
+            let draw_pos = match dragged_delta {
+                Some((dragged_node, delta)) if dragged_node == *node => {
+                    Point::new(pos.x + delta.x, pos.y + delta.y)
+                }
+                _ => *pos,
+            };
             let color = self.colors.get(node).copied().unwrap_or(NODE_COLOR);
             frame.fill(
-                &canvas::Path::circle(*pos, NODE_RADIUS),
+                &canvas::Path::circle(draw_pos, NODE_RADIUS),
                 canvas::Fill {
                     style: canvas::Style::Solid(color),
                     ..Default::default()
@@ -291,13 +315,19 @@ impl GraphScene {
         // Noms, centrés sous chaque nœud (décalés pour ne pas masquer le
         // nœud ; omis si le nœud est trop près du bord).
         for (node, pos) in &self.positions {
-            if pos.y + 32.0 > bounds.y + bounds.height - 4.0 {
+            let draw_pos = match dragged_delta {
+                Some((dragged_node, delta)) if dragged_node == *node => {
+                    Point::new(pos.x + delta.x, pos.y + delta.y)
+                }
+                _ => *pos,
+            };
+            if draw_pos.y + 32.0 > bounds.y + bounds.height - 4.0 {
                 continue;
             }
             let label = self.names.get(node).cloned().unwrap_or_default();
             frame.fill_text(canvas::Text {
                 content: label,
-                position: Point::new(pos.x, pos.y + NODE_RADIUS + 10.0),
+                position: Point::new(draw_pos.x, draw_pos.y + NODE_RADIUS + 10.0),
                 size: (LABEL_SIZE as f32).into(),
                 font: LABEL_FONT,
                 color: Color::from_rgb(0.3, 0.3, 0.35),
@@ -311,11 +341,24 @@ impl GraphScene {
     }
 }
 
-/// Programme iced pour le canevas du graphe.
-///
-/// La scène est construite à chaque vue (le canevas est recréé à chaque
-/// frame, ce qui est acceptable pour un graphe de petite taille).
-#[derive(Debug)]
+// État de session d'un glisser-déposer de nœud.
+#[derive(Debug, Clone, Copy)]
+pub struct DragState {
+    /// Nœud déplacé.
+    node: usize,
+    /// Position du curseur au moment du clic (dans le canevas).
+    origin: Point,
+    /// Décalage courant du curseur depuis l'origine.
+    delta: Point,
+}
+
+// Programme iced pour le canevas du graphe.
+//
+// La scène est reconstruite à chaque vue ; le programme persistant est
+// conservé dans `App::graph_program` (la scène y est remplacée via
+// `update_scene`). L'état du glisser-déposer en cours vit dans le
+// `State` du widget canevas, que iced préserve entre deux frames.
+#[derive(Debug, Clone)]
 pub struct GraphProgram {
     scene: GraphScene,
 }
@@ -324,55 +367,104 @@ impl GraphProgram {
     pub fn new(scene: GraphScene) -> Self {
         Self { scene }
     }
+
+    /// Remplace la scène (positions recalées à chaque frame).
+    pub fn update_scene(&mut self, scene: GraphScene) {
+        self.scene = scene;
+    }
 }
 
 impl canvas::Program<Message> for GraphProgram {
-    type State = ();
+    type State = Option<DragState>;
 
-    /// Gère le clic gauche : ouvre la note dont le nœud est sous le curseur.
-    /// Le chemin de la note est re-trouvé avec les mêmes positions que le
-    /// dessin (`GraphScene::hit_test`), garantissant la cohérence.
+    /// Gère le glisser-déposer des nœuds :
+    /// - clic gauche sur un nœud : début du drag (événement capturé +
+    ///   `Message::GraphDragStart`) ;
+    /// - mouvement de curseur pendant un drag : mise à jour locale du
+    ///   décalage, avec simple demande de redessin (pas de message par frame,
+    ///   pour éviter les boucles) ;
+    /// - relâchement : fin du drag (`Message::GraphDragApply` avec le
+    ///   décalage total, additif côté application).
     fn update(
         &self,
-        _state: &mut Self::State,
+        drag: &mut Self::State,
         event: &iced::Event,
         bounds: Rectangle,
         cursor: iced::mouse::Cursor,
     ) -> Option<canvas::Action<Message>> {
-        if !matches!(
-            event,
-            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left))
-        ) {
-            return None;
+        match event {
+            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) => {
+                // Coordonnées locales au canevas (le curseur est global).
+                let p = cursor.position_over(bounds)?;
+                let point = Point::new(p.x - bounds.x, p.y - bounds.y);
+                let node = self.scene.hit_test(point)?;
+                *drag = Some(DragState {
+                    node,
+                    origin: point,
+                    delta: Point::new(0.0, 0.0),
+                });
+                Some(
+                    canvas::Action::publish(Message::GraphDragStart {
+                        node,
+                        origin: (point.x, point.y),
+                    })
+                    .and_capture(),
+                )
+            }
+            iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                let d = drag.as_mut()?;
+                let local = Point::new(position.x - bounds.x, position.y - bounds.y);
+                d.delta = Point::new(local.x - d.origin.x, local.y - d.origin.y);
+                Some(canvas::Action::request_redraw())
+            }
+            iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
+                let d = drag.take()?;
+                Some(
+                    canvas::Action::publish(Message::GraphDragApply {
+                        node: d.node,
+                        dx: d.delta.x,
+                        dy: d.delta.y,
+                    })
+                    .and_capture(),
+                )
+            }
+            _ => None,
         }
-        let point = cursor.position_over(bounds)?;
-        let node = self.scene.hit_test(point)?;
-        let path = self.scene.paths.get(&node)?.clone();
-        Some(canvas::Action::publish(Message::OpenNote(path)))
     }
 
     fn draw(
         &self,
-        _state: &(),
+        drag: &Self::State,
         renderer: &iced::Renderer,
         _theme: &iced::Theme,
         bounds: Rectangle,
         _cursor: iced::mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
-        self.scene.draw(renderer, bounds)
+        self.scene.draw(renderer, bounds, *drag)
     }
 }
 
-/// Vue graphe : canevas (dessin + clics via `canvas::Program::update`).
+/// Vue graphe : canevas (dessin + glisser-déposer via `canvas::Program::update`).
 pub fn graph_view<'a>(app: &'a App, notes: &'a [Note], size: Size) -> Element<'a, Message> {
     let Some(index) = &app.index else {
         return container(text("Index absent")).into();
     };
-    let scene = GraphScene::layout(notes, index, size, &app.graph_filters);
+    let scene = GraphScene::layout(notes, index, size, &app.graph_filters, &app.graph_drags);
 
-    let canvas = canvas(GraphProgram::new(scene))
-        .width(Length::Fill)
-        .height(Length::Fill);
+    // Réutilise le programme persistant s'il a déjà été construit (la scène
+    // est simplement remplacée), sinon en crée un. Le canevas reçoit une
+    // copie : l'état du glisser-déposer en cours vit dans le `State` du
+    // widget, que iced préserve entre les frames.
+    let program = match &app.graph_program {
+        Some(existing) => {
+            let mut program = existing.clone();
+            program.update_scene(scene);
+            program
+        }
+        None => GraphProgram::new(scene),
+    };
+
+    let canvas = canvas(program).width(Length::Fill).height(Length::Fill);
 
     // Barre d'outils : filtre local (autour de la note ouverte) et effacement.
     let local_label = if app.graph_filters.local_note.is_some() {
@@ -408,4 +500,149 @@ pub fn graph_view<'a>(app: &'a App, notes: &'a [Note], size: Size) -> Element<'a
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::path::PathBuf;
+
+    use crate::vault::note::{Note, NoteMetadata};
+    use iced::widget::canvas::Program;
+
+    fn note(name: &str) -> Note {
+        Note {
+            path: PathBuf::from(format!("{name}.md")),
+            name: name.to_string(),
+            metadata: NoteMetadata {
+                frontmatter: None,
+                frontmatter_error: None,
+                wikilinks: Vec::new(),
+                tags: Vec::new(),
+            },
+        }
+    }
+
+    fn scene_size() -> Size {
+        Size::new(800.0, 600.0)
+    }
+
+    #[test]
+    fn layout_applies_persistent_drags() {
+        let notes = vec![note("alpha"), note("beta")];
+        let index = NoteIndex::build_index(&notes);
+        let size = scene_size();
+        let no_drags = HashMap::new();
+
+        let base = GraphScene::layout(&notes, &index, size, &GraphFilters::default(), &no_drags);
+
+        let drags = HashMap::from([(0usize, (12.0, -7.0))]);
+        let dragged = GraphScene::layout(&notes, &index, size, &GraphFilters::default(), &drags);
+
+        let base_0 = base.positions[&0];
+        assert_eq!(
+            dragged.positions[&0],
+            Point::new(base_0.x + 12.0, base_0.y - 7.0)
+        );
+        // Les autres nœuds ne bougent pas.
+        assert_eq!(dragged.positions[&1], base.positions[&1]);
+    }
+
+    #[test]
+    fn hit_test_follows_dragged_position() {
+        let notes = vec![note("alpha"), note("beta")];
+        let index = NoteIndex::build_index(&notes);
+        let size = scene_size();
+        let no_drags = HashMap::new();
+
+        let base = GraphScene::layout(&notes, &index, size, &GraphFilters::default(), &no_drags);
+        let drags = HashMap::from([(0usize, (50.0, 40.0))]);
+        let dragged = GraphScene::layout(&notes, &index, size, &GraphFilters::default(), &drags);
+
+        // Le curseur sur la position décalée touche le nœud déplacé.
+        let moved = dragged.positions[&0];
+        assert_eq!(dragged.hit_test(moved), Some(0));
+
+        // L'ancienne position n'est plus touchée (décalage > rayon de clic).
+        let old = base.positions[&0];
+        assert_ne!(dragged.hit_test(old), Some(0));
+    }
+
+    #[test]
+    fn drag_lifecycle_publishes_start_and_apply() {
+        let notes = vec![note("alpha"), note("beta")];
+        let index = NoteIndex::build_index(&notes);
+        let size = scene_size();
+        let scene = GraphScene::layout(
+            &notes,
+            &index,
+            size,
+            &GraphFilters::default(),
+            &HashMap::new(),
+        );
+        let program = GraphProgram::new(scene);
+        let mut drag = None;
+        let bounds = Rectangle::new(Point::ORIGIN, size);
+        let origin = program.scene.positions[&0];
+
+        // Press au-dessus du nœud 0 : capture + `GraphDragStart`.
+        let press =
+            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left));
+        let action = program
+            .update(
+                &mut drag,
+                &press,
+                bounds,
+                iced::mouse::Cursor::Available(origin),
+            )
+            .expect("un clic sur un nœud doit produire une action");
+        let (message, _, status) = action.into_inner();
+        assert!(matches!(
+            message,
+            Some(Message::GraphDragStart { node: 0, origin: (x, y) })
+                if (x - origin.x).abs() < 0.001 && (y - origin.y).abs() < 0.001
+        ));
+        assert_eq!(status, iced::event::Status::Captured);
+        assert!(drag.is_some());
+
+        // Move : delta local mis à jour, pas de message, demande de redessin.
+        let moved_to = Point::new(origin.x + 40.0, origin.y + 10.0);
+        let moved = iced::Event::Mouse(iced::mouse::Event::CursorMoved { position: moved_to });
+        let action = program
+            .update(
+                &mut drag,
+                &moved,
+                bounds,
+                iced::mouse::Cursor::Available(moved_to),
+            )
+            .expect("un mouvement pendant un drag doit produire une action");
+        let (message, redraw, _) = action.into_inner();
+        assert!(message.is_none());
+        assert!(matches!(redraw, iced::window::RedrawRequest::NextFrame));
+        let d = drag.expect("le drag doit être en cours");
+        assert!((d.delta.x - 40.0).abs() < 0.001);
+        assert!((d.delta.y - 10.0).abs() < 0.001);
+
+        // Release : `GraphDragApply` avec le décalage total, drag terminé.
+        let release = iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+            iced::mouse::Button::Left,
+        ));
+        let action = program
+            .update(
+                &mut drag,
+                &release,
+                bounds,
+                iced::mouse::Cursor::Available(moved_to),
+            )
+            .expect("le relâchement doit produire une action");
+        let (message, _, status) = action.into_inner();
+        assert!(matches!(
+            message,
+            Some(Message::GraphDragApply { node: 0, dx, dy })
+                if (dx - 40.0).abs() < 0.001 && (dy - 10.0).abs() < 0.001
+        ));
+        assert_eq!(status, iced::event::Status::Captured);
+        assert!(drag.is_none());
+    }
 }
