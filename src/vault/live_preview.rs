@@ -206,6 +206,10 @@ fn push_line_segments(line: &str, line_no: usize, out: &mut Vec<Segment>) {
     let cleaned = sanitize_inline_html(line);
     let expanded = expand_emoji(&cleaned);
     let line = expanded.as_str();
+    // Ligne de séparation de tableau : ignorée (aucun segment).
+    if est_ligne_separation_tableau(line) {
+        return;
+    }
     // Ligne vide : aucun segment.
     if line.trim().is_empty() {
         return;
@@ -332,7 +336,38 @@ fn est_ligne_tableau(line: &str) -> bool {
     if trim.starts_with("[[") {
         return false;
     }
+    // Ligne de séparation d'en-tête (`| --- | --- |`) : ignorée.
+    if trim.starts_with('|') {
+        let cells: Vec<&str> = trim.trim_matches('|').split('|').collect();
+        if !cells.is_empty()
+            && cells.iter().all(|c| {
+                let c = c.trim();
+                c.starts_with(':')
+                    || c.ends_with(':')
+                    || c.trim_matches(':').chars().all(|ch| ch == '-')
+            })
+        {
+            return false;
+        }
+    }
     trim.chars().filter(|&c| c == '|').count() >= 2
+}
+
+/// `true` si la ligne est une ligne de séparation de tableau
+/// (`| --- | :---: |`…) — ignorée au rendu.
+fn est_ligne_separation_tableau(line: &str) -> bool {
+    let trim = line.trim();
+    if !trim.starts_with('|') {
+        return false;
+    }
+    let cells: Vec<&str> = trim.trim_matches('|').split('|').collect();
+    !cells.is_empty()
+        && cells.iter().all(|c| {
+            let c = c.trim();
+            c.starts_with(':')
+                || c.ends_with(':')
+                || c.trim_matches(':').chars().all(|ch| ch == '-')
+        })
 }
 
 /// Nettoie une ligne de tableau : bordures `|` retirées, cellules
@@ -385,6 +420,17 @@ fn parse_prefixe_bloc(line: &str) -> Option<(&str, SegmentStyle)> {
 
     if let Some(reste) = trim.strip_prefix('>') {
         return Some((reste, SegmentStyle::Blockquote));
+    }
+
+    // Définition de note de bas de page : `[^id]: texte`.
+    if let Some(reste) = trim.strip_prefix("[^") {
+        if let Some(fin) = reste.find(']') {
+            let id = &reste[..fin];
+            let after = reste[fin + 1..].trim_start();
+            if !id.is_empty() && after.starts_with(':') {
+                return Some((reste, SegmentStyle::Footnote));
+            }
+        }
     }
 
     None
@@ -1155,8 +1201,7 @@ mod tests {
             render_markdown("| a | b |\n|---|---|\n| 1 | 2 |"),
             segs(&[
                 ("a b", SegmentStyle::Table, 0),
-                ("--- ---", SegmentStyle::Table, 1), // séparateur
-                ("1 2", SegmentStyle::Table, 2),
+                ("1 2", SegmentStyle::Table, 2), // séparateur ignoré
             ])
         );
     }
@@ -1437,5 +1482,42 @@ mod tests {
             render_markdown("réussi :check: !"),
             segs(&[("réussi ✅ !", SegmentStyle::Plain, 0)])
         );
+    }
+
+    #[test]
+    fn ligne_separation_tableau_ignoree() {
+        let segs = render_markdown("| a | b |\n| --- | --- |\n| 1 | 2 |");
+        assert_eq!(
+            segs,
+            [
+                ("a b", SegmentStyle::Table, 0),
+                ("1 2", SegmentStyle::Table, 2)
+            ]
+            .iter()
+            .map(|(t, s, l)| Segment {
+                style: *s,
+                text: (*t).to_string(),
+                line: *l,
+            })
+            .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn definition_footnote_rendue_en_segment_footnote() {
+        let segs = render_markdown("[^1] : texte de note");
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].style, SegmentStyle::Footnote);
+        assert!(segs[0].text.contains("1] : texte"));
+    }
+
+    #[test]
+    fn editeur_saut_de_ligne_et_selection() {
+        use iced::widget::text_editor;
+        let mut content: text_editor::Content<iced::Renderer> =
+            text_editor::Content::with_text("ligne1");
+        content.perform(text_editor::Action::Edit(text_editor::Edit::Enter));
+        content.perform(text_editor::Action::SelectAll);
+        assert!(content.text().contains('\n'));
     }
 }
