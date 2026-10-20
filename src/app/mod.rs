@@ -26,6 +26,7 @@ use crate::vault::index::NoteIndex;
 use crate::vault::meta::{remove_frontmatter_property, set_frontmatter_property};
 use crate::vault::ops::{create_note, write_note};
 use crate::vault::search::{build_text_index, FullTextIndex};
+use crate::vault::settings::{load_app_settings, save_app_settings, AppSettings};
 use crate::vault::tasks::{aggregate_tasks, Task as VaultTask};
 use crate::vault::{scan_vault, Note, NoteMetadata};
 use iced::widget::text_editor;
@@ -332,8 +333,9 @@ pub struct App {
     pub find: Option<FindState>,
     /// Carte du canvas actuellement sélectionnée.
     pub canvas_selected: Option<CardId>,
+    /// Paramètres persistés (app.json).
+    pub settings: AppSettings,
 }
-
 impl App {
     /// Scanne le vault donné et reconstitue notes + index.
     fn rescan(vault_root: &Path) -> (Result<Vec<Note>, String>, Option<NoteIndex>) {
@@ -390,6 +392,7 @@ pub fn boot() -> (App, Task<Message>) {
         note_count,
     };
     let plugin_error = plugins.load_all(&ctx).err();
+    let settings = load_app_settings(Path::new(DEMO_VAULT)).unwrap_or_default();
     let (fulltext, tasks, search_line_counts) = build_search_data(Path::new(DEMO_VAULT), &notes);
     let aliases = notes.as_ref().ok().map(|notes| AliasIndex::build(notes));
     let app = App {
@@ -405,7 +408,7 @@ pub fn boot() -> (App, Task<Message>) {
         show_themes: false,
         show_history: false,
         show_dataview: false,
-        current_theme: "dark".to_string(),
+        current_theme: settings.theme.clone(),
         history_snapshots: Vec::new(),
         show_canvas: false,
         canvas,
@@ -429,6 +432,7 @@ pub fn boot() -> (App, Task<Message>) {
         canvas_selected: None,
         new_note: None,
         css_snippets: crate::vault::css_snippets::load_snippets(Path::new(DEMO_VAULT)),
+        settings,
     };
     (app, Task::none())
 }
@@ -625,6 +629,15 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                             }
                             "toggle-tasks" => {
                                 return update(app, Message::ToggleTasks);
+                            }
+                            "new-note" => {
+                                return update(app, Message::NewNoteOpen);
+                            }
+                            "create-daily-note" => {
+                                return create_daily_note_from_command(app);
+                            }
+                            "insert-template" => {
+                                return insert_template_in_open_note(app);
                             }
                             _ => {}
                         }
@@ -932,7 +945,11 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             }
         }
         Message::SelectTheme(name) => {
-            app.current_theme = name;
+            app.current_theme = name.clone();
+            app.settings.theme = name;
+            if let Err(error) = save_app_settings(&app.vault_root, &app.settings) {
+                app.error = Some(format!("Sauvegarde des paramètres impossible : {error}"));
+            }
         }
         Message::RestoreSnapshot(index) => {
             if let Some(open) = &app.open {
@@ -1156,6 +1173,86 @@ fn make_snippet(content: &str, query: &str) -> String {
     }
 }
 
+/// Crée la note journalière du jour (commande palette) puis l'ouvre.
+fn create_daily_note_from_command(app: &mut App) -> Task<Message> {
+    let date = today_iso();
+    match crate::vault::daily_notes::create_daily_note(&app.vault_root, &date, None) {
+        Ok(rel) => {
+            app.error = None;
+            open_note(app, &rel);
+        }
+        Err(error) => {
+            app.error = Some(format!("Note du jour impossible : {error}"));
+        }
+    }
+    Task::none()
+}
+
+/// Insère le premier gabarit trouvé dans `Templates` ou `templates` dans la
+/// note ouverte (contenu ajouté, non sauvegardé).
+fn insert_template_in_open_note(app: &mut App) -> Task<Message> {
+    let dirs = [
+        app.vault_root.join("Templates"),
+        app.vault_root.join("templates"),
+    ];
+    let mut template: Option<String> = None;
+    for dir in &dirs {
+        let Ok(entries) = fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                template = fs::read_to_string(&path).ok();
+                if template.is_some() {
+                    break;
+                }
+            }
+        }
+        if template.is_some() {
+            break;
+        }
+    }
+    let Some(template) = template else {
+        app.error = Some("Aucun gabarit .md dans Templates/ ou templates/.".to_string());
+        return Task::none();
+    };
+    if let Some(open) = &mut app.open {
+        let mut combined = open.content.text().to_string();
+        if !combined.ends_with('\n') {
+            combined.push('\n');
+        }
+        combined.push_str(&template);
+        open.content = text_editor::Content::with_text(&combined);
+    } else {
+        app.error = Some("Ouvrez d'abord une note pour insérer un modèle.".to_string());
+    }
+    Task::none()
+}
+
+/// Date du jour au format `AAAA-MM-JJ` (calcul civil depuis l'epoch).
+fn today_iso() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let days = (secs / 86_400) as i64;
+    // Algorithme civil_from_days (Howard Hinnant).
+    let z = days + 719_468;
+    let era = (if z >= 0 { z } else { z - 146_096 }) / 146_097;
+    let doe = (z - era * 146_097) as u64; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // [0, 399]
+    let mut y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    if m <= 2 {
+        y += 1;
+    }
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 /// Ajuste `i` à la frontière de caractère UTF-8 la plus proche.
 fn char_boundary(s: &str, mut i: usize) -> usize {
     while i < s.len() && !s.is_char_boundary(i) {
@@ -1372,5 +1469,38 @@ mod tests {
         let hits = resolve_link(&index, &aliases, "surnom");
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].name, "Cible");
+    }
+
+    #[test]
+    fn today_iso_est_au_format_aaaa_mm_jj() {
+        let date = today_iso();
+        assert_eq!(date.len(), 10);
+        assert_eq!(&date[4..5], "-");
+        assert_eq!(&date[7..8], "-");
+        assert!(date[..4].bytes().all(|b| b.is_ascii_digit()));
+        assert!(date[5..7].bytes().all(|b| b.is_ascii_digit()));
+        assert!(date[8..].bytes().all(|b| b.is_ascii_digit()));
+    }
+
+    #[test]
+    fn select_theme_persiste_l_app_json() {
+        use crate::vault::settings::load_app_settings;
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        dir.push(format!("obsidian-rs-settings-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let (mut app, _task) = boot();
+        app.vault_root = dir.clone();
+        app.settings.theme = "dark".to_string();
+        let _ = update(&mut app, Message::SelectTheme("light".to_string()));
+        let loaded = load_app_settings(&dir).unwrap();
+        assert_eq!(loaded.theme, "light");
+        assert_eq!(app.current_theme, "light");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
