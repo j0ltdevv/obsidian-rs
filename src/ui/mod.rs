@@ -73,7 +73,16 @@ pub fn view(app: &App) -> Element<'_, Message> {
         root = root.push(error_banner(error));
     }
     root = root.push(body);
-    let root = root.height(Length::Fill).into();
+    let root_el: Element<'_, Message> = root.height(Length::Fill).into();
+    let background = root_background(app);
+    let root: Element<'_, Message> = container(root_el)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(move |_theme| container::Style {
+            background: Some(Background::Color(background)),
+            ..container::Style::default()
+        })
+        .into();
 
     // Overlay de la recherche rapide, par-dessus toute la fenêtre.
     if app.switcher.is_some() {
@@ -99,6 +108,28 @@ pub fn view(app: &App) -> Element<'_, Message> {
     } else {
         root
     }
+}
+
+/// Couleur de fond de l'application selon le thème choisi, surchargée par
+/// le premier snippet définissant `--background-primary`.
+fn root_background(app: &crate::app::App) -> Color {
+    let mut rgb = (30, 32, 36); // sombre par défaut
+    if let Some(theme) = crate::vault::themes::by_name(&app.current_theme) {
+        rgb = theme.bg;
+    }
+    for (_, vars) in &app.css_snippets {
+        for var in vars {
+            if var.name == "--background-primary" {
+                rgb = var.rgb;
+                break;
+            }
+        }
+    }
+    Color::from_rgb(
+        rgb.0 as f32 / 255.0,
+        rgb.1 as f32 / 255.0,
+        rgb.2 as f32 / 255.0,
+    )
 }
 
 /// Overlay de création de note : panneau centré sur fond assombri.
