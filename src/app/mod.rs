@@ -196,6 +196,12 @@ pub enum Message {
     CanvasConfirmRemoveCard,
     /// Annule la suppression de la carte du canvas.
     CanvasCancelRemoveCard,
+    /// Annule la dernière édition de la note ouverte.
+    EditorUndo,
+    /// Rétablit l'édition annulée.
+    EditorRedo,
+    /// Sauvegarde automatique périodique (note sale uniquement).
+    Autosave,
 }
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
@@ -387,6 +393,10 @@ pub struct App {
     pub open_dirty: bool,
     /// Carte du canvas en attente de confirmation de suppression.
     pub canvas_remove_confirm: Option<CardId>,
+    /// Pile d'annulation (contenus précédents), bornée.
+    pub editor_undo: Vec<String>,
+    /// Pile de rétablissement.
+    pub editor_redo: Vec<String>,
 }
 impl App {
     /// Scanne le vault donné et reconstitue notes + index.
@@ -494,6 +504,8 @@ pub fn boot() -> (App, Task<Message>) {
         recent: Vec::new(),
         open_dirty: false,
         canvas_remove_confirm: None,
+        editor_undo: Vec::new(),
+        editor_redo: Vec::new(),
     };
     (app, Task::none())
 }
@@ -567,8 +579,44 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::OpenNote(path) => open_note(app, &path),
         Message::EditorAction(action) => {
             if let Some(open) = &mut app.open {
+                if action.is_edit() {
+                    let before = open.content.text();
+                    if app.editor_undo.last().map(|s| s != &before).unwrap_or(true) {
+                        app.editor_undo.push(before);
+                        if app.editor_undo.len() > 100 {
+                            app.editor_undo.remove(0);
+                        }
+                    }
+                    app.editor_redo.clear();
+                }
                 open.content.perform(action);
                 app.open_dirty = true;
+            }
+            if !app.editor_undo.is_empty() && app.editor_undo.len().is_multiple_of(50) {
+                return update(app, Message::Autosave);
+            }
+        }
+        Message::EditorUndo => {
+            if let Some(open) = &mut app.open {
+                if let Some(prev) = app.editor_undo.pop() {
+                    app.editor_redo.push(open.content.text());
+                    open.content = text_editor::Content::with_text(&prev);
+                    app.open_dirty = true;
+                }
+            }
+        }
+        Message::EditorRedo => {
+            if let Some(open) = &mut app.open {
+                if let Some(next) = app.editor_redo.pop() {
+                    app.editor_undo.push(open.content.text());
+                    open.content = text_editor::Content::with_text(&next);
+                    app.open_dirty = true;
+                }
+            }
+        }
+        Message::Autosave => {
+            if app.open_dirty && app.open.is_some() {
+                return update(app, Message::SaveNote);
             }
         }
         Message::SaveNote => {
@@ -974,12 +1022,37 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             let Ok(notes) = &app.notes else {
                 return Task::none();
             };
+            // Sauvegarde de sécurité avant toute écriture (snapshots).
+            let backup_dir = app
+                .vault_root
+                .join(".obsidian")
+                .join("snapshots")
+                .join("backup-global");
+            if fs::create_dir_all(&backup_dir).is_err() {
+                app.error = Some("Backup global impossible.".to_string());
+                return Task::none();
+            }
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+                .to_string();
             for note in notes {
                 let Ok(source) = fs::read_to_string(app.vault_root.join(&note.path)) else {
                     continue;
                 };
                 if !source.contains(&find.query) {
                     continue;
+                }
+                let stem = note
+                    .path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("note");
+                let backup_path = backup_dir.join(format!("{stamp}-{stem}.md"));
+                if fs::copy(app.vault_root.join(&note.path), &backup_path).is_err() {
+                    app.error = Some(format!("Backup impossible pour {}", note.path.display()));
+                    return Task::none();
                 }
                 let replaced = source.replace(&find.query, &find.replace);
                 if let Err(error) = write_note(&app.vault_root, &note.path, &replaced) {
@@ -1289,7 +1362,7 @@ pub fn subscription(_app: &App) -> iced::Subscription<Message> {
     use iced::event::{self, Event};
     use iced::keyboard::{key, Key};
 
-    event::listen_raw(|event, _status, _window| {
+    let keys = event::listen_raw(|event, _status, _window| {
         let Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) = event
         else {
             return None;
@@ -1315,6 +1388,15 @@ pub fn subscription(_app: &App) -> iced::Subscription<Message> {
                     }
                     return Some(Message::FindOpen);
                 }
+                Key::Character(character) if character.eq_ignore_ascii_case("z") => {
+                    if modifiers.shift() {
+                        return Some(Message::EditorRedo);
+                    }
+                    return Some(Message::EditorUndo);
+                }
+                Key::Character(character) if character.eq_ignore_ascii_case("y") => {
+                    return Some(Message::EditorRedo);
+                }
                 _ => {}
             }
         }
@@ -1324,7 +1406,9 @@ pub fn subscription(_app: &App) -> iced::Subscription<Message> {
         }
 
         None
-    })
+    });
+
+    keys
 }
 
 /// Calcule les indices des notes correspondant à `query` (recherche floue

@@ -908,6 +908,12 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
         button(text("Supprimer"))
             .on_press(Message::ToggleDelete(open.path.clone()))
             .style(ghost_button_style),
+        button(text("Annuler"))
+            .on_press(Message::EditorUndo)
+            .style(ghost_button_style),
+        button(text("Rétablir"))
+            .on_press(Message::EditorRedo)
+            .style(ghost_button_style),
         button(text("Sauvegarder"))
             .on_press(Message::SaveNote)
             .style(primary_button_style),
