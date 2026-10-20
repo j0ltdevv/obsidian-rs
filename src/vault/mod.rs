@@ -1,5 +1,7 @@
 //! Lecture/écriture Markdown, liens, index.
 
+pub mod canvas_data;
+pub mod dataview;
 pub mod editor;
 pub mod frontmatter;
 pub mod graph;
@@ -14,6 +16,7 @@ pub mod quick_switcher;
 pub mod scan;
 pub mod search;
 pub mod tags;
+pub mod templates;
 pub mod themes;
 pub mod wikilinks;
 
