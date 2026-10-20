@@ -1199,6 +1199,9 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             }
         }
         Message::DismissError => app.error = None,
+        Message::MarkDirty => {
+            app.open_dirty = true;
+        }
     }
     Task::none()
 }
