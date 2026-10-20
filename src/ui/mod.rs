@@ -42,7 +42,10 @@ use self::canvas_view::canvas_board_view;
 use self::dataview_view::dataview_view;
 use self::graph::graph_view;
 use self::history_view::history_view;
+use self::outline_view::outline_view;
 use self::plugins_view::plugins_view;
+use self::search_view::search_view;
+use self::tasks_view::tasks_view;
 use self::themes_view::themes_view;
 
 /// Couleur du titre de la barre supérieure.
@@ -117,6 +120,15 @@ fn title_bar() -> Element<'static, Message> {
             .style(primary_button_style),
         button(text("Canvas"))
             .on_press(Message::ToggleCanvas)
+            .style(primary_button_style),
+        button(text("Plan"))
+            .on_press(Message::ToggleOutline)
+            .style(primary_button_style),
+        button(text("Chercher"))
+            .on_press(Message::ToggleSearch)
+            .style(primary_button_style),
+        button(text("Tâches"))
+            .on_press(Message::ToggleTasks)
             .style(primary_button_style),
         button(text("Actualiser"))
             .on_press(Message::Refresh)
@@ -352,6 +364,42 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         .spacing(8)
         .padding([8, 12])
         .into();
+    }
+
+    if app.show_search {
+        let panel = container(search_view(app))
+            .width(Length::Fill)
+            .height(Length::Fill);
+        return row![sidebar, panel]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .spacing(8)
+            .padding([8, 12])
+            .into();
+    }
+
+    if app.show_tasks {
+        let panel = container(tasks_view(app))
+            .width(Length::Fill)
+            .height(Length::Fill);
+        return row![sidebar, panel]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .spacing(8)
+            .padding([8, 12])
+            .into();
+    }
+
+    if app.show_outline {
+        let panel = container(outline_view(app))
+            .width(Length::Fill)
+            .height(Length::Fill);
+        return row![sidebar, panel]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .spacing(8)
+            .padding([8, 12])
+            .into();
     }
 
     let editor = editor_panel(app);
@@ -893,7 +941,7 @@ fn primary_button_style(_theme: &iced::Theme, status: button::Status) -> button:
 }
 
 /// Style discret des petits boutons d'icônes (✓, ×, +).
-fn ghost_button_style(_theme: &iced::Theme, status: button::Status) -> button::Style {
+pub(crate) fn ghost_button_style(_theme: &iced::Theme, status: button::Status) -> button::Style {
     let background = if matches!(status, button::Status::Hovered) {
         Some(Background::Color(Color::from_rgb(0.88, 0.91, 0.94)))
     } else {

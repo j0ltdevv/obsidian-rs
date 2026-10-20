@@ -110,6 +110,9 @@ pub fn default_commands() -> Vec<Command> {
         command("toggle-theme", "Basculer les thèmes", None, "Vue"),
         command("toggle-canvas", "Basculer le Canvas", None, "Vue"),
         command("toggle-plugins", "Basculer les plugins", None, "Plugins"),
+        command("toggle-outline", "Basculer le plan", None, "Vue"),
+        command("toggle-search", "Basculer la recherche", None, "Vue"),
+        command("toggle-tasks", "Basculer les tâches", None, "Vue"),
     ]
 }
 
@@ -285,6 +288,9 @@ mod tests {
             "toggle-theme",
             "toggle-canvas",
             "toggle-plugins",
+            "toggle-outline",
+            "toggle-search",
+            "toggle-tasks",
         ];
         let ids: Vec<&str> = default_commands().iter().map(|c| c.id).collect();
         assert_eq!(ids, attendus);

@@ -502,6 +502,15 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                             "toggle-plugins" => {
                                 return update(app, Message::TogglePlugins);
                             }
+                            "toggle-outline" => {
+                                return update(app, Message::ToggleOutline);
+                            }
+                            "toggle-search" => {
+                                return update(app, Message::ToggleSearch);
+                            }
+                            "toggle-tasks" => {
+                                return update(app, Message::ToggleTasks);
+                            }
                             _ => {}
                         }
                     }
