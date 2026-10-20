@@ -12,10 +12,26 @@ un laps de temps raisonnable sont explicitement étiquetés « étiré ».
 | Core vault (scan, frontmatter, tags, wikilinks, ops, index) | ✅ | tests (9 suites, 427+ lib) |
 | Édition + prévisualisation live + sauvegarde atomique | ✅ | `cargo test` vert |
 | Quick Switcher, palette de commandes, propriétés éditables | ✅ | `cargo test` vert |
-| Graphe, Canvas (base), Dataview-like, historique, thèmes, plugins | ✅ | `cargo test` vert |
-| Vague 2 : aliases, attachments, block_refs, bookmarks, callouts, embeds, math, tag_tree | ✅ | tests + specs (ALIASES, ATTACHMENTS, BLOCK-REFS, BOOKMARKS, CALLOUTS, EMBEDS, MATH, TAG-TREE) |
-| Vues Plan / Recherche / Tâches câblées (boutons + palette) | ✅ | `cargo test` vert |
-| Smoke run | ⚠️ | binaire lancé 8 s sans crash (DISPLAY=:0) ; capture brute `/tmp/obsidian-smoke.png` produite, **contenu visuel non vérifié** (analyse vision interrompue deux fois) |
+## État actuel (livré et vérifié)
+
+| Domaine | Statut | Preuve |
+|---|---|---|
+| Core vault (scan, frontmatter, tags, wikilinks, ops, index) | ✅ | tests (9 suites) |
+| Édition + prévisualisation live + sauvegarde atomique | ✅ | `cargo test` vert |
+| Quick Switcher, palette de commandes, propriétés éditables | ✅ | `cargo test` vert |
+| Vague 2 : aliases, attachments, block_refs, bookmarks, callouts, embeds, math, tag_tree | ✅ | tests + specs |
+| Vues Plan / Recherche / Tâches câblées | ✅ | build + tests |
+| P1 : rendu callouts/math/embeds + résolution par alias | ✅ | segments + tests |
+| P2 : graphe local, filtres dossier/tag, groupes colorés, drag | ✅ | tests + canvas |
+| P3 : cartes éditables, groupes, auto-layout, export JSON (roundtrip) | ✅ | tests canvas_data |
+| P4 : opérateurs de recherche, extraits, remplacement global | ✅ | tests |
+| P5 : manifest plugins, UI toggle, snippets CSS (variables couleurs) | ✅ | tests |
+| P6 : app.json/hotkeys.json persistés, vue Réglages, thème/snippets appliqués (fond) | ✅ | tests roundtrip |
+| P6bis : renommage (préserve dossier), suppression confirmée, création dossier confinée | ✅ | build + tests |
+| P8a : commandes palette (create/daily/template), Ctrl+Shift+F, hotkeys affichés | ✅ | build + tests |
+| P8b partiel : notes récentes, clic tag → filtre graphe | ✅ | build + tests |
+| Docs : ARCHITECTURE.md, ROADMAP, specs | ✅ | dépôt |
+| Smoke run | ⚠️ | binaire lancé 8 s sans crash ; capture brute produite, contenu visuel non vérifié |
 
 ## Backlog de parité
 
