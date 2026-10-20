@@ -202,6 +202,8 @@ pub enum Message {
     EditorRedo,
     /// Sauvegarde automatique périodique (note sale uniquement).
     Autosave,
+    /// Bascule le tri de l'Explorer (alphabétique / ordre du vault).
+    ToggleSort,
 }
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
@@ -397,6 +399,12 @@ pub struct App {
     pub editor_undo: Vec<String>,
     /// Pile de rétablissement.
     pub editor_redo: Vec<String>,
+    /// Cache texte par chemin pour l'index incrémental (mtime).
+    pub text_cache: std::collections::HashMap<PathBuf, String>,
+    /// Dernière modification observée par chemin (mtime).
+    pub file_mtimes: std::collections::HashMap<PathBuf, std::time::SystemTime>,
+    /// Tri alphabétique de l'Explorer (false = ordre du vault).
+    pub sort_alpha: bool,
 }
 impl App {
     /// Scanne le vault donné et reconstitue notes + index.
@@ -455,7 +463,11 @@ pub fn boot() -> (App, Task<Message>) {
     };
     let plugin_error = plugins.load_all(&ctx).err();
     let settings = load_app_settings(Path::new(DEMO_VAULT)).unwrap_or_default();
-    let (fulltext, tasks, search_line_counts) = build_search_data(Path::new(DEMO_VAULT), &notes);
+    let (fulltext, tasks, search_line_counts) = {
+        let mut cache = std::collections::HashMap::new();
+        let mut mtimes = std::collections::HashMap::new();
+        build_search_data(Path::new(DEMO_VAULT), &notes, &mut cache, &mut mtimes)
+    };
     let aliases = notes.as_ref().ok().map(|notes| AliasIndex::build(notes));
     let app = App {
         notes,
@@ -506,12 +518,65 @@ pub fn boot() -> (App, Task<Message>) {
         canvas_remove_confirm: None,
         editor_undo: Vec::new(),
         editor_redo: Vec::new(),
+        text_cache: HashMap::new(),
+        file_mtimes: HashMap::new(),
+        sort_alpha: false,
     };
     (app, Task::none())
 }
 
 /// Traite un message : seule source de mutation de l'état. Toute I/O a lieu
-/// ici, jamais dans la vue.
+/// `true` si le verrou est périmé (PID mort sur Linux, ou âgé de plus de
+/// 10 minutes).
+fn lock_is_stale(lock: &Path) -> bool {
+    if let Ok(content) = std::fs::read_to_string(lock) {
+        if let Ok(pid) = content.trim().parse::<u32>() {
+            let alive = std::path::Path::new(&format!("/proc/{pid}")).exists();
+            if !alive {
+                return true;
+            }
+        }
+    }
+    let stale_after = std::time::Duration::from_secs(600);
+    std::fs::metadata(lock)
+        .and_then(|m| m.modified())
+        .map(|t| t.elapsed().map(|e| e > stale_after).unwrap_or(false))
+        .unwrap_or(false)
+}
+
+/// Acquiert un verrou d'écriture (`.obsidian/lock`, PID écrit). Retourne
+/// `true` si détenu, `false` si une autre instance le détient.
+fn acquire_write_lock(vault_root: &Path) -> bool {
+    let lock = vault_root.join(".obsidian").join("lock");
+    if let Some(parent) = lock.parent() {
+        if std::fs::create_dir_all(parent).is_err() {
+            return false;
+        }
+    }
+    if lock.exists() && lock_is_stale(&lock) {
+        let _ = std::fs::remove_file(&lock);
+    }
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&lock)
+    {
+        Ok(mut file) => {
+            use std::io::Write;
+            let _ = writeln!(file, "{}", std::process::id());
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Libère le verrou d'écriture s'il était détenu.
+fn release_write_lock(vault_root: &Path, held: bool) {
+    if held {
+        let _ = std::fs::remove_file(vault_root.join(".obsidian").join("lock"));
+    }
+}
+// ici, jamais dans la vue.
 pub fn update(app: &mut App, message: Message) -> Task<Message> {
     match message {
         Message::Refresh => {
@@ -529,7 +594,12 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 notes.as_ref().map(|n| n.as_slice()).unwrap_or_default(),
                 &index,
             );
-            let (fulltext, tasks, search_line_counts) = build_search_data(&app.vault_root, &notes);
+            let (fulltext, tasks, search_line_counts) = build_search_data(
+                &app.vault_root,
+                &notes,
+                &mut app.text_cache,
+                &mut app.file_mtimes,
+            );
             app.fulltext = fulltext;
             app.tasks = tasks;
             app.search_line_counts = search_line_counts;
@@ -619,27 +689,39 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 return update(app, Message::SaveNote);
             }
         }
+        Message::ToggleSort => {
+            app.sort_alpha = !app.sort_alpha;
+        }
         Message::SaveNote => {
+            if !acquire_write_lock(&app.vault_root) {
+                app.error = Some(
+                    "Vault verrouillé par une autre instance (fichier .obsidian/lock).".to_string(),
+                );
+                return Task::none();
+            }
             if let Some(open) = &app.open {
                 match write_note(&app.vault_root, &open.path, &open.content.text()) {
                     Ok(()) => {
                         app.error = None;
                         app.open_dirty = false;
-                        // Notifie les plugins de la mutation (id = chemin).
                         let note_count = app.notes.as_ref().map(|n| n.len()).unwrap_or(0);
                         let ctx = PluginContext {
                             vault_name: DEMO_VAULT,
                             note_count,
                         };
                         let id = open.path.to_string_lossy().into_owned();
+                        release_write_lock(&app.vault_root, true);
                         if let Err(error) = app.plugins.notify_change(&ctx, &[id]) {
                             app.error = Some(format!("Erreur plugin : {error}"));
                         }
                     }
                     Err(error) => {
+                        release_write_lock(&app.vault_root, true);
                         app.error = Some(format!("Sauvegarde impossible : {error}"));
                     }
                 }
+            } else {
+                release_write_lock(&app.vault_root, true);
             }
         }
         Message::OpenWikilink(target) => {
@@ -1599,6 +1681,8 @@ fn resolve_link<'a>(
 fn build_search_data(
     vault_root: &Path,
     notes: &Result<Vec<Note>, String>,
+    text_cache: &mut std::collections::HashMap<PathBuf, String>,
+    file_mtimes: &mut std::collections::HashMap<PathBuf, std::time::SystemTime>,
 ) -> (Option<FullTextIndex>, Vec<VaultTask>, HashMap<usize, usize>) {
     let Ok(notes) = notes else {
         return (None, Vec::new(), HashMap::new());
@@ -1607,13 +1691,35 @@ fn build_search_data(
     let mut contents = std::collections::HashMap::new();
     let mut line_counts = HashMap::new();
     for (i, note) in notes.iter().enumerate() {
-        match fs::read_to_string(vault_root.join(&note.path)) {
-            Ok(text) => {
-                items.push((note.name.clone(), text.clone()));
-                line_counts.insert(i, text.lines().count());
-                contents.insert(note.path.clone(), text);
+        let full = vault_root.join(&note.path);
+        let mtime = fs::metadata(&full).and_then(|m| m.modified()).ok();
+        let changed = match (file_mtimes.get(&note.path), mtime) {
+            (Some(old), Some(new)) => old != &new,
+            _ => true,
+        };
+        if changed {
+            match fs::read_to_string(&full) {
+                Ok(text) => {
+                    text_cache.insert(note.path.clone(), text.clone());
+                    if let Some(m) = mtime {
+                        file_mtimes.insert(note.path.clone(), m);
+                    }
+                    items.push((note.name.clone(), text.clone()));
+                    line_counts.insert(i, text.lines().count());
+                    contents.insert(note.path.clone(), text);
+                }
+                Err(_) => {
+                    items.push((note.name.clone(), String::new()));
+                    line_counts.insert(i, 0);
+                }
             }
-            Err(_) => items.push((note.name.clone(), String::new())),
+        } else if let Some(text) = text_cache.get(&note.path) {
+            items.push((note.name.clone(), text.clone()));
+            line_counts.insert(i, text.lines().count());
+            contents.insert(note.path.clone(), text.clone());
+        } else {
+            items.push((note.name.clone(), String::new()));
+            line_counts.insert(i, 0);
         }
     }
     let fulltext = Some(build_text_index(&items));

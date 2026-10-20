@@ -45,6 +45,9 @@ pub fn search_view<'a>(app: &'a App) -> Element<'a, Message> {
         .width(Length::Fill);
 
     let rows = result_rows(state, notes);
+    let hint = text("Opérateurs : path:… tag:… file:… line:N -exclusion")
+        .size(11)
+        .color(MUTED_COLOR);
     let body: Element<'a, Message> = if state.query.trim().is_empty() {
         text("Tapez une requête")
             .size(SMALL_SIZE)
@@ -82,7 +85,7 @@ pub fn search_view<'a>(app: &'a App) -> Element<'a, Message> {
         scrollable(list).into()
     };
 
-    container(column![input, body].spacing(8).padding(12))
+    container(column![input, hint, body].spacing(8).padding(12))
         .style(crate::ui::panel_style)
         .width(Length::Fill)
         .height(Length::Fill)

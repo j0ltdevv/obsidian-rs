@@ -806,6 +806,13 @@ fn sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
     let header = row![
         text("Explorer").size(14).font(bold_font()),
         text("").width(Length::Fill),
+        button(if app.sort_alpha {
+            "Tri A→Z ✓"
+        } else {
+            "Tri A→Z"
+        })
+        .on_press(Message::ToggleSort)
+        .style(crate::ui::ghost_button_style),
         button(text("+ Dossier"))
             .on_press(Message::FolderDialogOpen)
             .style(crate::ui::ghost_button_style),
@@ -825,7 +832,7 @@ fn tree_node<'a>(
     dir: &Path,
     depth: usize,
 ) -> Element<'a, Message> {
-    let (subdirs, files) = children_of(notes, dir);
+    let (subdirs, files) = children_of(notes, dir, app.sort_alpha);
     let mut tree = Column::new().spacing(1);
 
     for subdir in subdirs {
@@ -864,7 +871,11 @@ fn tree_node<'a>(
 }
 
 /// Enfants directs d'un dossier : sous-dossiers (triés) et notes (triées).
-fn children_of<'a>(notes: &'a [Note], dir: &Path) -> (Vec<std::path::PathBuf>, Vec<&'a Note>) {
+fn children_of<'a>(
+    notes: &'a [Note],
+    dir: &Path,
+    alpha: bool,
+) -> (Vec<std::path::PathBuf>, Vec<&'a Note>) {
     let mut subdirs = std::collections::BTreeSet::new();
     let mut files = Vec::new();
     let depth = dir.components().count();
@@ -880,7 +891,9 @@ fn children_of<'a>(notes: &'a [Note], dir: &Path) -> (Vec<std::path::PathBuf>, V
         }
     }
 
-    files.sort_by(|a, b| a.name.cmp(&b.name));
+    if alpha {
+        files.sort_by(|a, b| a.name.cmp(&b.name));
+    }
     (subdirs.into_iter().collect(), files)
 }
 
