@@ -1126,12 +1126,19 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 if !source.contains(&find.query) {
                     continue;
                 }
-                let stem = note
+                let sanitized: String = note
                     .path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("note");
-                let backup_path = backup_dir.join(format!("{stamp}-{stem}.md"));
+                    .to_string_lossy()
+                    .chars()
+                    .map(|c| {
+                        if c.is_alphanumeric() || c == '-' || c == '_' {
+                            c
+                        } else {
+                            '_'
+                        }
+                    })
+                    .collect();
+                let backup_path = backup_dir.join(format!("{stamp}-{sanitized}.md"));
                 if fs::copy(app.vault_root.join(&note.path), &backup_path).is_err() {
                     app.error = Some(format!("Backup impossible pour {}", note.path.display()));
                     return Task::none();
@@ -1420,6 +1427,8 @@ fn open_note(app: &mut App, path: &Path) {
             });
             app.error = None;
             app.open_dirty = false;
+            app.editor_undo.clear();
+            app.editor_redo.clear();
         }
         Err(error) => {
             app.error = Some(format!(
