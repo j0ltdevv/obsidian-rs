@@ -16,6 +16,7 @@
 use std::path::Path;
 
 use iced::border::Radius;
+use iced::font::Style as FontStyle;
 use iced::font::Weight;
 use iced::widget::{
     button, column, container, responsive, row, scrollable, stack, text, text_editor, text_input,
@@ -24,6 +25,7 @@ use iced::widget::{
 use iced::{Alignment, Background, Border, Color, Element, Font, Length};
 
 use crate::app::{App, Message};
+use crate::vault::live_preview::{render_markdown, Segment, SegmentStyle};
 use crate::vault::{Note, Wikilink};
 
 mod canvas_view;
@@ -520,10 +522,10 @@ fn preview_panel<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
     let mut preview = Column::new().spacing(8);
     preview = preview.push(section_title("Prévisualisation"));
 
-    // Contenu brut tel quel (tampon d'édition courant).
-    let raw = scrollable(text(open.content.text()).font(Font::MONOSPACE).size(13))
-        .height(Length::FillPortion(3));
-    preview = preview.push(raw);
+    // Rendu Markdown stylisé (live preview).
+    let rendered =
+        scrollable(live_preview_column(&open.content.text())).height(Length::FillPortion(3));
+    preview = preview.push(rendered);
 
     // Métadonnées parsées (snapshot du dernier scan).
     preview = preview.push(metadata_block(app, open));
@@ -558,6 +560,127 @@ fn preview_panel<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         .width(Length::FillPortion(4))
         .height(Length::Fill)
         .into()
+}
+/// Convertit un segment du moteur de rendu Markdown en widget iced.
+fn segment_widget(seg: &Segment) -> Element<'static, Message> {
+    match seg.style {
+        SegmentStyle::Plain => text(seg.text.clone()).into(),
+        SegmentStyle::H1
+        | SegmentStyle::H2
+        | SegmentStyle::H3
+        | SegmentStyle::H4
+        | SegmentStyle::H5
+        | SegmentStyle::H6 => {
+            let size = match seg.style {
+                SegmentStyle::H1 => 26.0,
+                SegmentStyle::H2 => 22.0,
+                SegmentStyle::H3 => 19.0,
+                SegmentStyle::H4 => 16.0,
+                SegmentStyle::H5 => 14.0,
+                _ => 13.0,
+            };
+            text(seg.text.clone()).size(size).font(bold_font()).into()
+        }
+        SegmentStyle::Bold => text(seg.text.clone()).font(bold_font()).into(),
+        SegmentStyle::Italic => text(seg.text.clone())
+            .font(Font {
+                style: FontStyle::Italic,
+                ..Font::default()
+            })
+            .into(),
+        SegmentStyle::BoldItalic => text(seg.text.clone())
+            .font(Font {
+                weight: Weight::Bold,
+                style: FontStyle::Italic,
+                ..Font::default()
+            })
+            .into(),
+        SegmentStyle::Strikethrough => text(seg.text.clone()).color(UNRESOLVED_COLOR).into(),
+        SegmentStyle::InlineCode => container(
+            text(seg.text.clone())
+                .font(Font::MONOSPACE)
+                .size(12)
+                .color(Color::from_rgb(0.8, 0.25, 0.25)),
+        )
+        .padding([1, 6])
+        .style(|_theme| container::Style {
+            background: Some(Background::Color(Color::from_rgb(0.94, 0.92, 0.94))),
+            border: Border {
+                color: Color::from_rgb(0.85, 0.8, 0.85),
+                width: 1.0,
+                radius: Radius::from(3.0),
+            },
+            ..container::Style::default()
+        })
+        .into(),
+        SegmentStyle::CodeBlock => container(
+            text(seg.text.clone())
+                .font(Font::MONOSPACE)
+                .size(12)
+                .width(Length::Fill),
+        )
+        .width(Length::Fill)
+        .padding(8)
+        .style(|_theme| container::Style {
+            background: Some(Background::Color(Color::from_rgb(0.9, 0.92, 0.95))),
+            border: Border {
+                color: Color::from_rgb(0.8, 0.83, 0.88),
+                width: 1.0,
+                radius: Radius::from(4.0),
+            },
+            ..container::Style::default()
+        })
+        .into(),
+        SegmentStyle::Blockquote => container(text(seg.text.clone()))
+            .width(Length::Fill)
+            .padding([2, 10])
+            .style(|_theme| container::Style {
+                background: Some(Background::Color(Color::from_rgb(0.94, 0.95, 0.97))),
+                border: Border {
+                    color: Color::from_rgb(0.7, 0.75, 0.82),
+                    width: 3.0,
+                    radius: Radius::from(2.0),
+                },
+                ..container::Style::default()
+            })
+            .into(),
+        SegmentStyle::Link | SegmentStyle::ExternalUrl => text(seg.text.clone())
+            .color(Color::from_rgb(0.2, 0.4, 0.8))
+            .into(),
+        SegmentStyle::Wikilink => text(seg.text.clone())
+            .color(Color::from_rgb(0.55, 0.3, 0.75))
+            .into(),
+        SegmentStyle::Tag => tag_chip(&seg.text),
+        SegmentStyle::TaskCheckboxTodo | SegmentStyle::TaskCheckboxDone => {
+            let check = if seg.style == SegmentStyle::TaskCheckboxDone {
+                "☑ "
+            } else {
+                "☐ "
+            };
+            row![text(check), text(seg.text.clone())].spacing(4).into()
+        }
+        SegmentStyle::ListBullet => row![text("• "), text(seg.text.clone())].spacing(4).into(),
+        SegmentStyle::ListNumbered => row![text("· "), text(seg.text.clone())].spacing(4).into(),
+        SegmentStyle::HorizontalRule => container(text(""))
+            .width(Length::Fill)
+            .height(2)
+            .style(|_theme| container::Style {
+                background: Some(Background::Color(PANEL_BORDER)),
+                ..container::Style::default()
+            })
+            .into(),
+        SegmentStyle::Table => text(seg.text.clone()).font(Font::MONOSPACE).size(12).into(),
+    }
+}
+
+/// Rend le contenu Markdown en colonne de segments stylisés.
+fn live_preview_column(content: &str) -> Element<'static, Message> {
+    let segments = render_markdown(content);
+    let mut column = Column::new().spacing(4);
+    for seg in &segments {
+        column = column.push(segment_widget(seg));
+    }
+    column.into()
 }
 
 /// Bloc métadonnées : frontmatter éditable, tags et wikilinks navigables.
@@ -693,7 +816,7 @@ fn wikilink_button<'a>(app: &'a App, link: &'a Wikilink) -> Element<'a, Message>
 }
 
 /// Pastille de tag.
-fn tag_chip<'a>(tag: &'a str) -> Element<'a, Message> {
+fn tag_chip(tag: &str) -> Element<'static, Message> {
     container(
         text(format!("#{tag}"))
             .size(12)
