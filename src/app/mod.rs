@@ -18,6 +18,7 @@ use crate::plugins::demo_stats::demo_stats_plugin;
 use crate::plugins::demo_todo::demo_todo_plugin;
 use crate::plugins::registry::PluginRegistry;
 use crate::vault::canvas_data::CanvasBoard;
+use crate::vault::commands::{default_commands, search_commands, Command};
 use crate::vault::history::{list_snapshots, restore_snapshot};
 use crate::vault::index::NoteIndex;
 use crate::vault::meta::{remove_frontmatter_property, set_frontmatter_property};
@@ -85,6 +86,16 @@ pub enum Message {
     RestoreSnapshot(usize),
     /// Bascule la vue Canvas.
     ToggleCanvas,
+    /// Ouvre la palette de commandes.
+    OpenCommandPalette,
+    /// Ferme la palette de commandes.
+    CloseCommandPalette,
+    /// Change la requête de la palette (résultats recalculés).
+    CommandPaletteQuery(String),
+    /// Exécute la commande sélectionnée (par indice dans la liste filtrée).
+    CommandPaletteSelect(usize),
+    /// Touche Échap : ferme l'overlay courant (palette ou switcher).
+    Escape,
 }
 
 /// Note actuellement ouverte : chemin, métadonnées du dernier scan et tampon
@@ -108,6 +119,15 @@ pub struct SwitcherState {
     /// Requête courante.
     pub query: String,
     /// Indices des notes affichées, dans l'ordre de score décroissant.
+    pub results: Vec<usize>,
+}
+
+/// Palette de commandes ouverte : requête et indices des commandes filtrées.
+#[derive(Debug)]
+pub struct CommandPaletteState {
+    /// Requête courante.
+    pub query: String,
+    /// Indices des commandes affichées (dans `App::commands`).
     pub results: Vec<usize>,
 }
 
@@ -177,6 +197,10 @@ pub struct App {
     pub plugins: PluginRegistry,
     /// Affiche la vue Plugins à la place de l'éditeur/prévisualisation.
     pub show_plugins: bool,
+    /// Commandes enregistrées (palette). Fet au boot depuis `default_commands`.
+    pub commands: Vec<Command>,
+    /// Palette de commandes ouverte (overlay), si présente.
+    pub command_palette: Option<CommandPaletteState>,
 }
 
 impl App {
@@ -253,6 +277,8 @@ pub fn boot() -> (App, Task<Message>) {
         canvas,
         plugins,
         show_plugins: false,
+        commands: default_commands(),
+        command_palette: None,
     };
     (app, Task::none())
 }
@@ -369,6 +395,67 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 let path = note.path.clone();
                 app.switcher = None;
                 open_note(app, &path);
+            }
+        }
+        Message::OpenCommandPalette => {
+            let results = search_commands(&app.commands, "");
+            app.command_palette = Some(CommandPaletteState {
+                query: String::new(),
+                results,
+            });
+        }
+        Message::CloseCommandPalette => app.command_palette = None,
+        Message::Escape => {
+            if app.command_palette.is_some() {
+                app.command_palette = None;
+            } else {
+                app.switcher = None;
+            }
+        }
+        Message::CommandPaletteQuery(query) => {
+            if let Some(state) = &mut app.command_palette {
+                state.results = search_commands(&app.commands, &query);
+                state.query = query;
+            }
+        }
+        Message::CommandPaletteSelect(index) => {
+            if let Some(state) = &app.command_palette {
+                if let Some(&command_index) = state.results.get(index) {
+                    if let Some(command) = app.commands.get(command_index) {
+                        app.command_palette = None;
+                        match command.id {
+                            "open-switcher" => {
+                                let results = switcher_results(&app.notes, &app.index, "");
+                                app.switcher = Some(SwitcherState {
+                                    query: String::new(),
+                                    results,
+                                });
+                            }
+                            "save-note" => {
+                                return update(app, Message::SaveNote);
+                            }
+                            "toggle-graph" => {
+                                return update(app, Message::ToggleGraph);
+                            }
+                            "toggle-themes" => {
+                                return update(app, Message::ToggleThemes);
+                            }
+                            "toggle-history" => {
+                                return update(app, Message::ToggleHistory);
+                            }
+                            "toggle-dataview" => {
+                                return update(app, Message::ToggleDataview);
+                            }
+                            "toggle-canvas" => {
+                                return update(app, Message::ToggleCanvas);
+                            }
+                            "toggle-plugins" => {
+                                return update(app, Message::TogglePlugins);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
             }
         }
         Message::ToggleGraph => {
@@ -530,7 +617,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 ///
 /// La vue `ui` expose des boutons équivalents ; cette subscription est
 /// branchée par `main` via `.subscription(app::subscription)`.
-pub fn subscription(_state: &App) -> iced::Subscription<Message> {
+pub fn subscription(_app: &App) -> iced::Subscription<Message> {
     use iced::event::{self, Event};
     use iced::keyboard::{key, Key};
 
@@ -551,12 +638,15 @@ pub fn subscription(_state: &App) -> iced::Subscription<Message> {
                 Key::Character(character) if character.eq_ignore_ascii_case("g") => {
                     return Some(Message::ToggleGraph);
                 }
+                Key::Character(character) if character.eq_ignore_ascii_case("p") => {
+                    return Some(Message::OpenCommandPalette);
+                }
                 _ => {}
             }
         }
 
         if key.as_ref() == Key::Named(key::Named::Escape) {
-            return Some(Message::CloseSwitcher);
+            return Some(Message::Escape);
         }
 
         None

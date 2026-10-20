@@ -73,6 +73,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
+    } else if app.command_palette.is_some() {
+        stack([root, command_palette_overlay(app)])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     } else {
         root
     }
@@ -167,6 +172,69 @@ fn switcher_overlay<'a>(app: &'a App) -> Element<'a, Message> {
         .padding(16),
     )
     .width(Length::Fixed(440.0))
+    .height(Length::Shrink)
+    .style(panel_style);
+
+    container(panel)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(overlay_style)
+        .into()
+}
+/// Overlay de la palette de commandes (Ctrl+P).
+fn command_palette_overlay<'a>(app: &'a App) -> Element<'a, Message> {
+    let Some(state) = &app.command_palette else {
+        return stack([]).into();
+    };
+
+    let mut results = Column::new().spacing(2);
+    for &index in &state.results {
+        let command = app.commands.get(index);
+        let Some(command) = command else { continue };
+        let shortcut_text = command
+            .shortcut
+            .map(|s| format!(" · {s:?}"))
+            .unwrap_or_default();
+        results = results.push(tree_button(
+            row![
+                text(command.label).width(Length::Fill),
+                text(command.category).size(12).color(UNRESOLVED_COLOR),
+                text(shortcut_text).size(12).color(UNRESOLVED_COLOR),
+            ]
+            .spacing(8)
+            .into(),
+            Message::CommandPaletteSelect(index),
+            false,
+            0,
+        ));
+    }
+    if state.results.is_empty() {
+        results = results.push(text("Aucune commande.").size(13));
+    }
+
+    let panel = container(
+        column![
+            text("Palette de commandes").size(16).font(bold_font()),
+            text_input("Taper une commande…", &state.query)
+                .on_input(Message::CommandPaletteQuery)
+                .padding([7, 8]),
+            scrollable(results).height(Length::FillPortion(3)),
+            row![
+                text("Échap : fermer")
+                    .size(12)
+                    .color(UNRESOLVED_COLOR)
+                    .width(Length::Fill),
+                button(text("Fermer"))
+                    .on_press(Message::CloseCommandPalette)
+                    .style(primary_button_style),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        ]
+        .spacing(8)
+        .padding(16),
+    )
+    .width(Length::Fixed(520.0))
     .height(Length::Shrink)
     .style(panel_style);
 
