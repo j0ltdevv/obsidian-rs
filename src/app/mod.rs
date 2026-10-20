@@ -188,10 +188,14 @@ pub enum Message {
     GraphFilterTag(String),
     /// Importe le canvas depuis `.obsidian/canvas.json`.
     CanvasImportJson,
-    /// Retire une carte du canvas (et ses arêtes incidentes).
-    CanvasRemoveCard(CardId),
+    /// Demande confirmation de suppression d'une carte du canvas.
+    CanvasAskRemoveCard(CardId),
     /// Marque la note ouverte comme modifiée (non enregistrée).
     MarkDirty,
+    /// Confirme la suppression de la carte.
+    CanvasConfirmRemoveCard,
+    /// Annule la suppression de la carte du canvas.
+    CanvasCancelRemoveCard,
 }
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
@@ -381,6 +385,8 @@ pub struct App {
     pub recent: Vec<PathBuf>,
     /// La note ouverte contient des modifications non enregistrées.
     pub open_dirty: bool,
+    /// Carte du canvas en attente de confirmation de suppression.
+    pub canvas_remove_confirm: Option<CardId>,
 }
 impl App {
     /// Scanne le vault donné et reconstitue notes + index.
@@ -487,6 +493,7 @@ pub fn boot() -> (App, Task<Message>) {
         hotkeys: crate::vault::settings::load_hotkeys(Path::new(DEMO_VAULT)).unwrap_or_default(),
         recent: Vec::new(),
         open_dirty: false,
+        canvas_remove_confirm: None,
     };
     (app, Task::none())
 }
@@ -941,11 +948,20 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 }
             }
         }
-        Message::CanvasRemoveCard(id) => {
+        Message::CanvasAskRemoveCard(id) => {
+            app.canvas_remove_confirm = Some(id);
+        }
+        Message::CanvasConfirmRemoveCard => {
+            let Some(id) = app.canvas_remove_confirm.take() else {
+                return Task::none();
+            };
             app.canvas.remove_card(id);
             if app.canvas_selected == Some(id) {
                 app.canvas_selected = None;
             }
+        }
+        Message::CanvasCancelRemoveCard => {
+            app.canvas_remove_confirm = None;
         }
         Message::GlobalReplaceAll => {
             let Some(find) = &app.find else {

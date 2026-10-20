@@ -120,6 +120,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
+    } else if app.canvas_remove_confirm.is_some() {
+        stack([root, canvas_remove_confirm_overlay(app)])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     } else {
         root
     }
@@ -225,6 +230,39 @@ fn settings_overlay<'a>(app: &'a App) -> Element<'a, Message> {
         .style(panel_style)
         .width(Length::FillPortion(3))
         .max_width(460);
+
+    container(stack([panel.into()]))
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(overlay_style)
+        .into()
+}
+fn canvas_remove_confirm_overlay<'a>(app: &'a App) -> Element<'a, Message> {
+    use iced::widget::{button as btn, stack};
+    if app.canvas_remove_confirm.is_none() {
+        return stack([]).into();
+    }
+    let panel = container(
+        column![
+            text("Supprimer cette carte du canvas ?")
+                .size(15)
+                .font(bold_font()),
+            row![
+                btn(text("Supprimer"))
+                    .on_press(Message::CanvasConfirmRemoveCard)
+                    .style(primary_button_style),
+                btn(text("Annuler"))
+                    .on_press(Message::CanvasCancelRemoveCard)
+                    .style(ghost_button_style),
+            ]
+            .spacing(8),
+        ]
+        .spacing(12)
+        .padding(20),
+    )
+    .style(panel_style)
+    .width(Length::FillPortion(3))
+    .max_width(440);
 
     container(stack([panel.into()]))
         .center_x(Length::Fill)
@@ -585,7 +623,7 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
                             .on_input(move |group| Message::CanvasSetGroup { id, group })
                             .padding(6),
                         row![button(text("Supprimer la carte"))
-                            .on_press(Message::CanvasRemoveCard(id))
+                            .on_press(Message::CanvasAskRemoveCard(id))
                             .style(ghost_button_style),]
                         .spacing(6),
                     ]
