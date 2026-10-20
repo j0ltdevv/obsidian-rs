@@ -162,6 +162,12 @@ pub enum Message {
     PluginToggle(String),
     /// Recharge les snippets CSS depuis `.obsidian/snippets/`.
     ReloadSnippets,
+    /// Bascule la vue Réglages.
+    ToggleSettings,
+    /// Active/désactive le mode vim (persisté).
+    SetVimMode(bool),
+    /// Active/désactive la correction orthographique (persistée).
+    SetSpellcheck(bool),
 }
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
@@ -335,6 +341,8 @@ pub struct App {
     pub canvas_selected: Option<CardId>,
     /// Paramètres persistés (app.json).
     pub settings: AppSettings,
+    /// Affiche la vue Réglages.
+    pub show_settings: bool,
 }
 impl App {
     /// Scanne le vault donné et reconstitue notes + index.
@@ -433,6 +441,7 @@ pub fn boot() -> (App, Task<Message>) {
         new_note: None,
         css_snippets: crate::vault::css_snippets::load_snippets(Path::new(DEMO_VAULT)),
         settings,
+        show_settings: false,
     };
     (app, Task::none())
 }
@@ -900,6 +909,21 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::ReloadSnippets => {
             app.css_snippets = crate::vault::css_snippets::load_snippets(&app.vault_root);
+        }
+        Message::ToggleSettings => {
+            app.show_settings = !app.show_settings;
+        }
+        Message::SetVimMode(enabled) => {
+            app.settings.vim_mode = enabled;
+            if let Err(error) = save_app_settings(&app.vault_root, &app.settings) {
+                app.error = Some(format!("Sauvegarde des paramètres impossible : {error}"));
+            }
+        }
+        Message::SetSpellcheck(enabled) => {
+            app.settings.spellcheck = enabled;
+            if let Err(error) = save_app_settings(&app.vault_root, &app.settings) {
+                app.error = Some(format!("Sauvegarde des paramètres impossible : {error}"));
+            }
         }
         Message::ToggleGraph => {
             app.show_graph = !app.show_graph;

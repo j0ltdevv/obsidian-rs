@@ -91,6 +91,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
+    } else if app.show_settings {
+        stack([root, settings_overlay(app)])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     } else {
         root
     }
@@ -116,6 +121,55 @@ fn new_note_overlay<'a>(app: &'a App) -> Element<'a, Message> {
     .style(panel_style)
     .width(Length::FillPortion(3))
     .max_width(420);
+
+    container(stack([panel.into()]))
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(overlay_style)
+        .into()
+}
+
+/// Overlay de réglages : toggles vim/spellcheck et liste des raccourcis.
+fn settings_overlay<'a>(app: &'a App) -> Element<'a, Message> {
+    use iced::widget::stack;
+    let vim_label = if app.settings.vim_mode {
+        "vim ✓"
+    } else {
+        "vim"
+    };
+    let spell_label = if app.settings.spellcheck {
+        "correction ✓"
+    } else {
+        "correction"
+    };
+    let panel = container(
+        column![
+            text("Réglages").size(16).font(bold_font()),
+            row![
+                text("Mode vim").width(Length::FillPortion(2)),
+                button(text(vim_label))
+                    .on_press(Message::SetVimMode(!app.settings.vim_mode))
+                    .style(ghost_button_style),
+            ]
+            .spacing(8),
+            row![
+                text("Correction orthographique").width(Length::FillPortion(2)),
+                button(text(spell_label))
+                    .on_press(Message::SetSpellcheck(!app.settings.spellcheck))
+                    .style(ghost_button_style),
+            ]
+            .spacing(8),
+            text(format!("Thème : {}", app.current_theme)).size(13),
+            button(text("Fermer"))
+                .on_press(Message::ToggleSettings)
+                .style(primary_button_style),
+        ]
+        .spacing(12)
+        .padding(20),
+    )
+    .style(panel_style)
+    .width(Length::FillPortion(3))
+    .max_width(460);
 
     container(stack([panel.into()]))
         .center_x(Length::Fill)
@@ -165,6 +219,9 @@ fn title_bar() -> Element<'static, Message> {
             .style(primary_button_style),
         button(text("Note"))
             .on_press(Message::NewNoteOpen)
+            .style(primary_button_style),
+        button(text("Réglages"))
+            .on_press(Message::ToggleSettings)
             .style(primary_button_style),
         button(text("Actualiser"))
             .on_press(Message::Refresh)
