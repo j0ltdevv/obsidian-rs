@@ -1074,6 +1074,10 @@ fn segment_widget(seg: &Segment) -> Element<'static, Message> {
             })
             .into(),
         SegmentStyle::Table => text(seg.text.clone()).font(Font::MONOSPACE).size(12).into(),
+        SegmentStyle::Footnote => text(seg.text.clone())
+            .size(12)
+            .color(Color::from_rgb(0.35, 0.5, 0.7))
+            .into(),
         SegmentStyle::Callout | SegmentStyle::CalloutTitle => {
             let bold = seg.style == SegmentStyle::CalloutTitle;
             let mut label = text(seg.text.clone()).size(13);

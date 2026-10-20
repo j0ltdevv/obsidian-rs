@@ -66,6 +66,8 @@ pub enum SegmentStyle {
     HorizontalRule,
     /// Ligne d'un tableau simple (`| a | b |`).
     Table,
+    /// Note de bas de page `[^id]` ou définition `[^id]: texte`.
+    Footnote,
 
     /// Callout : ligne de corps (`> [!type]`…, ligne d'ouverture sans titre incluse).
     Callout,
@@ -471,6 +473,20 @@ fn push_inline(ligne: &str, line_no: usize, out: &mut Vec<Segment>) {
                 );
                 i = fin + 1;
                 continue;
+            }
+        }
+
+        // Note de bas de page : `[^id]` (référence) ou `[^id]: texte`
+        // (définition). Le contenu affiché est `[^id]` (sans `:`).
+        if c == '[' && chars.get(i + 1) == Some(&'^') {
+            if let Some(fin) = position(chars.as_slice(), i + 2, ']') {
+                let id: String = chars[i + 2..fin].iter().collect();
+                if !id.is_empty() {
+                    vider_tampon(&mut tampon, line_no, out);
+                    push_texte(SegmentStyle::Footnote, &format!("[^{id}]"), line_no, out);
+                    i = fin + 1;
+                    continue;
+                }
             }
         }
 
