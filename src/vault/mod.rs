@@ -22,6 +22,7 @@ pub mod meta;
 pub mod note;
 pub mod ops;
 pub mod outline;
+pub mod plugins_manifest;
 pub mod properties;
 pub mod quick_switcher;
 pub mod scan;

@@ -2,6 +2,7 @@
 //! vault), arêtes = paires de notes reliées par un wikilink résolu.
 
 use std::collections::VecDeque;
+use std::path::PathBuf;
 
 use super::index::NoteIndex;
 use super::note::Note;
@@ -18,6 +19,52 @@ pub struct Graph {
     pub edges: Vec<(NodeId, NodeId)>,
     /// Liste d'adjacence triée (lookups voisins/degré).
     adjacency: Vec<Vec<NodeId>>,
+}
+
+/// Filtres d'affichage du graphe.
+#[derive(Debug, Clone, Default)]
+pub struct GraphFilters {
+    /// Si défini, n'affiche que la note cible et ses voisins directs
+    /// (graphe local autour de cette note).
+    pub local_note: Option<PathBuf>,
+    /// Si défini, n'affiche que les notes portant ce tag.
+    pub tag: Option<String>,
+    /// Si défini, n'affiche que les notes de ce dossier (ou
+    /// sous-dossiers).
+    pub folder: Option<PathBuf>,
+}
+
+impl GraphFilters {
+    /// `true` si la note d'indice `idx` doit être affichée.
+    pub fn allows(&self, graph: &Graph, notes: &[Note], idx: usize) -> bool {
+        let Some(note) = notes.get(idx) else {
+            return false;
+        };
+        if let Some(local) = &self.local_note {
+            let Some(target) = notes.iter().position(|n| n.path == *local) else {
+                return true;
+            };
+            if idx != target && !graph.neighbors(target).contains(&idx) {
+                return false;
+            }
+        }
+        if let Some(tag) = &self.tag {
+            if !note.metadata.tags.iter().any(|t| t == tag) {
+                return false;
+            }
+        }
+        if let Some(folder) = &self.folder {
+            if !note.path.starts_with(folder) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// `true` si aucun filtre n'est actif.
+    pub fn is_empty(&self) -> bool {
+        self.local_note.is_none() && self.tag.is_none() && self.folder.is_none()
+    }
 }
 
 impl Graph {
@@ -98,5 +145,88 @@ pub fn build_graph(notes: &[Note], index: &NoteIndex) -> Graph {
         nodes: (0..notes.len()).collect(),
         edges: undirected,
         adjacency,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vault::note::NoteMetadata;
+    use std::path::Path;
+
+    fn note(path: &str, tags: &[&str]) -> Note {
+        Note {
+            path: PathBuf::from(path),
+            name: Path::new(path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(path)
+                .to_string(),
+            metadata: NoteMetadata {
+                frontmatter: None,
+                frontmatter_error: None,
+                wikilinks: Vec::new(),
+                tags: tags.iter().map(|t| t.to_string()).collect(),
+            },
+        }
+    }
+
+    fn sample_notes() -> Vec<Note> {
+        vec![
+            note("A.md", &["projet"]),
+            note("B.md", &["idée"]),
+            note("Dossier/C.md", &["projet"]),
+        ]
+    }
+
+    #[test]
+    fn pas_de_filtre_autorise_tout() {
+        let notes = sample_notes();
+        let index = NoteIndex::build_index(&notes);
+        let graph = build_graph(&notes, &index);
+        let filters = GraphFilters::default();
+        assert!(filters.allows(&graph, &notes, 0));
+        assert!(filters.allows(&graph, &notes, 2));
+    }
+
+    #[test]
+    fn filtre_local_sans_arête_ne_garde_que_la_note_cible() {
+        let notes = sample_notes();
+        let index = NoteIndex::build_index(&notes);
+        let graph = build_graph(&notes, &index);
+        let filters = GraphFilters {
+            local_note: Some(PathBuf::from("A.md")),
+            ..GraphFilters::default()
+        };
+        assert!(filters.allows(&graph, &notes, 0));
+        assert!(!filters.allows(&graph, &notes, 1));
+        assert!(!filters.allows(&graph, &notes, 2));
+    }
+
+    #[test]
+    fn filtre_tag_ne_garde_que_les_notes_porteuses() {
+        let notes = sample_notes();
+        let index = NoteIndex::build_index(&notes);
+        let graph = build_graph(&notes, &index);
+        let filters = GraphFilters {
+            tag: Some("projet".to_string()),
+            ..GraphFilters::default()
+        };
+        assert!(filters.allows(&graph, &notes, 0));
+        assert!(!filters.allows(&graph, &notes, 1));
+        assert!(filters.allows(&graph, &notes, 2));
+    }
+
+    #[test]
+    fn filtre_dossier_restrint_au_dossier_ou_sous_dossiers() {
+        let notes = sample_notes();
+        let index = NoteIndex::build_index(&notes);
+        let graph = build_graph(&notes, &index);
+        let filters = GraphFilters {
+            folder: Some(PathBuf::from("Dossier")),
+            ..GraphFilters::default()
+        };
+        assert!(!filters.allows(&graph, &notes, 0));
+        assert!(filters.allows(&graph, &notes, 2));
     }
 }

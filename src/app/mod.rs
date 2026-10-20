@@ -20,6 +20,7 @@ use crate::plugins::registry::PluginRegistry;
 use crate::vault::aliases::AliasIndex;
 use crate::vault::canvas_data::CanvasBoard;
 use crate::vault::commands::{default_commands, search_commands, Command};
+use crate::vault::graph::GraphFilters;
 use crate::vault::history::{list_snapshots, restore_snapshot};
 use crate::vault::index::NoteIndex;
 use crate::vault::meta::{remove_frontmatter_property, set_frontmatter_property};
@@ -112,6 +113,10 @@ pub enum Message {
     SearchSelect(usize),
     /// Bascule la vue Tâches (vue globale des tâches du vault).
     ToggleTasks,
+    /// Bascule le filtre local du graphe (autour de la note ouverte).
+    GraphToggleLocal,
+    /// Efface tous les filtres du graphe.
+    GraphClearFilters,
 }
 
 /// Note actuellement ouverte : chemin, métadonnées du dernier scan et tampon
@@ -241,6 +246,8 @@ pub struct App {
     pub fulltext: Option<FullTextIndex>,
     /// Tâches agrégées de toutes les notes (construites au scan).
     pub tasks: Vec<VaultTask>,
+    /// Filtres du graphe (local / tag / dossier).
+    pub graph_filters: GraphFilters,
 }
 
 impl App {
@@ -328,6 +335,7 @@ pub fn boot() -> (App, Task<Message>) {
         search_panel: None,
         fulltext,
         tasks,
+        graph_filters: GraphFilters::default(),
     };
     (app, Task::none())
 }
@@ -583,6 +591,18 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.show_outline = false;
                 app.show_search = false;
             }
+        }
+        Message::GraphToggleLocal => {
+            if let Some(path) = app.open.as_ref().map(|o| o.path.clone()) {
+                if app.graph_filters.local_note.as_ref() == Some(&path) {
+                    app.graph_filters.local_note = None;
+                } else {
+                    app.graph_filters.local_note = Some(path);
+                }
+            }
+        }
+        Message::GraphClearFilters => {
+            app.graph_filters = GraphFilters::default();
         }
         Message::ToggleGraph => {
             app.show_graph = !app.show_graph;

@@ -14,11 +14,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use iced::widget::canvas;
-use iced::widget::{container, text};
+use iced::widget::{button, container, text, Row};
 use iced::{Color, Element, Font, Length, Point, Rectangle, Size};
 
 use crate::app::{App, Message};
-use crate::vault::graph::{build_graph, NodeId};
+use crate::vault::graph::{build_graph, GraphFilters, NodeId};
 use crate::vault::index::NoteIndex;
 use crate::vault::note::Note;
 
@@ -45,7 +45,18 @@ const INNER_RING_FRACTION: f32 = 0.35;
 const MIDDLE_RING_FRACTION: f32 = 0.65;
 const OUTER_RING_FRACTION: f32 = 0.95;
 
-/// Scène du graphe : positions des nœuds, noms, et arêtes.
+/// Arêtes dont les deux extrémités sont présentes dans `positions`.
+fn visible_edges(
+    edges: &[(NodeId, NodeId)],
+    positions: &HashMap<usize, Point>,
+) -> Vec<(NodeId, NodeId)> {
+    edges
+        .iter()
+        .copied()
+        .filter(|(a, b)| positions.contains_key(a) && positions.contains_key(b))
+        .collect()
+}
+
 #[derive(Debug, Clone)]
 pub struct GraphScene {
     /// Positions des nœuds (indice de note → point dans le canevas).
@@ -59,24 +70,40 @@ pub struct GraphScene {
 }
 
 impl GraphScene {
-    /// Construit la scène depuis le graphe et les dimensions du canevas.
-    pub fn layout(notes: &[Note], index: &NoteIndex, size: Size) -> Self {
+    /// Construit la scène depuis le graphe, les dimensions du canevas et les
+    /// filtres d'affichage (graphe local, tag, dossier).
+    pub fn layout(notes: &[Note], index: &NoteIndex, size: Size, filters: &GraphFilters) -> Self {
         let graph = build_graph(notes, index);
         let mut positions: HashMap<usize, Point> = HashMap::new();
         let mut names: HashMap<usize, String> = HashMap::new();
         let mut paths: HashMap<usize, PathBuf> = HashMap::new();
 
         if notes.is_empty() || size.width <= 0.0 || size.height <= 0.0 {
+            let edges = visible_edges(&graph.edges, &positions);
             return Self {
                 positions,
                 names,
-                paths: HashMap::new(),
-                edges: graph.edges,
+                paths,
+                edges,
             };
         }
 
-        // Degrés des nœuds, triés décroissant (les plus connectés au centre).
-        let mut ranked: Vec<usize> = (0..notes.len()).collect();
+        // Notes visibles selon les filtres.
+        let allowed: Vec<usize> = (0..notes.len())
+            .filter(|&i| filters.allows(&graph, notes, i))
+            .collect();
+        if allowed.is_empty() {
+            let edges = Vec::new();
+            return Self {
+                positions,
+                names,
+                paths,
+                edges,
+            };
+        }
+
+        // Degrés des nœuds visibles, triés décroissant (connectés au centre).
+        let mut ranked = allowed.clone();
         ranked.sort_by_key(|&a| std::cmp::Reverse(graph.degree(a)));
 
         let center = Point::new(size.width / 2.0, size.height / 2.0);
@@ -117,12 +144,12 @@ impl GraphScene {
 
         // Passes de répulsion : éloigne les nœuds trop proches.
         for _ in 0..REPULSION_PASSES {
-            for i in 0..notes.len() {
-                for j in (i + 1)..notes.len() {
-                    let Some(a) = positions.get(&i) else {
+            for i in 0..allowed.len() {
+                for j in (i + 1)..allowed.len() {
+                    let Some(a) = positions.get(&allowed[i]) else {
                         continue;
                     };
-                    let Some(b) = positions.get(&j) else {
+                    let Some(b) = positions.get(&allowed[j]) else {
                         continue;
                     };
                     let dx = b.x - a.x;
@@ -132,11 +159,11 @@ impl GraphScene {
                         let push = (MIN_NODE_DISTANCE - dist) * 0.5;
                         let nx = dx / dist * push;
                         let ny = dy / dist * push;
-                        if let Some(ai) = positions.get_mut(&i) {
+                        if let Some(ai) = positions.get_mut(&allowed[i]) {
                             ai.x -= nx;
                             ai.y -= ny;
                         }
-                        if let Some(bj) = positions.get_mut(&j) {
+                        if let Some(bj) = positions.get_mut(&allowed[j]) {
                             bj.x += nx;
                             bj.y += ny;
                         }
@@ -174,11 +201,12 @@ impl GraphScene {
             }
         }
 
+        let edges = visible_edges(&graph.edges, &positions);
         Self {
             positions,
             names,
             paths,
-            edges: graph.edges,
+            edges,
         }
     }
 
@@ -305,13 +333,42 @@ pub fn graph_view<'a>(app: &'a App, notes: &'a [Note], size: Size) -> Element<'a
     let Some(index) = &app.index else {
         return container(text("Index absent")).into();
     };
-    let scene = GraphScene::layout(notes, index, size);
+    let scene = GraphScene::layout(notes, index, size, &app.graph_filters);
 
     let canvas = canvas(GraphProgram::new(scene))
         .width(Length::Fill)
         .height(Length::Fill);
 
-    container(canvas)
+    // Barre d'outils : filtre local (autour de la note ouverte) et effacement.
+    let local_label = if app.graph_filters.local_note.is_some() {
+        "Local ✓"
+    } else {
+        "Local"
+    };
+    let mut toolbar = Row::new().spacing(8).padding([4, 8]);
+    toolbar = toolbar.push(
+        button(text(local_label))
+            .on_press(Message::GraphToggleLocal)
+            .style(super::ghost_button_style),
+    );
+    toolbar = toolbar.push(
+        button(text("Effacer"))
+            .on_press(Message::GraphClearFilters)
+            .style(super::ghost_button_style),
+    );
+    let filter_desc;
+    if let Some(path) = &app.graph_filters.local_note {
+        filter_desc = format!("local : {}", path.display());
+    } else if let Some(tag) = &app.graph_filters.tag {
+        filter_desc = format!("tag : #{tag}");
+    } else if let Some(folder) = &app.graph_filters.folder {
+        filter_desc = format!("dossier : {}", folder.display());
+    } else {
+        filter_desc = "tout le vault".to_string();
+    }
+    toolbar = toolbar.push(text(filter_desc).size(13));
+
+    container(iced::widget::column![toolbar, canvas])
         .style(super::panel_style)
         .width(Length::Fill)
         .height(Length::Fill)
