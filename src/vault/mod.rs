@@ -1,6 +1,9 @@
 //! Lecture/écriture Markdown, liens, index.
 
+pub mod aliases;
+pub mod attachments;
 pub mod block_refs;
+pub mod bookmarks;
 pub mod callouts;
 pub mod canvas_data;
 pub mod commands;
