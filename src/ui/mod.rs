@@ -26,9 +26,15 @@ use iced::{Alignment, Background, Border, Color, Element, Font, Length};
 use crate::app::{App, Message};
 use crate::vault::{Note, Wikilink};
 
+mod dataview_view;
 mod graph;
+mod history_view;
+mod themes_view;
 
+use self::dataview_view::dataview_view;
 use self::graph::graph_view;
+use self::history_view::history_view;
+use self::themes_view::themes_view;
 
 /// Couleur du titre de la barre supérieure.
 const TITLE_COLOR: Color = Color::from_rgb(0.25, 0.45, 0.75);
@@ -82,6 +88,15 @@ fn title_bar() -> Element<'static, Message> {
             .style(primary_button_style),
         button(text("Graphe"))
             .on_press(Message::ToggleGraph)
+            .style(primary_button_style),
+        button(text("Thème"))
+            .on_press(Message::ToggleThemes)
+            .style(primary_button_style),
+        button(text("Historique"))
+            .on_press(Message::ToggleHistory)
+            .style(primary_button_style),
+        button(text("Dataview"))
+            .on_press(Message::ToggleDataview)
             .style(primary_button_style),
         button(text("Actualiser"))
             .on_press(Message::Refresh)
@@ -164,6 +179,59 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         .style(panel_style)
         .width(Length::FillPortion(3))
         .height(Length::Fill);
+
+    if app.show_themes {
+        let on_select = |name: String| Message::SelectTheme(name);
+        let themes = themes_view(&app.current_theme, &on_select);
+        return row![
+            sidebar,
+            container(themes)
+                .style(panel_style)
+                .width(Length::FillPortion(4))
+                .height(Length::Fill)
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .spacing(8)
+        .padding([8, 12])
+        .into();
+    }
+
+    if app.show_history && app.open.is_some() {
+        let history = history_view(&app.history_snapshots, None, |_index| Message::DismissError);
+        return row![
+            sidebar,
+            container(history)
+                .style(panel_style)
+                .width(Length::FillPortion(4))
+                .height(Length::Fill)
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .spacing(8)
+        .padding([8, 12])
+        .into();
+    }
+
+    if app.show_dataview {
+        let dview = dataview_view(notes, |i| {
+            let path = notes.get(i).map(|n| n.path.clone()).unwrap_or_default();
+            Message::OpenNote(path)
+        });
+        return row![
+            sidebar,
+            container(dview)
+                .style(panel_style)
+                .width(Length::FillPortion(4))
+                .height(Length::Fill)
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .spacing(8)
+        .padding([8, 12])
+        .into();
+    }
+
     let editor = editor_panel(app);
     let preview = preview_panel(app, notes);
 

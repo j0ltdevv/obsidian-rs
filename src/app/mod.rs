@@ -13,13 +13,13 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use iced::widget::text_editor;
-use iced::{Element, Task};
-
+use crate::vault::history::list_snapshots;
 use crate::vault::index::NoteIndex;
 use crate::vault::meta::{remove_frontmatter_property, set_frontmatter_property};
 use crate::vault::ops::write_note;
 use crate::vault::{scan_vault, Note, NoteMetadata};
+use iced::widget::text_editor;
+use iced::{Element, Task};
 
 /// Nombre maximal de résultats affichés par la recherche rapide.
 const SEARCH_LIMIT: usize = 10;
@@ -54,6 +54,14 @@ pub enum Message {
     SwitcherSelect(usize),
     /// Bascule l'affichage de la vue graphe.
     ToggleGraph,
+    /// Bascule le sélecteur de thème.
+    ToggleThemes,
+    /// Bascule l'historique de versions.
+    ToggleHistory,
+    /// Bascule la vue Dataview-like.
+    ToggleDataview,
+    /// Sélectionne un thème par nom.
+    SelectTheme(String),
     /// Définit/remplace une propriété du frontmatter.
     SetProperty { key: String, value: String },
     /// Supprime une propriété du frontmatter.
@@ -140,6 +148,16 @@ pub struct App {
     pub switcher: Option<SwitcherState>,
     /// Affiche la vue graphe à la place de l'éditeur/prévisualisation.
     pub show_graph: bool,
+    /// Affiche le sélecteur de thème à la place de la prévisualisation.
+    pub show_themes: bool,
+    /// Affiche l'historique de versions à la place de la prévisualisation.
+    pub show_history: bool,
+    /// Affiche la vue Dataview-like à la place de la prévisualisation.
+    pub show_dataview: bool,
+    /// Thème actuellement appliqué (nom, ex. "dark").
+    pub current_theme: String,
+    /// Snapshots de la note ouverte (chargés pour la vue historique).
+    pub history_snapshots: Vec<PathBuf>,
 }
 
 impl App {
@@ -166,6 +184,11 @@ pub fn boot() -> (App, Task<Message>) {
         error: None,
         switcher: None,
         show_graph: false,
+        show_themes: false,
+        show_history: false,
+        show_dataview: false,
+        current_theme: "dark".to_string(),
+        history_snapshots: Vec::new(),
     };
     (app, Task::none())
 }
@@ -253,6 +276,46 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             if app.show_graph {
                 app.switcher = None;
             }
+        }
+        Message::ToggleThemes => {
+            app.show_themes = !app.show_themes;
+            if app.show_themes {
+                app.show_history = false;
+                app.show_dataview = false;
+                app.show_graph = false;
+            }
+        }
+        Message::ToggleHistory => {
+            app.show_history = !app.show_history;
+            if app.show_history {
+                app.show_themes = false;
+                app.show_dataview = false;
+                app.show_graph = false;
+                app.history_snapshots = match (
+                    &app.open,
+                    list_snapshots(
+                        &app.vault_root,
+                        &app.open
+                            .as_ref()
+                            .map(|o| o.path.clone())
+                            .unwrap_or_default(),
+                    ),
+                ) {
+                    (Some(_), Ok(list)) => list,
+                    _ => Vec::new(),
+                };
+            }
+        }
+        Message::ToggleDataview => {
+            app.show_dataview = !app.show_dataview;
+            if app.show_dataview {
+                app.show_themes = false;
+                app.show_history = false;
+                app.show_graph = false;
+            }
+        }
+        Message::SelectTheme(name) => {
+            app.current_theme = name;
         }
         Message::SetProperty { key, value } => set_property(app, &key, &value),
         Message::RemoveProperty { key } => remove_property(app, &key),
