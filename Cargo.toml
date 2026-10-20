@@ -1,0 +1,13 @@
+[package]
+name = "obsidian-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Client Obsidian-like en Rust + iced (clean-room)"
+license = "MIT"
+
+[dependencies]
+iced = "0.14"
+thiserror = "2"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
