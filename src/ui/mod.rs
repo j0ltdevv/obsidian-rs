@@ -188,34 +188,43 @@ fn settings_overlay<'a>(app: &'a App) -> Element<'a, Message> {
     } else {
         "correction"
     };
-    let panel = container(
-        column![
-            text("Réglages").size(16).font(bold_font()),
-            row![
-                text("Mode vim").width(Length::FillPortion(2)),
-                button(text(vim_label))
-                    .on_press(Message::SetVimMode(!app.settings.vim_mode))
-                    .style(ghost_button_style),
-            ]
-            .spacing(8),
-            row![
-                text("Correction orthographique").width(Length::FillPortion(2)),
-                button(text(spell_label))
-                    .on_press(Message::SetSpellcheck(!app.settings.spellcheck))
-                    .style(ghost_button_style),
-            ]
-            .spacing(8),
-            text(format!("Thème : {}", app.current_theme)).size(13),
-            button(text("Fermer"))
-                .on_press(Message::ToggleSettings)
-                .style(primary_button_style),
+
+    let mut content = column![
+        text("Réglages").size(16).font(bold_font()),
+        row![
+            text("Mode vim").width(Length::FillPortion(2)),
+            button(text(vim_label))
+                .on_press(Message::SetVimMode(!app.settings.vim_mode))
+                .style(ghost_button_style),
         ]
-        .spacing(12)
-        .padding(20),
-    )
-    .style(panel_style)
-    .width(Length::FillPortion(3))
-    .max_width(460);
+        .spacing(8),
+        row![
+            text("Correction orthographique").width(Length::FillPortion(2)),
+            button(text(spell_label))
+                .on_press(Message::SetSpellcheck(!app.settings.spellcheck))
+                .style(ghost_button_style),
+        ]
+        .spacing(8),
+        text(format!("Thème : {}", app.current_theme)).size(13),
+        text("Raccourcis (hotkeys.json)").size(13),
+    ]
+    .spacing(12)
+    .padding(20);
+
+    for hotkey in &app.hotkeys {
+        content = content
+            .push(text(format!("{} → {}", hotkey.command, hotkey.keys.join(" + "))).size(12));
+    }
+    content = content.push(
+        button(text("Fermer"))
+            .on_press(Message::ToggleSettings)
+            .style(primary_button_style),
+    );
+
+    let panel = container(content)
+        .style(panel_style)
+        .width(Length::FillPortion(3))
+        .max_width(460);
 
     container(stack([panel.into()]))
         .center_x(Length::Fill)

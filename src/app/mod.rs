@@ -367,6 +367,8 @@ pub struct App {
     pub folder_dialog: bool,
     /// Nom du dossier en cours de saisie.
     pub folder_name: String,
+    /// Raccourcis persistés (hotkeys.json), chargés au boot.
+    pub hotkeys: Vec<crate::vault::settings::Hotkey>,
 }
 impl App {
     /// Scanne le vault donné et reconstitue notes + index.
@@ -470,6 +472,7 @@ pub fn boot() -> (App, Task<Message>) {
         delete_confirm: None,
         folder_dialog: false,
         folder_name: String::new(),
+        hotkeys: crate::vault::settings::load_hotkeys(Path::new(DEMO_VAULT)).unwrap_or_default(),
     };
     (app, Task::none())
 }
@@ -948,6 +951,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::ToggleSettings => {
             app.show_settings = !app.show_settings;
+            app.hotkeys = crate::vault::settings::load_hotkeys(&app.vault_root).unwrap_or_default();
         }
         Message::SetVimMode(enabled) => {
             app.settings.vim_mode = enabled;
@@ -1240,6 +1244,9 @@ pub fn subscription(_app: &App) -> iced::Subscription<Message> {
                     return Some(Message::OpenCommandPalette);
                 }
                 Key::Character(character) if character.eq_ignore_ascii_case("f") => {
+                    if modifiers.shift() {
+                        return Some(Message::ToggleSearch);
+                    }
                     return Some(Message::FindOpen);
                 }
                 _ => {}
