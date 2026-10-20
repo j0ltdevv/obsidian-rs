@@ -66,6 +66,21 @@ pub enum SegmentStyle {
     HorizontalRule,
     /// Ligne d'un tableau simple (`| a | b |`).
     Table,
+
+    /// Callout : ligne de corps (`> [!type]`…, ligne d'ouverture sans titre incluse).
+    Callout,
+    /// Callout : ligne d'ouverture avec titre (`> [!type] titre`).
+    CalloutTitle,
+    /// Math inline `$...$`.
+    MathInline,
+    /// Math display `$$...$$` (peut couvrir une plage de lignes).
+    MathDisplay,
+    /// Embed `![[cible]]` (note ou autre).
+    Embed,
+    /// Embed d'image `![[fichier.png]]`.
+    EmbedImage,
+    /// Embed PDF `![[fichier.pdf]]`.
+    EmbedPdf,
 }
 
 /// Un segment de rendu.
@@ -86,18 +101,59 @@ pub struct Segment {
 /// numérotées, tâches `- [ ]` / `- [x]`, liens `[texte](url)`, URLs
 /// nues (`http://...`), wikilinks `[[cible]]` (avec alias
 /// `[[cible|alias]]` -> `text` = alias), tags `#tag`, règle horizontale
-/// `---`, tableaux simples (`| a | b |`).
+/// `---`, tableaux simples (`| a | b |`), callouts `> [!type]`, maths
+/// `$...$` / `$$...$$`, embeds `![[cible]]`.
 ///
 /// L'imbrication simple (gras dans italique) est tolérée mais pas
 /// requise : le premier marqueur reconnu sur la ligne gagne.
 pub fn render_markdown(content: &str) -> Vec<Segment> {
     let lines: Vec<&str> = content.lines().collect();
+    // Parsers existants : plages de callouts et de maths display. Les blocs
+    // de code en sont exclus par les modules eux-mêmes.
+    let callouts = super::callouts::extract_callouts(content);
+    let math = super::math::extract_math(content);
     let mut segments: Vec<Segment> = Vec::new();
     let mut index: usize = 0;
+    let mut callout_idx = 0usize;
+    let mut math_idx = 0usize;
 
     while index < lines.len() {
         let line = lines[index];
         let line_no = index;
+
+        // Avance les curseurs vers le premier segment couvrant `index`.
+        while callout_idx < callouts.len() && index > callouts[callout_idx].end_line {
+            callout_idx += 1;
+        }
+        while math_idx < math.len() && index > math[math_idx].end_line {
+            math_idx += 1;
+        }
+
+        // Ligne appartenant à un callout : rendue en segments Callout
+        // (jamais en Blockquote).
+        if callouts
+            .get(callout_idx)
+            .is_some_and(|co| (co.start_line..=co.end_line).contains(&index))
+        {
+            push_callout_line(&callouts[callout_idx], line_no, line, &mut segments);
+            index += 1;
+            continue;
+        }
+
+        // Plage d'une math display : un seul segment `MathDisplay` pour tout
+        // le bloc (texte = source brute, sauts de ligne internes compris).
+        if math.get(math_idx).is_some_and(|m| {
+            m.kind == super::math::MathKind::Display && (m.start_line..=m.end_line).contains(&index)
+        }) {
+            let m = &math[math_idx];
+            segments.push(Segment {
+                style: SegmentStyle::MathDisplay,
+                text: m.source.clone(),
+                line: m.start_line,
+            });
+            index = m.end_line + 1;
+            continue;
+        }
 
         // Bloc de code : trois apostrophes inverses (langue optionnelle).
         if line.trim_start().starts_with("```") {
@@ -184,6 +240,37 @@ fn push_line_segments(line: &str, line_no: usize, out: &mut Vec<Segment>) {
     }
 
     push_inline(line, line_no, out);
+}
+
+/// Retire le préfixe de citation d'une ligne (`> ` ou `>` seul), en miroir
+/// de `callouts::quote_body`.
+fn stripper_citation(line: &str) -> &str {
+    let espaces = line.bytes().take_while(|b| *b == b' ').count();
+    let corps = if espaces < 4 { &line[espaces..] } else { line };
+    match corps.strip_prefix('>') {
+        Some(reste) => reste.strip_prefix(' ').unwrap_or(reste),
+        None => line,
+    }
+}
+
+/// Empile les segments d'une ligne appartenant à un callout.
+///
+/// La ligne d'ouverture avec titre produit un segment `CalloutTitle` dont le
+/// texte est la ligne sans `> ` (marqueur `[!type]` conservé) ; sans titre,
+/// elle produit un `Callout`. Chaque ligne de corps produit un `Callout`.
+fn push_callout_line(
+    callout: &super::callouts::Callout,
+    line_no: usize,
+    line: &str,
+    out: &mut Vec<Segment>,
+) {
+    let corps = stripper_citation(line).trim_end();
+    let style = if line_no == callout.start_line && callout.title.is_some() {
+        SegmentStyle::CalloutTitle
+    } else {
+        SegmentStyle::Callout
+    };
+    push_texte(style, corps, line_no, out);
 }
 
 /// Empile un segment représentant un marqueur (texte vide).
@@ -387,6 +474,23 @@ fn push_inline(ligne: &str, line_no: usize, out: &mut Vec<Segment>) {
             }
         }
 
+        // Math inline : `$...$` sur la même ligne. `$$` ne déclenche pas
+        // l'inline (display géré au niveau de la plage) ; un `$` non fermé
+        // reste littéral.
+        if c == '$' && chars.get(i + 1) != Some(&'$') {
+            if let Some(fin) = position(chars.as_slice(), i + 1, '$') {
+                vider_tampon(&mut tampon, line_no, out);
+                push_texte(
+                    SegmentStyle::MathInline,
+                    &chars[i + 1..fin].iter().collect::<String>(),
+                    line_no,
+                    out,
+                );
+                i = fin + 1;
+                continue;
+            }
+        }
+
         // Gras / italique : `***`, `**` ou `*`.
         if c == '*' {
             if let Some((style, fin, texte)) = parse_emphase(chars.as_slice(), i) {
@@ -436,6 +540,16 @@ fn push_inline(ligne: &str, line_no: usize, out: &mut Vec<Segment>) {
                     line_no,
                     out,
                 );
+                i = fin;
+                continue;
+            }
+        }
+
+        // Embed `![[cible#section|alias]]` : image, pdf, note ou autre.
+        if c == '!' && chars.get(i + 1) == Some(&'[') && chars.get(i + 2) == Some(&'[') {
+            if let Some((style, texte, fin)) = parse_embed_inline(chars.as_slice(), i) {
+                vider_tampon(&mut tampon, line_no, out);
+                push_texte(style, &texte, line_no, out);
                 i = fin;
                 continue;
             }
@@ -585,6 +699,32 @@ fn parse_wikilink(chars: &[char], i: usize) -> Option<(String, usize)> {
         None => brut,
     };
     Some((texte, i + 2 + fin + 2))
+}
+
+/// Parse un embed `![[cible#section|alias]]` à partir de `i` (le `!` inclus).
+///
+/// Miroir de `embeds::parse_embed` : le texte du segment est la cible (sans
+/// `![[ ]]`, sans section ni alias) et le style dépend de la nature de la
+/// cible (`embed_kind`).
+fn parse_embed_inline(chars: &[char], i: usize) -> Option<(SegmentStyle, String, usize)> {
+    let apres = &chars[i + 3..];
+    let fin = position(apres, 0, ']')?;
+    if apres.get(fin + 1) != Some(&']') {
+        return None;
+    }
+    let brut: String = apres[..fin].iter().collect();
+    let target_part = brut.split_once('|').map(|(t, _)| t).unwrap_or(&brut);
+    let cible = target_part
+        .split_once('#')
+        .map(|(t, _)| t)
+        .unwrap_or(target_part)
+        .trim();
+    let style = match super::embeds::embed_kind(cible) {
+        super::embeds::EmbedKind::Image => SegmentStyle::EmbedImage,
+        super::embeds::EmbedKind::Pdf => SegmentStyle::EmbedPdf,
+        super::embeds::EmbedKind::Note | super::embeds::EmbedKind::Other => SegmentStyle::Embed,
+    };
+    Some((style, cible.to_string(), i + 3 + fin + 2))
 }
 
 /// `true` si un `#` à la position `i` ouvre un tag.
@@ -1032,5 +1172,170 @@ mod tests {
         ] {
             assert!(styles.contains(&attendu), "style manquant : {attendu:?}");
         }
+    }
+
+    #[test]
+    fn test_callout_avec_titre() {
+        assert_eq!(
+            render_markdown("> [!note] Titre\n> corps"),
+            segs(&[
+                ("[!note] Titre", SegmentStyle::CalloutTitle, 0),
+                ("corps", SegmentStyle::Callout, 1),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_callout_replie_avec_tiret() {
+        assert_eq!(
+            render_markdown("> [!todo]- Tâches\n> À faire"),
+            segs(&[
+                ("[!todo]- Tâches", SegmentStyle::CalloutTitle, 0),
+                ("À faire", SegmentStyle::Callout, 1),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_callout_multilignes_sans_titre() {
+        assert_eq!(
+            render_markdown("> [!info]\n> Un\n> Deux\n> Trois"),
+            segs(&[
+                ("[!info]", SegmentStyle::Callout, 0),
+                ("Un", SegmentStyle::Callout, 1),
+                ("Deux", SegmentStyle::Callout, 2),
+                ("Trois", SegmentStyle::Callout, 3),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_callouts_adjacents_separes_par_ligne_vide() {
+        assert_eq!(
+            render_markdown("> [!note]\n> un\n\n> [!tip]\n> deux"),
+            segs(&[
+                ("[!note]", SegmentStyle::Callout, 0),
+                ("un", SegmentStyle::Callout, 1),
+                ("[!tip]", SegmentStyle::Callout, 3),
+                ("deux", SegmentStyle::Callout, 4),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_callout_pas_rendu_en_blockquote() {
+        let segments = render_markdown("> [!warning] Attention\n> danger");
+        assert!(
+            segments.iter().all(|s| s.style != SegmentStyle::Blockquote),
+            "un callout ne doit pas produire de segment Blockquote"
+        );
+    }
+
+    #[test]
+    fn test_math_inline() {
+        assert_eq!(
+            render_markdown("du $x^2$ et $y$"),
+            segs(&[
+                ("du ", SegmentStyle::Plain, 0),
+                ("x^2", SegmentStyle::MathInline, 0),
+                (" et ", SegmentStyle::Plain, 0),
+                ("y", SegmentStyle::MathInline, 0),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_math_inline_non_ferme_laisse_litteral() {
+        assert_eq!(
+            render_markdown("prix $100"),
+            segs(&[("prix $100", SegmentStyle::Plain, 0)])
+        );
+    }
+
+    #[test]
+    fn test_math_display_une_ligne() {
+        assert_eq!(
+            render_markdown("avant\n$$E=mc^2$$\naprès"),
+            segs(&[
+                ("avant", SegmentStyle::Plain, 0),
+                ("E=mc^2", SegmentStyle::MathDisplay, 1),
+                ("après", SegmentStyle::Plain, 2),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_math_display_multilignes() {
+        assert_eq!(
+            render_markdown("avant\n$$\na+b\n$$\naprès"),
+            segs(&[
+                ("avant", SegmentStyle::Plain, 0),
+                ("\na+b\n", SegmentStyle::MathDisplay, 1),
+                ("après", SegmentStyle::Plain, 4),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_embed_note() {
+        assert_eq!(
+            render_markdown("voir ![[my note]] ici"),
+            segs(&[
+                ("voir ", SegmentStyle::Plain, 0),
+                ("my note", SegmentStyle::Embed, 0),
+                (" ici", SegmentStyle::Plain, 0),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_embed_note_avec_alias_et_section() {
+        // Le texte du segment reste la cible (pas l'alias ni la section).
+        assert_eq!(
+            render_markdown("![[note#section|alias]]"),
+            segs(&[("note", SegmentStyle::Embed, 0)])
+        );
+    }
+
+    #[test]
+    fn test_embed_image() {
+        assert_eq!(
+            render_markdown("![[photo.png]]"),
+            segs(&[("photo.png", SegmentStyle::EmbedImage, 0)])
+        );
+    }
+
+    #[test]
+    fn test_embed_pdf() {
+        assert_eq!(
+            render_markdown("![[rapport.pdf]]"),
+            segs(&[("rapport.pdf", SegmentStyle::EmbedPdf, 0)])
+        );
+    }
+
+    #[test]
+    fn test_embed_et_wikilink_dans_la_meme_ligne() {
+        assert_eq!(
+            render_markdown("avant ![[img.PNG]] après [[wiki]]"),
+            segs(&[
+                ("avant ", SegmentStyle::Plain, 0),
+                ("img.PNG", SegmentStyle::EmbedImage, 0),
+                (" après ", SegmentStyle::Plain, 0),
+                ("wiki", SegmentStyle::Wikilink, 0),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_bloc_code_ignore_callouts_math_embeds() {
+        let contenu = "```\n> [!note] faux\n$x$\n![[img.png]]\n```";
+        assert_eq!(
+            render_markdown(contenu),
+            segs(&[(
+                "> [!note] faux\n$x$\n![[img.png]]",
+                SegmentStyle::CodeBlock,
+                0,
+            )])
+        );
     }
 }

@@ -721,6 +721,64 @@ fn segment_widget(seg: &Segment) -> Element<'static, Message> {
             })
             .into(),
         SegmentStyle::Table => text(seg.text.clone()).font(Font::MONOSPACE).size(12).into(),
+        SegmentStyle::Callout | SegmentStyle::CalloutTitle => {
+            let bold = seg.style == SegmentStyle::CalloutTitle;
+            let mut label = text(seg.text.clone()).size(13);
+            if bold {
+                label = label.font(bold_font());
+            }
+            container(label)
+                .width(Length::Fill)
+                .padding([2, 10])
+                .style(|_theme| container::Style {
+                    background: Some(Background::Color(Color::from_rgb(0.95, 0.93, 0.88))),
+                    border: Border {
+                        color: Color::from_rgb(0.8, 0.7, 0.45),
+                        width: 3.0,
+                        radius: Radius::from(2.0),
+                    },
+                    ..container::Style::default()
+                })
+                .into()
+        }
+        SegmentStyle::MathInline => text(seg.text.clone())
+            .font(Font::MONOSPACE)
+            .size(13)
+            .color(Color::from_rgb(0.1, 0.45, 0.4))
+            .into(),
+        SegmentStyle::MathDisplay => container(
+            text(seg.text.clone())
+                .font(Font::MONOSPACE)
+                .size(14)
+                .color(Color::from_rgb(0.1, 0.45, 0.4))
+                .width(Length::Fill),
+        )
+        .width(Length::Fill)
+        .padding(8)
+        .style(|_theme| container::Style {
+            background: Some(Background::Color(Color::from_rgb(0.92, 0.96, 0.95))),
+            border: Border {
+                color: Color::from_rgb(0.6, 0.8, 0.75),
+                width: 1.0,
+                radius: Radius::from(4.0),
+            },
+            ..container::Style::default()
+        })
+        .into(),
+        SegmentStyle::Embed | SegmentStyle::EmbedImage | SegmentStyle::EmbedPdf => {
+            let prefix = match seg.style {
+                SegmentStyle::EmbedImage => "🖼 ",
+                SegmentStyle::EmbedPdf => "📄 ",
+                _ => "⛓ ",
+            };
+            let color = Color::from_rgb(0.2, 0.4, 0.8);
+            row![
+                text(prefix).color(color),
+                text(seg.text.clone()).color(color)
+            ]
+            .spacing(2)
+            .into()
+        }
     }
 }
 

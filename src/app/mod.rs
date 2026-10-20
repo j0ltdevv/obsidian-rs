@@ -17,6 +17,7 @@ use crate::plugins::api::PluginContext;
 use crate::plugins::demo_stats::demo_stats_plugin;
 use crate::plugins::demo_todo::demo_todo_plugin;
 use crate::plugins::registry::PluginRegistry;
+use crate::vault::aliases::AliasIndex;
 use crate::vault::canvas_data::CanvasBoard;
 use crate::vault::commands::{default_commands, search_commands, Command};
 use crate::vault::history::{list_snapshots, restore_snapshot};
@@ -192,6 +193,8 @@ pub struct App {
     pub notes: Result<Vec<Note>, String>,
     /// Index des wikilinks/backlinks, construit depuis `notes`.
     pub index: Option<NoteIndex>,
+    /// Index des alias de notes, construit depuis `notes`.
+    pub aliases: Option<AliasIndex>,
     /// Racine du vault scanné, réutilisée pour rafraîchir/sauvegarder.
     pub vault_root: PathBuf,
     /// Note ouverte dans l'éditeur, si présente.
@@ -297,9 +300,11 @@ pub fn boot() -> (App, Task<Message>) {
     };
     let plugin_error = plugins.load_all(&ctx).err();
     let (fulltext, tasks) = build_search_data(Path::new(DEMO_VAULT), &notes);
+    let aliases = notes.as_ref().ok().map(|notes| AliasIndex::build(notes));
     let app = App {
         notes,
         index,
+        aliases,
         vault_root: PathBuf::from(DEMO_VAULT),
         open: None,
         expanded: HashSet::new(),
@@ -351,6 +356,11 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             app.tasks = tasks;
             app.notes = notes;
             app.index = index;
+            app.aliases = app
+                .notes
+                .as_ref()
+                .ok()
+                .map(|notes| AliasIndex::build(notes));
             app.canvas = canvas;
             app.error = None;
             if let Some(state) = &mut app.search_panel {
@@ -413,12 +423,10 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             }
         }
         Message::OpenWikilink(target) => {
-            // Résolution via l'index : premier match (les doublons de nom
-            // sont possibles ; on prend la première correspondance).
-            let resolved = app
-                .index
-                .as_ref()
-                .and_then(|index| index.resolve(&target).first().map(|note| note.path.clone()));
+            // Résolution combinée : index des wikilinks puis alias de notes.
+            let resolved = resolve_link(&app.index, &app.aliases, &target)
+                .first()
+                .map(|note| note.path.clone());
             match resolved {
                 Some(path) => open_note(app, &path),
                 None => {
@@ -806,6 +814,27 @@ fn search_results(
         .collect()
 }
 
+/// Résout une cible de lien (`[[cible]]` ou alias) vers les notes
+/// correspondantes. Combine l'index des wikilinks puis l'index des alias,
+/// en dédupliquant par chemin (l'ordre de l'index prime).
+fn resolve_link<'a>(
+    index: &'a Option<NoteIndex>,
+    aliases: &'a Option<AliasIndex>,
+    target: &str,
+) -> Vec<&'a Note> {
+    let mut hits: Vec<&'a Note> = Vec::new();
+    if let Some(index) = index {
+        hits.extend(index.resolve(target));
+    }
+    if let Some(aliases) = aliases {
+        hits.extend(aliases.resolve(target));
+    }
+    let mut seen = HashSet::new();
+    hits.into_iter()
+        .filter(|note| seen.insert(note.path.clone()))
+        .collect()
+}
+
 /// Construit l'index full-text et les tâches agrégées du vault. Les lectures
 /// de fichiers sont best-effort : un fichier illisible contribue avec un
 /// texte vide et n'est pas inclus dans l'agrégat de tâches.
@@ -892,6 +921,7 @@ fn apply_reparsed_note(app: &mut App, note: Note) {
             notes.push(note.clone());
         }
         app.index = Some(NoteIndex::build_index(notes));
+        app.aliases = Some(AliasIndex::build(notes));
     }
     if let Some(open) = &mut app.open {
         if open.path == note.path {
@@ -942,5 +972,53 @@ mod tests {
         assert!(app.show_plugins);
         let _ = update(&mut app, Message::TogglePlugins);
         assert!(!app.show_plugins);
+    }
+
+    #[test]
+    fn resolve_link_tombe_sur_l_alias_quand_le_nom_est_inconnu() {
+        use crate::vault::aliases::extract_aliases;
+        use crate::vault::note::NoteMetadata;
+        use std::path::PathBuf;
+
+        fn note_with_alias(name: &str, alias: &str) -> Note {
+            let fm = Some(serde_yaml::Value::Mapping(
+                [(
+                    serde_yaml::Value::String("aliases".to_string()),
+                    serde_yaml::Value::String(alias.to_string()),
+                )]
+                .into_iter()
+                .collect(),
+            ));
+            Note {
+                path: PathBuf::from(format!("{name}.md")),
+                name: name.to_string(),
+                metadata: NoteMetadata {
+                    frontmatter: fm,
+                    frontmatter_error: None,
+                    wikilinks: Vec::new(),
+                    tags: Vec::new(),
+                },
+            }
+        }
+
+        let _ = extract_aliases;
+        let notes = vec![
+            note_with_alias("Cible", "surnom"),
+            Note {
+                path: PathBuf::from("Autre.md"),
+                name: "Autre".to_string(),
+                metadata: NoteMetadata {
+                    frontmatter: None,
+                    frontmatter_error: None,
+                    wikilinks: Vec::new(),
+                    tags: Vec::new(),
+                },
+            },
+        ];
+        let index = Some(NoteIndex::build_index(&notes));
+        let aliases = Some(AliasIndex::build(&notes));
+        let hits = resolve_link(&index, &aliases, "surnom");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].name, "Cible");
     }
 }
