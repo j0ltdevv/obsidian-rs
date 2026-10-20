@@ -186,6 +186,10 @@ pub enum Message {
     RenameDraft(String),
     /// Filtre le graphe sur un tag (clic sur une pastille).
     GraphFilterTag(String),
+    /// Importe le canvas depuis `.obsidian/canvas.json`.
+    CanvasImportJson,
+    /// Retire une carte du canvas (et ses arêtes incidentes).
+    CanvasRemoveCard(CardId),
 }
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
@@ -911,6 +915,29 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 Err(error) => {
                     app.error = Some(format!("Export canvas impossible : {error}"));
                 }
+            }
+        }
+        Message::CanvasImportJson => {
+            let path = app.vault_root.join(".obsidian").join("canvas.json");
+            match fs::read_to_string(&path) {
+                Ok(json) => match crate::vault::canvas_data::CanvasBoard::from_json(&json) {
+                    Ok(board) => {
+                        app.canvas = board;
+                        app.error = None;
+                    }
+                    Err(error) => {
+                        app.error = Some(format!("Import canvas impossible : {error}"));
+                    }
+                },
+                Err(error) => {
+                    app.error = Some(format!("Import canvas impossible : {error}"));
+                }
+            }
+        }
+        Message::CanvasRemoveCard(id) => {
+            app.canvas.remove_card(id);
+            if app.canvas_selected == Some(id) {
+                app.canvas_selected = None;
             }
         }
         Message::GlobalReplaceAll => {

@@ -545,6 +545,9 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
             button(text("Auto-layout"))
                 .on_press(Message::CanvasAutoLayout)
                 .style(ghost_button_style),
+            button(text("Importer JSON"))
+                .on_press(Message::CanvasImportJson)
+                .style(ghost_button_style),
             button(text("Exporter JSON"))
                 .on_press(Message::CanvasExportJson)
                 .style(ghost_button_style),
@@ -581,6 +584,10 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
                         text_input("Groupe (vide = aucun)", &group_value)
                             .on_input(move |group| Message::CanvasSetGroup { id, group })
                             .padding(6),
+                        row![button(text("Supprimer la carte"))
+                            .on_press(Message::CanvasRemoveCard(id))
+                            .style(ghost_button_style),]
+                        .spacing(6),
                     ]
                     .spacing(6)
                     .padding(8),
