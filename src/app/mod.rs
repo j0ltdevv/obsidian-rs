@@ -18,13 +18,13 @@ use crate::plugins::demo_stats::demo_stats_plugin;
 use crate::plugins::demo_todo::demo_todo_plugin;
 use crate::plugins::registry::PluginRegistry;
 use crate::vault::aliases::AliasIndex;
-use crate::vault::canvas_data::CanvasBoard;
+use crate::vault::canvas_data::{CanvasBoard, CardId};
 use crate::vault::commands::{default_commands, search_commands, Command};
 use crate::vault::graph::GraphFilters;
 use crate::vault::history::{list_snapshots, restore_snapshot};
 use crate::vault::index::NoteIndex;
 use crate::vault::meta::{remove_frontmatter_property, set_frontmatter_property};
-use crate::vault::ops::write_note;
+use crate::vault::ops::{create_note, write_note};
 use crate::vault::search::{build_text_index, FullTextIndex};
 use crate::vault::tasks::{aggregate_tasks, Task as VaultTask};
 use crate::vault::{scan_vault, Note, NoteMetadata};
@@ -135,8 +135,28 @@ pub enum Message {
     FindReplaceText(String),
     /// Remplace toutes les occurrences dans la note ouverte.
     FindReplaceAll,
+    /// Sélectionne une carte du canvas (clic).
+    CanvasSelect(CardId),
+    /// Édite le titre d'une carte du canvas.
+    CanvasEditTitle { id: CardId, text: String },
+    /// Édite le contenu d'une carte du canvas.
+    CanvasEditText { id: CardId, text: String },
+    /// Ouvre le dialogue de nouvelle note.
+    NewNoteOpen,
+    /// Ferme le dialogue de nouvelle note.
+    NewNoteClose,
+    /// Change le nom de la note à créer.
+    NewNoteName(String),
+    /// Crée la note (ops atomique) et rafraîchit l'index.
+    NewNoteCreate,
 }
 
+/// Dialogue de création de note (nom saisi).
+#[derive(Debug)]
+pub struct NewNoteState {
+    /// Nom de la note (sans extension).
+    pub name: String,
+}
 /// Recherche/remplacement dans la note ouverte.
 #[derive(Debug)]
 pub struct FindState {
@@ -285,6 +305,10 @@ pub struct App {
     pub graph_program: Option<crate::ui::graph::GraphProgram>,
     /// Panneau recherche/remplacement ouvert, si présent.
     pub find: Option<FindState>,
+    /// Carte du canvas actuellement sélectionnée.
+    pub canvas_selected: Option<CardId>,
+    /// Dialogue de nouvelle note ouvert, si présent.
+    pub new_note: Option<NewNoteState>,
 }
 
 impl App {
@@ -378,6 +402,8 @@ pub fn boot() -> (App, Task<Message>) {
         graph_drag_origin: None,
         graph_program: None,
         find: None,
+        canvas_selected: None,
+        new_note: None,
     };
     (app, Task::none())
 }
@@ -692,6 +718,52 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 if !find.query.is_empty() {
                     let replaced = current.replace(&find.query, &find.replace);
                     open.content = text_editor::Content::with_text(&replaced);
+                }
+            }
+        }
+        Message::CanvasSelect(id) => {
+            app.canvas_selected = Some(id);
+        }
+        Message::CanvasEditTitle { id, text } => {
+            if let Some(card) = app.canvas.card_mut(id) {
+                card.set_title(&text);
+            }
+        }
+        Message::CanvasEditText { id, text } => {
+            if let Some(card) = app.canvas.card_mut(id) {
+                card.set_text(&text);
+            }
+        }
+        Message::NewNoteOpen => {
+            app.new_note = Some(NewNoteState {
+                name: String::new(),
+            });
+        }
+        Message::NewNoteClose => {
+            app.new_note = None;
+        }
+        Message::NewNoteName(name) => {
+            if let Some(state) = &mut app.new_note {
+                state.name = name;
+            }
+        }
+        Message::NewNoteCreate => {
+            let Some(state) = &app.new_note else {
+                return Task::none();
+            };
+            let name = state.name.trim().to_string();
+            if name.is_empty() {
+                app.error = Some("Nom de note vide.".to_string());
+                return Task::none();
+            }
+            let rel = PathBuf::from(format!("{name}.md"));
+            match create_note(&app.vault_root, &rel, "") {
+                Ok(_note) => {
+                    app.new_note = None;
+                    return update(app, Message::Refresh);
+                }
+                Err(error) => {
+                    app.error = Some(format!("Création impossible : {error}"));
                 }
             }
         }

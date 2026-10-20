@@ -12,9 +12,10 @@
 use std::collections::HashMap;
 
 use iced::{Color, Point};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Identifiant unique et stable d'une carte.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct CardId(pub u64);
 
 impl CardId {
@@ -49,6 +50,10 @@ pub const DEFAULT_CARD_HEIGHT: f32 = 100.0;
 /// Décalage entre deux cartes créées d'affilée, pour éviter le chevauchement
 /// total des premières cartes.
 pub const CASCADE_STEP: f32 = 20.0;
+/// Nombre de colonnes de la grille d'auto-layout.
+pub const AUTO_LAYOUT_COLUMNS: usize = 4;
+/// Espacement horizontal et vertical entre deux cartes lors de l'auto-layout.
+pub const AUTO_LAYOUT_SPACING: f32 = 24.0;
 
 /// Erreur retournée par les opérations mutantes sur un canevas.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -80,6 +85,8 @@ pub struct Card {
     pub text: String,
     /// Couleur de fond, par défaut absente (couleur du thème).
     pub color: Option<Color>,
+    /// Groupe auquel appartient la carte, le cas échéant.
+    pub group: Option<String>,
 }
 
 impl Card {
@@ -99,6 +106,7 @@ impl Card {
             title: title.to_string(),
             text: String::new(),
             color: None,
+            group: None,
         }
     }
 
@@ -138,16 +146,91 @@ impl Card {
     pub fn set_color(&mut self, color: Option<Color>) {
         self.color = color;
     }
+
+    /// Change (ou retire) le groupe de la carte.
+    pub fn set_group(&mut self, group: Option<String>) {
+        self.group = group;
+    }
+
+    /// Retourne le groupe de la carte, s'il en a un.
+    pub fn group(&self) -> Option<&str> {
+        self.group.as_deref()
+    }
+}
+
+/// Forme sérialisable d'une carte. La couleur (`iced::Color`) n'étant pas
+/// sérialisable telle quelle, elle est convertie en triplet RGB `[r, g, b]`
+/// de `u8` ; le champ `group` est optionnel (absent en JSON → `None`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CardJson {
+    id: u64,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    title: String,
+    text: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    color: Option<[u8; 3]>,
+    #[serde(default)]
+    group: Option<String>,
+}
+
+impl Serialize for Card {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        CardJson {
+            id: self.id.0,
+            x: self.x,
+            y: self.y,
+            width: self.width,
+            height: self.height,
+            title: self.title.clone(),
+            text: self.text.clone(),
+            color: self.color.map(|c| {
+                [
+                    (c.r * 255.0).round() as u8,
+                    (c.g * 255.0).round() as u8,
+                    (c.b * 255.0).round() as u8,
+                ]
+            }),
+            group: self.group.clone(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Card {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let json = CardJson::deserialize(deserializer)?;
+        Ok(Card {
+            id: CardId(json.id),
+            x: json.x,
+            y: json.y,
+            width: json.width,
+            height: json.height,
+            title: json.title,
+            text: json.text,
+            color: json.color.map(|[r, g, b]| Color::from_rgb8(r, g, b)),
+            group: json.group,
+        })
+    }
 }
 
 /// Arête orientée (ou non) entre deux cartes, éventuellement étiquetée.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CanvasEdge {
     /// Carte source de l'arête.
     pub from: CardId,
     /// Carte cible de l'arête.
     pub to: CardId,
     /// Étiquette optionnelle affichée le long de l'arête.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub label: Option<String>,
 }
 
@@ -409,6 +492,103 @@ impl CanvasBoard {
         }
         Some(self.edges.iter().filter(|edge| edge.to == id).collect())
     }
+
+    /// Retourne les cartes appartenant au groupe donné, triées par id croissant.
+    pub fn cards_in_group(&self, group: &str) -> Vec<&Card> {
+        self.cards()
+            .into_iter()
+            .filter(|card| card.group.as_deref() == Some(group))
+            .collect()
+    }
+
+    /// Retourne la liste des groupes distincts, triée alphabétiquement et sans
+    /// doublons.
+    pub fn groups(&self) -> Vec<String> {
+        let mut groups: Vec<String> = self
+            .cards
+            .values()
+            .filter_map(|card| card.group.clone())
+            .collect();
+        groups.sort();
+        groups.dedup();
+        groups
+    }
+
+    /// Réorganise toutes les cartes en grille : colonnes de largeur
+    /// `DEFAULT_CARD_WIDTH`, lignes de hauteur `DEFAULT_CARD_HEIGHT`,
+    /// espacement `AUTO_LAYOUT_SPACING` (24 px), dans l'ordre croissant des
+    /// ids. Les cartes sont placées ligne par ligne, sans chevauchement.
+    pub fn auto_layout(&mut self) {
+        let mut ids: Vec<CardId> = self.cards.keys().copied().collect();
+        ids.sort_by_key(|id| id.0);
+        for (i, id) in ids.into_iter().enumerate() {
+            let column = (i % AUTO_LAYOUT_COLUMNS) as f32;
+            let row = (i / AUTO_LAYOUT_COLUMNS) as f32;
+            if let Some(card) = self.cards.get_mut(&id) {
+                card.set_position(
+                    column * (DEFAULT_CARD_WIDTH + AUTO_LAYOUT_SPACING),
+                    row * (DEFAULT_CARD_HEIGHT + AUTO_LAYOUT_SPACING),
+                );
+            }
+        }
+    }
+
+    /// Sérialise le canevas en JSON (cartes triées par id, couleur convertie en
+    /// RGB, `next_id` non persisté).
+    pub fn to_json(&self) -> anyhow::Result<String> {
+        Ok(serde_json::to_string(self)?)
+    }
+
+    /// Déserialise un canevas depuis du JSON. Les ids des cartes et arêtes sont
+    /// conservés ; `next_id` est recalculé pour rester supérieur à tout id
+    /// existant.
+    pub fn from_json(json: &str) -> anyhow::Result<Self> {
+        Ok(serde_json::from_str(json)?)
+    }
+}
+
+/// Forme sérialisable d'un canevas : cartes triées par id, puis arêtes dans
+/// l'ordre d'insertion. `next_id` n'est pas persisté, il est recalculé à la
+/// déserialisation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BoardJson {
+    cards: Vec<Card>,
+    edges: Vec<CanvasEdge>,
+}
+
+impl Serialize for CanvasBoard {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        BoardJson {
+            cards: self.cards().into_iter().cloned().collect(),
+            edges: self.edges.clone(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for CanvasBoard {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let json = BoardJson::deserialize(deserializer)?;
+        let mut cards = HashMap::with_capacity(json.cards.len());
+        let mut next_id: u64 = 0;
+        for card in json.cards {
+            if card.id.0 >= next_id {
+                next_id = card.id.0 + 1;
+            }
+            cards.insert(card.id, card);
+        }
+        Ok(CanvasBoard {
+            cards,
+            next_id,
+            edges: json.edges,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -662,5 +842,170 @@ mod tests {
 
         // carte inconnue
         assert!(board.incident_edges(CardId(99)).is_none());
+    }
+
+    #[test]
+    fn groupes_get_set_cards_in_group_et_groups() {
+        let mut board = CanvasBoard::new();
+        let a = board.add_card("A");
+        let b = board.add_card("B");
+        let c = board.add_card("C");
+
+        assert_eq!(board.card(a).unwrap().group(), None);
+
+        board
+            .card_mut(a)
+            .unwrap()
+            .set_group(Some("notes".to_string()));
+        board
+            .card_mut(c)
+            .unwrap()
+            .set_group(Some("notes".to_string()));
+        board
+            .card_mut(b)
+            .unwrap()
+            .set_group(Some("archive".to_string()));
+
+        assert_eq!(board.card(a).unwrap().group(), Some("notes"));
+        assert_eq!(board.card(b).unwrap().group(), Some("archive"));
+
+        // cards_in_group triées par id croissant
+        let notes: Vec<u64> = board
+            .cards_in_group("notes")
+            .iter()
+            .map(|c| c.id.0)
+            .collect();
+        assert_eq!(notes, vec![0, 2]);
+        let archive: Vec<u64> = board
+            .cards_in_group("archive")
+            .iter()
+            .map(|c| c.id.0)
+            .collect();
+        assert_eq!(archive, vec![1]);
+        assert!(board.cards_in_group("aucun").is_empty());
+
+        // groupes distincts, triés
+        assert_eq!(
+            board.groups(),
+            vec!["archive".to_string(), "notes".to_string()]
+        );
+
+        // retirer un groupe
+        board.card_mut(b).unwrap().set_group(None);
+        assert!(board.cards_in_group("archive").is_empty());
+        assert_eq!(board.groups(), vec!["notes".to_string()]);
+    }
+
+    #[test]
+    fn json_roundtrip_vide() {
+        let board = CanvasBoard::new();
+        let json = board.to_json().unwrap();
+        let back = CanvasBoard::from_json(&json).unwrap();
+        assert_eq!(back.card_count(), 0);
+        assert_eq!(back.edge_count(), 0);
+        assert_eq!(back, board);
+    }
+
+    #[test]
+    fn json_roundtrip_conserve_ids_couleurs_groupes_et_next_id() {
+        let mut board = CanvasBoard::new();
+        let a = board.add_card("A");
+        let b = board.add_card("B");
+        let c = board.add_card("C");
+        board.connect(a, b).unwrap();
+        board.connect(b, c).unwrap();
+        board.set_edge_label(a, b, Some("lien")).unwrap();
+        board
+            .set_card_color(a, Some(Color::from_rgb8(255, 0, 0)))
+            .unwrap();
+        board
+            .card_mut(a)
+            .unwrap()
+            .set_group(Some("notes".to_string()));
+
+        let json = board.to_json().unwrap();
+        let mut back = CanvasBoard::from_json(&json).unwrap();
+
+        // ids conservés
+        assert_eq!(back.card_count(), 3);
+        assert!(back.card(a).is_some());
+        assert!(back.card(b).is_some());
+        assert!(back.card(c).is_some());
+
+        // données conservées
+        let card_a = back.card(a).unwrap();
+        assert_eq!(card_a.title, "A");
+        assert_eq!(card_a.color, Some(Color::from_rgb8(255, 0, 0)));
+        assert_eq!(card_a.group(), Some("notes"));
+        assert_eq!(back.edges().len(), 2);
+        assert_eq!(back.edges()[0].label, Some("lien".to_string()));
+
+        // équivalence complète
+        assert_eq!(back, board);
+
+        // next_id recalculé : reste supérieur à tout id existant
+        let d = back.add_card("D");
+        assert_eq!(d, CardId(3));
+        assert!(back.card(d).is_some());
+    }
+
+    #[test]
+    fn json_deserialise_champs_optionnels_absents() {
+        let json = r#"{"cards":[{"id":0,"x":0.0,"y":0.0,"width":200.0,"height":100.0,"title":"A","text":""}],"edges":[]}"#;
+        let board = CanvasBoard::from_json(json).unwrap();
+        let card = board.card(CardId(0)).unwrap();
+        assert_eq!(card.group(), None);
+        assert_eq!(card.color, None);
+        assert_eq!(board.groups(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn auto_layout_place_en_grille_sans_chevauchement_en_preservant_ordre() {
+        let mut board = CanvasBoard::new();
+        // cartes placées volontairement aux mêmes coordonnées
+        board.add_card_at("A", 50.0, 50.0, DEFAULT_CARD_WIDTH, DEFAULT_CARD_HEIGHT);
+        board.add_card_at("B", 50.0, 50.0, DEFAULT_CARD_WIDTH, DEFAULT_CARD_HEIGHT);
+        board.add_card_at("C", 0.0, 200.0, DEFAULT_CARD_WIDTH, DEFAULT_CARD_HEIGHT);
+        board.add_card_at("D", 500.0, 500.0, DEFAULT_CARD_WIDTH, DEFAULT_CARD_HEIGHT);
+        board.add_card_at("E", 30.0, 30.0, DEFAULT_CARD_WIDTH, DEFAULT_CARD_HEIGHT);
+
+        board.auto_layout();
+
+        // ordre préservé (par id croissant)
+        let cards = board.cards();
+        let ids: Vec<u64> = cards.iter().map(|c| c.id.0).collect();
+        assert_eq!(ids, vec![0, 1, 2, 3, 4]);
+
+        // positions conformes à la grille (4 colonnes, espacement 24)
+        let x_step = DEFAULT_CARD_WIDTH + AUTO_LAYOUT_SPACING;
+        let y_step = DEFAULT_CARD_HEIGHT + AUTO_LAYOUT_SPACING;
+        let expected: Vec<(f32, f32)> = vec![
+            (0.0, 0.0),    // id 0 : col 0, ligne 0
+            (x_step, 0.0), // id 1 : col 1, ligne 0
+            (2.0 * x_step, 0.0),
+            (3.0 * x_step, 0.0),
+            (0.0, y_step), // id 4 : col 0, ligne 1
+        ];
+        for (card, (ex, ey)) in cards.iter().zip(expected.iter()) {
+            assert_eq!(card.x, *ex, "x inattendue pour la carte {}", card.id.0);
+            assert_eq!(card.y, *ey, "y inattendue pour la carte {}", card.id.0);
+        }
+
+        // aucune intersection entre rectangles
+        for i in 0..cards.len() {
+            for j in i + 1..cards.len() {
+                let r1 = cards[i].rect();
+                let r2 = cards[j].rect();
+                let overlap = r1.x < r2.x + r2.width
+                    && r2.x < r1.x + r1.width
+                    && r1.y < r2.y + r2.height
+                    && r2.y < r1.y + r1.height;
+                assert!(
+                    !overlap,
+                    "cartes {} et {} se chevauchent",
+                    cards[i].id.0, cards[j].id.0
+                );
+            }
+        }
     }
 }

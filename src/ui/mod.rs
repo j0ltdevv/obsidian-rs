@@ -86,9 +86,50 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
+    } else if app.new_note.is_some() {
+        stack([root, new_note_overlay(app)])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     } else {
         root
     }
+}
+
+/// Overlay de création de note : panneau centré sur fond assombri.
+fn new_note_overlay<'a>(app: &'a App) -> Element<'a, Message> {
+    use iced::widget::{stack, text_input as ti};
+    let Some(state) = &app.new_note else {
+        return stack([]).into();
+    };
+    let panel = container(
+        column![
+            text("Nouvelle note").size(16).font(bold_font()),
+            ti("Nom de la note…", &state.name)
+                .on_input(Message::NewNoteName)
+                .padding(8),
+            row![
+                button(text("Créer"))
+                    .on_press(Message::NewNoteCreate)
+                    .style(primary_button_style),
+                button(text("Annuler"))
+                    .on_press(Message::NewNoteClose)
+                    .style(ghost_button_style),
+            ]
+            .spacing(8),
+        ]
+        .spacing(12)
+        .padding(20),
+    )
+    .style(panel_style)
+    .width(Length::FillPortion(3))
+    .max_width(420);
+
+    container(stack([panel.into()]))
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(overlay_style)
+        .into()
 }
 
 /// Barre de titre stable de l'application.
@@ -129,6 +170,12 @@ fn title_bar() -> Element<'static, Message> {
             .style(primary_button_style),
         button(text("Tâches"))
             .on_press(Message::ToggleTasks)
+            .style(primary_button_style),
+        button(text("Tâches"))
+            .on_press(Message::ToggleTasks)
+            .style(primary_button_style),
+        button(text("Note"))
+            .on_press(Message::NewNoteOpen)
             .style(primary_button_style),
         button(text("Actualiser"))
             .on_press(Message::Refresh)
@@ -282,18 +329,46 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
             .map(|(i, n)| (i as u64, n.path.clone()))
             .collect();
         let canvas = canvas_board_view(&app.canvas, &report);
-        return row![
-            sidebar,
+
+        let mut stack = Column::new()
+            .spacing(8)
+            .width(Length::Fill)
+            .height(Length::Fill);
+        stack = stack.push(
             container(canvas)
+                .width(Length::Fill)
+                .height(Length::FillPortion(5)),
+        );
+        if let Some(id) = app.canvas_selected {
+            if let Some(card) = app.canvas.card(id) {
+                let title_input = text_input("Titre", &card.title)
+                    .on_input(move |text| Message::CanvasEditTitle { id, text })
+                    .padding(6);
+                let text_input_editor = text_input("Contenu", &card.text)
+                    .on_input(move |text| Message::CanvasEditText { id, text })
+                    .padding(6);
+                let panel = container(
+                    column![
+                        text("Carte sélectionnée").size(13).font(bold_font()),
+                        title_input,
+                        text_input_editor,
+                    ]
+                    .spacing(6)
+                    .padding(8),
+                )
                 .style(panel_style)
-                .width(Length::FillPortion(4))
-                .height(Length::Fill)
-        ]
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .spacing(8)
-        .padding([8, 12])
-        .into();
+                .width(Length::Fill)
+                .height(Length::FillPortion(2));
+                stack = stack.push(panel);
+            }
+        }
+
+        return row![sidebar, stack]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .spacing(8)
+            .padding([8, 12])
+            .into();
     }
 
     if app.show_themes {

@@ -170,8 +170,7 @@ impl Program<Message> for CanvasProgram {
         }
         let point = cursor.position_over(bounds)?;
         let id = self.scene.card_at(point)?;
-        let path = self.scene.paths.get(&id)?.clone();
-        Some(canvas::Action::publish(Message::OpenNote(path)))
+        Some(canvas::Action::publish(Message::CanvasSelect(id)))
     }
 }
 
