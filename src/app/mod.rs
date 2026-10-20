@@ -13,7 +13,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::vault::history::list_snapshots;
+use crate::vault::canvas_data::CanvasBoard;
+use crate::vault::history::{list_snapshots, restore_snapshot};
 use crate::vault::index::NoteIndex;
 use crate::vault::meta::{remove_frontmatter_property, set_frontmatter_property};
 use crate::vault::ops::write_note;
@@ -74,6 +75,10 @@ pub enum Message {
     NewPropertyKeyChanged(String),
     /// Édite la valeur brouillon de la nouvelle propriété.
     NewPropertyValueChanged(String),
+    /// Restaure une version locale (snapshot) dans la note ouverte.
+    RestoreSnapshot(usize),
+    /// Bascule la vue Canvas.
+    ToggleCanvas,
 }
 
 /// Note actuellement ouverte : chemin, métadonnées du dernier scan et tampon
@@ -158,6 +163,10 @@ pub struct App {
     pub current_theme: String,
     /// Snapshots de la note ouverte (chargés pour la vue historique).
     pub history_snapshots: Vec<PathBuf>,
+    /// Affiche la vue Canvas à la place de l'éditeur/prévisualisation.
+    pub show_canvas: bool,
+    /// Planche Canvas (une carte par note, arêtes = wikilinks résolus).
+    pub canvas: CanvasBoard,
 }
 
 impl App {
@@ -170,11 +179,41 @@ impl App {
             .map(|notes| NoteIndex::build_index(notes));
         (notes, index)
     }
+
+    /// Construit la planche Canvas depuis les notes et l'index.
+    fn build_canvas(notes: &[Note], index: &Option<NoteIndex>) -> CanvasBoard {
+        let mut board = CanvasBoard::new();
+        let mut by_name = std::collections::HashMap::new();
+        for note in notes {
+            let id = board.add_card(&note.name);
+            by_name.insert(note.name.clone(), id);
+        }
+        if let Some(index) = index {
+            for note in notes {
+                let Some(&from) = by_name.get(&note.name) else {
+                    continue;
+                };
+                for link in &note.metadata.wikilinks {
+                    let resolved = index.resolve(&link.target);
+                    if let Some(target) = resolved.first() {
+                        if let Some(&to) = by_name.get(&target.name) {
+                            let _ = board.connect(from, to);
+                        }
+                    }
+                }
+            }
+        }
+        board
+    }
 }
 
 /// Point d'entrée iced : construit l'état initial en scannant le vault.
 pub fn boot() -> (App, Task<Message>) {
     let (notes, index) = App::rescan(Path::new(DEMO_VAULT));
+    let canvas = App::build_canvas(
+        notes.as_ref().map(|n| n.as_slice()).unwrap_or_default(),
+        &index,
+    );
     let app = App {
         notes,
         index,
@@ -189,6 +228,8 @@ pub fn boot() -> (App, Task<Message>) {
         show_dataview: false,
         current_theme: "dark".to_string(),
         history_snapshots: Vec::new(),
+        show_canvas: false,
+        canvas,
     };
     (app, Task::none())
 }
@@ -208,11 +249,25 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             if !keep_open {
                 app.open = None;
             }
+            let canvas = App::build_canvas(
+                notes.as_ref().map(|n| n.as_slice()).unwrap_or_default(),
+                &index,
+            );
             app.notes = notes;
             app.index = index;
+            app.canvas = canvas;
             app.error = None;
             if let Some(state) = &mut app.switcher {
                 state.results = switcher_results(&app.notes, &app.index, &state.query);
+            }
+        }
+        Message::ToggleCanvas => {
+            app.show_canvas = !app.show_canvas;
+            if app.show_canvas {
+                app.show_themes = false;
+                app.show_history = false;
+                app.show_dataview = false;
+                app.show_graph = false;
             }
         }
         Message::ToggleFolder(dir) => {
@@ -316,6 +371,25 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::SelectTheme(name) => {
             app.current_theme = name;
+        }
+        Message::RestoreSnapshot(index) => {
+            if let Some(open) = &app.open {
+                if let Some(snap) = app.history_snapshots.get(index) {
+                    match restore_snapshot(&app.vault_root, &open.path, snap) {
+                        Ok(source) => {
+                            if let Some(open) = &mut app.open {
+                                open.content = text_editor::Content::with_text(&source);
+                                open.property_drafts =
+                                    PropertyDrafts::from_frontmatter(&open.metadata.frontmatter);
+                            }
+                            app.error = None;
+                        }
+                        Err(error) => {
+                            app.error = Some(format!("Restauration impossible : {error}"));
+                        }
+                    }
+                }
+            }
         }
         Message::SetProperty { key, value } => set_property(app, &key, &value),
         Message::RemoveProperty { key } => remove_property(app, &key),

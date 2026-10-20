@@ -26,11 +26,13 @@ use iced::{Alignment, Background, Border, Color, Element, Font, Length};
 use crate::app::{App, Message};
 use crate::vault::{Note, Wikilink};
 
+mod canvas_view;
 mod dataview_view;
 mod graph;
 mod history_view;
 mod themes_view;
 
+use self::canvas_view::canvas_board_view;
 use self::dataview_view::dataview_view;
 use self::graph::graph_view;
 use self::history_view::history_view;
@@ -97,6 +99,9 @@ fn title_bar() -> Element<'static, Message> {
             .style(primary_button_style),
         button(text("Dataview"))
             .on_press(Message::ToggleDataview)
+            .style(primary_button_style),
+        button(text("Canvas"))
+            .on_press(Message::ToggleCanvas)
             .style(primary_button_style),
         button(text("Actualiser"))
             .on_press(Message::Refresh)
@@ -180,6 +185,27 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         .width(Length::FillPortion(3))
         .height(Length::Fill);
 
+    if app.show_canvas {
+        let report: Vec<(u64, std::path::PathBuf)> = notes
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (i as u64, n.path.clone()))
+            .collect();
+        let canvas = canvas_board_view(&app.canvas, &report);
+        return row![
+            sidebar,
+            container(canvas)
+                .style(panel_style)
+                .width(Length::FillPortion(4))
+                .height(Length::Fill)
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .spacing(8)
+        .padding([8, 12])
+        .into();
+    }
+
     if app.show_themes {
         let on_select = |name: String| Message::SelectTheme(name);
         let themes = themes_view(&app.current_theme, &on_select);
@@ -198,7 +224,9 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
     }
 
     if app.show_history && app.open.is_some() {
-        let history = history_view(&app.history_snapshots, None, |_index| Message::DismissError);
+        let history = history_view(&app.history_snapshots, None, |index| {
+            Message::RestoreSnapshot(index)
+        });
         return row![
             sidebar,
             container(history)
