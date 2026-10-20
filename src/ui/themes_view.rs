@@ -30,11 +30,24 @@ const DOT_SIZE: f32 = 10.0;
 pub fn themes_view<'a>(
     current: &str,
     on_select: &dyn Fn(String) -> Message,
+    snippets: &[(std::path::PathBuf, Vec<crate::vault::css_snippets::CssVar>)],
 ) -> Element<'a, Message> {
     let mut list = Column::new().spacing(6);
     for name in THEME_NAMES {
         if let Some(theme) = by_name(name) {
             list = list.push(theme_button(theme, current, on_select));
+        }
+    }
+    list = list.push(text("Snippets CSS (sous-ensemble couleurs)").size(13));
+    if snippets.is_empty() {
+        list = list.push(text("Aucun snippet dans .obsidian/snippets/").size(12));
+    } else {
+        for (path, vars) in snippets {
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default();
+            list = list.push(text(format!("{name} — {} variable(s)", vars.len())).size(12));
         }
     }
     list.width(Length::Fill).into()
@@ -119,7 +132,8 @@ mod tests {
 
     #[test]
     fn les_deux_themes_connus_sont_affiches() {
-        let view = themes_view("dark", &|_| Message::Refresh);
+        let snippets: &[(std::path::PathBuf, Vec<crate::vault::css_snippets::CssVar>)] = &[];
+        let view = themes_view("dark", &|_| Message::Refresh, snippets);
         // La vue se construit sans paniquer.
         let _ = view;
     }

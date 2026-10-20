@@ -159,9 +159,9 @@ pub enum Message {
     GlobalReplaceAll,
     /// Active/désactive un plugin par id.
     PluginToggle(String),
+    /// Recharge les snippets CSS depuis `.obsidian/snippets/`.
+    ReloadSnippets,
 }
-/// Dialogue de création de note (nom saisi).
-#[derive(Debug)]
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
     pub name: String,
@@ -314,6 +314,10 @@ pub struct App {
     pub search_line_counts: HashMap<usize, usize>,
     /// Tâches agrégées de toutes les notes (construites au scan).
     pub tasks: Vec<VaultTask>,
+    /// Dialogue de nouvelle note ouvert, si présent.
+    pub new_note: Option<NewNoteState>,
+    /// Snippets CSS chargés (chemin, variables extraites).
+    pub css_snippets: Vec<(std::path::PathBuf, Vec<crate::vault::css_snippets::CssVar>)>,
     /// Filtres du graphe (local / tag / dossier).
     pub graph_filters: GraphFilters,
     /// Décalages persistants de nœuds du graphe (nœud → dx, dy).
@@ -328,8 +332,6 @@ pub struct App {
     pub find: Option<FindState>,
     /// Carte du canvas actuellement sélectionnée.
     pub canvas_selected: Option<CardId>,
-    /// Dialogue de nouvelle note ouvert, si présent.
-    pub new_note: Option<NewNoteState>,
 }
 
 impl App {
@@ -426,6 +428,7 @@ pub fn boot() -> (App, Task<Message>) {
         find: None,
         canvas_selected: None,
         new_note: None,
+        css_snippets: crate::vault::css_snippets::load_snippets(Path::new(DEMO_VAULT)),
     };
     (app, Task::none())
 }
@@ -881,6 +884,9 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             if let Err(error) = app.plugins.set_enabled(&id, enabled) {
                 app.error = Some(format!("Plugin « {id} » : {error}"));
             }
+        }
+        Message::ReloadSnippets => {
+            app.css_snippets = crate::vault::css_snippets::load_snippets(&app.vault_root);
         }
         Message::ToggleGraph => {
             app.show_graph = !app.show_graph;

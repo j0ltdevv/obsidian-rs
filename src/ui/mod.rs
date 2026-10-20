@@ -380,7 +380,7 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
 
     if app.show_themes {
         let on_select = |name: String| Message::SelectTheme(name);
-        let themes = themes_view(&app.current_theme, &on_select);
+        let themes = themes_view(&app.current_theme, &on_select, &app.css_snippets);
         return row![
             sidebar,
             container(themes)

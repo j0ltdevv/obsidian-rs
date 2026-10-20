@@ -7,7 +7,7 @@ pub mod bookmarks;
 pub mod callouts;
 pub mod canvas_data;
 pub mod commands;
-pub mod daily_notes;
+pub mod css_snippets;
 pub mod dataview;
 pub mod editor;
 pub mod embeds;
