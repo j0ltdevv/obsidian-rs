@@ -9,7 +9,7 @@
 //!   (`Task::perform`) est possible sans changer la vue.
 //! - L'interface ne supprime jamais de fichier.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -117,6 +117,33 @@ pub enum Message {
     GraphToggleLocal,
     /// Efface tous les filtres du graphe.
     GraphClearFilters,
+    /// Début d'un glisser-déposer de nœud du graphe.
+    GraphDragStart { node: usize, origin: (f32, f32) },
+    /// Mouvement de curseur pendant un glisser-déposer.
+    GraphDragMove { x: f32, y: f32 },
+    /// Fin du glisser-déposer.
+    GraphDragEnd,
+    /// Applique un décalage persistant à un nœud du graphe.
+    GraphDragApply { node: usize, dx: f32, dy: f32 },
+    /// Ouvre le panneau recherche/remplacement.
+    FindOpen,
+    /// Ferme le panneau recherche/remplacement.
+    FindClose,
+    /// Change la requête de recherche.
+    FindQuery(String),
+    /// Change le texte de remplacement.
+    FindReplaceText(String),
+    /// Remplace toutes les occurrences dans la note ouverte.
+    FindReplaceAll,
+}
+
+/// Recherche/remplacement dans la note ouverte.
+#[derive(Debug)]
+pub struct FindState {
+    /// Requête courante.
+    pub query: String,
+    /// Texte de remplacement.
+    pub replace: String,
 }
 
 /// Note actuellement ouverte : chemin, métadonnées du dernier scan et tampon
@@ -248,6 +275,16 @@ pub struct App {
     pub tasks: Vec<VaultTask>,
     /// Filtres du graphe (local / tag / dossier).
     pub graph_filters: GraphFilters,
+    /// Décalages persistants de nœuds du graphe (nœud → dx, dy).
+    pub graph_drags: HashMap<usize, (f32, f32)>,
+    /// Nœud de graphe en cours de glisser-déposer.
+    pub graph_drag_active: Option<usize>,
+    /// Origine (curseur) du glisser-déposer en cours.
+    pub graph_drag_origin: Option<(f32, f32)>,
+    /// Programme de graphe persistant (conserve l'état de glisser-déposer).
+    pub graph_program: Option<crate::ui::graph::GraphProgram>,
+    /// Panneau recherche/remplacement ouvert, si présent.
+    pub find: Option<FindState>,
 }
 
 impl App {
@@ -336,6 +373,11 @@ pub fn boot() -> (App, Task<Message>) {
         fulltext,
         tasks,
         graph_filters: GraphFilters::default(),
+        graph_drags: HashMap::new(),
+        graph_drag_active: None,
+        graph_drag_origin: None,
+        graph_program: None,
+        find: None,
     };
     (app, Task::none())
 }
@@ -604,6 +646,55 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::GraphClearFilters => {
             app.graph_filters = GraphFilters::default();
         }
+        Message::GraphDragStart { node, origin } => {
+            app.graph_drag_active = Some(node);
+            app.graph_drag_origin = Some(origin);
+        }
+        Message::GraphDragMove { x, y } => {
+            if let (Some(node), Some((ox, oy))) = (app.graph_drag_active, app.graph_drag_origin) {
+                let (px, py) = app.graph_drags.get(&node).copied().unwrap_or((0.0, 0.0));
+                app.graph_drags.insert(node, (px + (x - ox), py + (y - oy)));
+            }
+        }
+        Message::GraphDragEnd => {
+            app.graph_drag_active = None;
+            app.graph_drag_origin = None;
+        }
+        Message::GraphDragApply { node, dx, dy } => {
+            let (px, py) = app.graph_drags.get(&node).copied().unwrap_or((0.0, 0.0));
+            app.graph_drags.insert(node, (px + dx, py + dy));
+        }
+        Message::FindOpen => {
+            app.find = Some(FindState {
+                query: String::new(),
+                replace: String::new(),
+            });
+        }
+        Message::FindClose => {
+            app.find = None;
+        }
+        Message::FindQuery(query) => {
+            if let Some(find) = &mut app.find {
+                find.query = query;
+            }
+        }
+        Message::FindReplaceText(text) => {
+            if let Some(find) = &mut app.find {
+                find.replace = text;
+            }
+        }
+        Message::FindReplaceAll => {
+            if let Some(open) = &mut app.open {
+                let current = open.content.text().to_string();
+                let Some(find) = &app.find else {
+                    return Task::none();
+                };
+                if !find.query.is_empty() {
+                    let replaced = current.replace(&find.query, &find.replace);
+                    open.content = text_editor::Content::with_text(&replaced);
+                }
+            }
+        }
         Message::ToggleGraph => {
             app.show_graph = !app.show_graph;
             if app.show_graph {
@@ -786,6 +877,9 @@ pub fn subscription(_app: &App) -> iced::Subscription<Message> {
                 }
                 Key::Character(character) if character.eq_ignore_ascii_case("p") => {
                     return Some(Message::OpenCommandPalette);
+                }
+                Key::Character(character) if character.eq_ignore_ascii_case("f") => {
+                    return Some(Message::FindOpen);
                 }
                 _ => {}
             }

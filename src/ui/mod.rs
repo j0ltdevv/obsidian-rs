@@ -30,7 +30,7 @@ use crate::vault::{Note, Wikilink};
 
 mod canvas_view;
 mod dataview_view;
-mod graph;
+pub(crate) mod graph;
 mod history_view;
 pub mod outline_view;
 mod plugins_view;
@@ -551,7 +551,29 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
         .padding([8, 10])
         .height(Length::Fill);
 
-    column![header, editor]
+    let mut children: Vec<Element<'a, Message>> = vec![header.into()];
+    if let Some(find) = &app.find {
+        let bar = row![
+            text_input("Rechercher…", &find.query)
+                .on_input(Message::FindQuery)
+                .width(Length::FillPortion(3)),
+            text_input("Remplacer par…", &find.replace)
+                .on_input(Message::FindReplaceText)
+                .width(Length::FillPortion(3)),
+            button(text("Tout remplacer"))
+                .on_press(Message::FindReplaceAll)
+                .style(ghost_button_style),
+            button(text("Fermer"))
+                .on_press(Message::FindClose)
+                .style(ghost_button_style),
+        ]
+        .spacing(6)
+        .padding([0, 8]);
+        children.push(bar.into());
+    }
+    children.push(editor.into());
+
+    column(children)
         .spacing(8)
         .width(Length::FillPortion(5))
         .height(Length::Fill)
