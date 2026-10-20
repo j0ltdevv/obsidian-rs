@@ -30,12 +30,14 @@ mod canvas_view;
 mod dataview_view;
 mod graph;
 mod history_view;
+mod plugins_view;
 mod themes_view;
 
 use self::canvas_view::canvas_board_view;
 use self::dataview_view::dataview_view;
 use self::graph::graph_view;
 use self::history_view::history_view;
+use self::plugins_view::plugins_view;
 use self::themes_view::themes_view;
 
 /// Couleur du titre de la barre supérieure.
@@ -99,6 +101,9 @@ fn title_bar() -> Element<'static, Message> {
             .style(primary_button_style),
         button(text("Dataview"))
             .on_press(Message::ToggleDataview)
+            .style(primary_button_style),
+        button(text("Plugins"))
+            .on_press(Message::TogglePlugins)
             .style(primary_button_style),
         button(text("Canvas"))
             .on_press(Message::ToggleCanvas)
@@ -230,6 +235,22 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         return row![
             sidebar,
             container(history)
+                .style(panel_style)
+                .width(Length::FillPortion(4))
+                .height(Length::Fill)
+        ]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .spacing(8)
+        .padding([8, 12])
+        .into();
+    }
+
+    if app.show_plugins {
+        let plugins = plugins_view(&app.plugins.info());
+        return row![
+            sidebar,
+            container(plugins)
                 .style(panel_style)
                 .width(Length::FillPortion(4))
                 .height(Length::Fill)

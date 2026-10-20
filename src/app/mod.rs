@@ -13,6 +13,10 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::plugins::api::PluginContext;
+use crate::plugins::demo_stats::demo_stats_plugin;
+use crate::plugins::demo_todo::demo_todo_plugin;
+use crate::plugins::registry::PluginRegistry;
 use crate::vault::canvas_data::CanvasBoard;
 use crate::vault::history::{list_snapshots, restore_snapshot};
 use crate::vault::index::NoteIndex;
@@ -75,6 +79,8 @@ pub enum Message {
     NewPropertyKeyChanged(String),
     /// Édite la valeur brouillon de la nouvelle propriété.
     NewPropertyValueChanged(String),
+    /// Bascule la vue Plugins (liste des plugins enregistrés).
+    TogglePlugins,
     /// Restaure une version locale (snapshot) dans la note ouverte.
     RestoreSnapshot(usize),
     /// Bascule la vue Canvas.
@@ -167,6 +173,10 @@ pub struct App {
     pub show_canvas: bool,
     /// Planche Canvas (une carte par note, arêtes = wikilinks résolus).
     pub canvas: CanvasBoard,
+    /// Registre des plugins chargés (démo enregistrées au boot).
+    pub plugins: PluginRegistry,
+    /// Affiche la vue Plugins à la place de l'éditeur/prévisualisation.
+    pub show_plugins: bool,
 }
 
 impl App {
@@ -214,13 +224,24 @@ pub fn boot() -> (App, Task<Message>) {
         notes.as_ref().map(|n| n.as_slice()).unwrap_or_default(),
         &index,
     );
+    // Registre de plugins : enregistre les démo, puis les charge. Une erreur
+    // de chargement n'empêche pas l'app de démarrer (elle est affichée).
+    let note_count = notes.as_ref().map(|n| n.len()).unwrap_or(0);
+    let mut plugins = PluginRegistry::new();
+    let _ = plugins.register(demo_stats_plugin());
+    let _ = plugins.register(demo_todo_plugin());
+    let ctx = PluginContext {
+        vault_name: DEMO_VAULT,
+        note_count,
+    };
+    let plugin_error = plugins.load_all(&ctx).err();
     let app = App {
         notes,
         index,
         vault_root: PathBuf::from(DEMO_VAULT),
         open: None,
         expanded: HashSet::new(),
-        error: None,
+        error: plugin_error,
         switcher: None,
         show_graph: false,
         show_themes: false,
@@ -230,6 +251,8 @@ pub fn boot() -> (App, Task<Message>) {
         history_snapshots: Vec::new(),
         show_canvas: false,
         canvas,
+        plugins,
+        show_plugins: false,
     };
     (app, Task::none())
 }
@@ -270,6 +293,16 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.show_graph = false;
             }
         }
+        Message::TogglePlugins => {
+            app.show_plugins = !app.show_plugins;
+            if app.show_plugins {
+                app.show_themes = false;
+                app.show_history = false;
+                app.show_dataview = false;
+                app.show_graph = false;
+                app.show_canvas = false;
+            }
+        }
         Message::ToggleFolder(dir) => {
             if !app.expanded.remove(&dir) {
                 app.expanded.insert(dir);
@@ -284,7 +317,19 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::SaveNote => {
             if let Some(open) = &app.open {
                 match write_note(&app.vault_root, &open.path, &open.content.text()) {
-                    Ok(()) => app.error = None,
+                    Ok(()) => {
+                        app.error = None;
+                        // Notifie les plugins de la mutation (id = chemin).
+                        let note_count = app.notes.as_ref().map(|n| n.len()).unwrap_or(0);
+                        let ctx = PluginContext {
+                            vault_name: DEMO_VAULT,
+                            note_count,
+                        };
+                        let id = open.path.to_string_lossy().into_owned();
+                        if let Err(error) = app.plugins.notify_change(&ctx, &[id]) {
+                            app.error = Some(format!("Erreur plugin : {error}"));
+                        }
+                    }
                     Err(error) => {
                         app.error = Some(format!("Sauvegarde impossible : {error}"));
                     }
@@ -621,5 +666,29 @@ fn property_display(value: &serde_yaml::Value) -> String {
         other => serde_yaml::to_string(other)
             .map(|serialized| serialized.trim().to_string())
             .unwrap_or_else(|_| format!("{other:?}")),
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn boot_charge_les_plugins_demo_actifs() {
+        let (app, _task) = boot();
+        let info = app.plugins.info();
+        assert_eq!(info.len(), 2);
+        assert!(info.iter().all(|p| p.enabled));
+        assert!(info.iter().any(|p| p.id == "demo-stats"));
+        assert!(info.iter().any(|p| p.id == "demo-todo"));
+    }
+
+    #[test]
+    fn toggle_plugins_bascule_la_vue() {
+        let (mut app, _task) = boot();
+        assert!(!app.show_plugins);
+        let _ = update(&mut app, Message::TogglePlugins);
+        assert!(app.show_plugins);
+        let _ = update(&mut app, Message::TogglePlugins);
+        assert!(!app.show_plugins);
     }
 }

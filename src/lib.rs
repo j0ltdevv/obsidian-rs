@@ -3,5 +3,6 @@
 //! Le cœur (vault, parsing) vit ici et est testable sans fenêtre.
 
 pub mod app;
+pub mod plugins;
 pub mod ui;
 pub mod vault;
