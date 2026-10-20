@@ -33,6 +33,9 @@ mod dataview_view;
 mod graph;
 mod history_view;
 mod plugins_view;
+pub mod tasks_view;
+pub mod outline_view;
+pub mod search_view;
 mod themes_view;
 
 use self::canvas_view::canvas_board_view;
