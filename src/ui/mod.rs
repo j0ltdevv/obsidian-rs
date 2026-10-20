@@ -1272,21 +1272,14 @@ fn wikilink_button<'a>(app: &'a App, link: &'a Wikilink) -> Element<'a, Message>
 
 /// Pastille de tag.
 fn tag_chip(tag: &str) -> Element<'static, Message> {
-    container(
+    button(
         text(format!("#{tag}"))
             .size(12)
             .color(Color::from_rgb(0.2, 0.42, 0.65)),
     )
+    .on_press(Message::GraphFilterTag(tag.to_string()))
     .padding([3, 8])
-    .style(|_theme| container::Style {
-        background: Some(Background::Color(Color::from_rgb(0.87, 0.92, 0.97))),
-        border: Border {
-            color: Color::from_rgb(0.7, 0.8, 0.9),
-            width: 1.0,
-            radius: Radius::from(12.0),
-        },
-        ..container::Style::default()
-    })
+    .style(ghost_button_style)
     .into()
 }
 

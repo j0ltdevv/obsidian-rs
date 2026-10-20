@@ -184,6 +184,8 @@ pub enum Message {
     FolderName(String),
     /// Change le brouillon de nouveau nom du renommage.
     RenameDraft(String),
+    /// Filtre le graphe sur un tag (clic sur une pastille).
+    GraphFilterTag(String),
 }
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
@@ -369,6 +371,8 @@ pub struct App {
     pub folder_name: String,
     /// Raccourcis persistés (hotkeys.json), chargés au boot.
     pub hotkeys: Vec<crate::vault::settings::Hotkey>,
+    /// Dernières notes ouvertes (chemins), plus récente en tête.
+    pub recent: Vec<PathBuf>,
 }
 impl App {
     /// Scanne le vault donné et reconstitue notes + index.
@@ -473,6 +477,7 @@ pub fn boot() -> (App, Task<Message>) {
         folder_dialog: false,
         folder_name: String::new(),
         hotkeys: crate::vault::settings::load_hotkeys(Path::new(DEMO_VAULT)).unwrap_or_default(),
+        recent: Vec::new(),
     };
     (app, Task::none())
 }
@@ -1062,6 +1067,10 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.switcher = None;
             }
         }
+        Message::GraphFilterTag(tag) => {
+            app.graph_filters.tag = Some(tag);
+            app.show_graph = true;
+        }
         Message::ToggleThemes => {
             app.show_themes = !app.show_themes;
             if app.show_themes {
@@ -1163,6 +1172,9 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
 /// Ouvre la note au chemin relatif donné : lecture du contenu depuis le disque
 /// (I/O dans `update`), mémorisation des métadonnées du dernier scan.
 fn open_note(app: &mut App, path: &Path) {
+    app.recent.retain(|p| p != path);
+    app.recent.insert(0, path.to_path_buf());
+    app.recent.truncate(20);
     let snapshot = app
         .notes
         .as_ref()
@@ -1271,6 +1283,9 @@ fn switcher_results(
     let (Some(notes), Some(index)) = (notes.as_ref().ok(), index.as_ref()) else {
         return Vec::new();
     };
+    if query.trim().is_empty() {
+        return (0..notes.len()).collect();
+    }
     index
         .search(query, notes, SEARCH_LIMIT)
         .into_iter()
