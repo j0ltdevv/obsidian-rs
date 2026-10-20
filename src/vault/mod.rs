@@ -1,7 +1,9 @@
 //! Lecture/écriture Markdown, liens, index.
 
 pub mod frontmatter;
+pub mod graph;
 pub mod index;
+pub mod meta;
 pub mod note;
 pub mod ops;
 pub mod scan;
