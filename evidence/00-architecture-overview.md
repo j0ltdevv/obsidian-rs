@@ -87,3 +87,26 @@ Chaque affirmation porte un label de statut :
 - **SEEN** — Main process : 2 `BrowserWindow` créées ; 0 preload / contextBridge exposé.
 - **SEEN** — IPC : 45 opérations / canaux littéraux / handlers main ; 1 observation de validation sender.
 - **SEEN** — 35 fichiers hors scope (dont `app.js`, renderer).
+
+## 7ter. Analyse JS complète (tous les fichiers d'application)
+
+- **SEEN** — `relevant_files: 37`, `parsed_javascript_files: 5`, `parse_failures: 0`, `text_bytes_read: 4 771 961`, `visited_ast_nodes: 1 276 779`, `findings: 778`, `modules: 363` (420 en paginé).
+- **SEEN** — `electron.browser_windows: 2` ; `ipc: 45 literal_channels, 45 main_handlers, 0 dynamic, 0 renderer_transmissions`.
+- **SEEN** — `preload_entrypoints: 0`, `context_bridge_apis: 0`, `native_addon_bindings: 0`.
+- **INFERRED** — Aucune transmission renderer appariée + aucun pont preload/contextBridge → le renderer accède vraisemblablement aux API Node directement (`nodeIntegration` activé) ; non prouvé dynamiquement.
+- **SEEN** — `source_selection: 29 fichiers non analysés` (vendor `lib/`) ; l'analyse complète de l'ASAR entier dépasse le timeout interne REA (300 s) et n'est pas relancée.
+- **SEEN** — Les 45 canaux IPC littéraux sont tous traités côté main process (liste complète : voir synthèse `evidence/01-canaux-ipc.md`).
+
+## 8. Modules et découpage (analyse app.js)
+
+- **SEEN** — La collection `modules` (app.js) pagine 228 lignes ; la quasi-totalité sont des chunks du bundle renderer (`javascript-module` dans `app.js`), sans noms internes exploitables.
+- **SEEN** — Dépendances assets référencées : `lib/scrypt.js`, `lib/prism.min.js` (highlight), `lib/mathjax/tex-chtml-full.js`, `lib/defuddle.full.js`, `sim.js`, `starter.js`, `i18next.min.js`, `lib/pdfjs/*`.
+- **UNKNOWN** — Les collections `sections`/`symbols` ne s'appliquent pas à l'Evidence JavaScript (réservées à `inspect_binary_layout`) → découpage interne symbolique non accessible par cette voie.
+
+- **SEEN** — Libs analysées (12 fichiers, 4 308 539 o, 1 024 125 nœuds AST, 913 findings, 0 échec parse) :
+  - CodeMirror (`lib/codemirror/*`, 7 fichiers, 1 330 731 o) : 0 module → scripts globaux (noyau, modes, vim, markdown, addons) [SEEN] ; attribution fine [INFERRED].
+  - i18next (`lib/i18next.min.js`, 41 340 o) : script global [SEEN].
+  - Defuddle (`lib/defuddle.full.js`, 750 220 o) : **seul bundle multi-modules** (64 modules) [SEEN].
+  - PDF.js (`lib/pdfjs/*`, 3 fichiers ESM `.mjs`, 2 186 248 o) : noyau/viewer/worker [SEEN] ; nature worker [INFERRED].
+- **SEEN** — Aucune intégration Electron détectée dans les libs (0 fenêtre/preload/IPC) ; 0 child-process.
+- **UNKNOWN** — Versions exactes des libs, exports/API détaillés, graphe complet (détail `complete` bloqué par budget transport stdio ~10,5 MiB ; heap worker épuisé sur `pdf.viewer.min.mjs`).

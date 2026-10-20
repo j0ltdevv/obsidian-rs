@@ -17,7 +17,7 @@ cargo test   # 23 passed, 7 passed, 7 passed, 0 failed
 cargo clippy --all-targets -- -D warnings  # OK
 ```
 
-Aucun échec. 54 tests au total (23 unitaires lib + 7 intégration scan + 7 dialecte Markdown Obsidian + 8 ops vault + 9 index liens).
+Aucun échec. 78 tests au total (23 unitaires lib + 15 ops vault + 10 index + 7 scan + 7 sandbox + 8 meta + 8 graph).
 
 ---
 
@@ -96,3 +96,12 @@ Détail complet : `evidence/00-architecture-overview.md`.
 ## 7. Prochain pas (une phrase)
 
 Relancer `analyze_javascript_application` après `/mcp reload` pour élucider les sections UNKNOWN (main process, IPC, plugins), puis valider la Phase 0 auprès du propriétaire avant la Phase 1.
+
+---
+
+## 8. État de la vague Phase 2 (courante)
+
+- **Statut** : en cours.
+- **Modules vault en cours** (6) : editor, search, quick_switcher, properties, history, keymap.
+- **Specs Phase 2 livrées** (8 au total) : 2 premières — EDITOR, SEARCH — puis 6 livrées dans la vague courante — GRAPH, THEMES, HISTORY, KEYMAP, PROPERTIES, QUICK-SWITCHER.
+- **Providers utilisés** : river pour les builders ; mercury pour docs/audit.

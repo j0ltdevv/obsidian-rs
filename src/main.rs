@@ -5,5 +5,6 @@ fn main() -> iced::Result {
         .title("obsidian-rs")
         .window_size((720, 480))
         .centered()
+        .subscription(app::subscription)
         .run()
 }
