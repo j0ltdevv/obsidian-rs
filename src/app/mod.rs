@@ -168,6 +168,22 @@ pub enum Message {
     SetVimMode(bool),
     /// Active/désactive la correction orthographique (persistée).
     SetSpellcheck(bool),
+    /// Ouvre le dialogue de renommage d'une note.
+    ToggleRename(PathBuf),
+    /// Valide le renommage.
+    RenameCommit,
+    /// Ouvre la confirmation de suppression d'une note.
+    ToggleDelete(PathBuf),
+    /// Confirme la suppression de la note.
+    DeleteConfirm,
+    /// Ouvre le dialogue de création de dossier.
+    FolderDialogOpen,
+    /// Crée le dossier saisi.
+    FolderCreate(String),
+    /// Change le nom du dossier saisi.
+    FolderName(String),
+    /// Change le brouillon de nouveau nom du renommage.
+    RenameDraft(String),
 }
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
@@ -343,6 +359,14 @@ pub struct App {
     pub settings: AppSettings,
     /// Affiche la vue Réglages.
     pub show_settings: bool,
+    /// Dialogue de renommage ouvert : (chemin courant, nouveau nom).
+    pub rename_dialog: Option<(PathBuf, String)>,
+    /// Carte de note en attente de confirmation de suppression.
+    pub delete_confirm: Option<PathBuf>,
+    /// Dialogue de création de dossier ouvert.
+    pub folder_dialog: bool,
+    /// Nom du dossier en cours de saisie.
+    pub folder_name: String,
 }
 impl App {
     /// Scanne le vault donné et reconstitue notes + index.
@@ -442,6 +466,10 @@ pub fn boot() -> (App, Task<Message>) {
         css_snippets: crate::vault::css_snippets::load_snippets(Path::new(DEMO_VAULT)),
         settings,
         show_settings: false,
+        rename_dialog: None,
+        delete_confirm: None,
+        folder_dialog: false,
+        folder_name: String::new(),
     };
     (app, Task::none())
 }
@@ -588,6 +616,14 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.switcher = None;
             } else if app.new_note.is_some() {
                 app.new_note = None;
+            } else if app.rename_dialog.is_some() {
+                app.rename_dialog = None;
+            } else if app.delete_confirm.is_some() {
+                app.delete_confirm = None;
+            } else if app.folder_dialog {
+                app.folder_dialog = false;
+            } else if app.show_settings {
+                app.show_settings = false;
             }
         }
         Message::CommandPaletteQuery(query) => {
@@ -923,6 +959,97 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             app.settings.spellcheck = enabled;
             if let Err(error) = save_app_settings(&app.vault_root, &app.settings) {
                 app.error = Some(format!("Sauvegarde des paramètres impossible : {error}"));
+            }
+        }
+        Message::ToggleRename(path) => {
+            let name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_string();
+            app.rename_dialog = Some((path, name));
+        }
+        Message::RenameCommit => {
+            let Some((from, new_name)) = app.rename_dialog.take() else {
+                return Task::none();
+            };
+            let new_name = new_name.trim().to_string();
+            if new_name.is_empty() {
+                app.error = Some("Nom de note vide.".to_string());
+                return Task::none();
+            }
+            let to = match from.parent() {
+                Some(parent) if !parent.as_os_str().is_empty() => {
+                    parent.join(format!("{new_name}.md"))
+                }
+                _ => PathBuf::from(format!("{new_name}.md")),
+            };
+            match crate::vault::ops::move_note(&app.vault_root, &from, &to) {
+                Ok(()) => {
+                    if app.open.as_ref().is_some_and(|o| o.path == from) {
+                        app.open = None;
+                    }
+                    return update(app, Message::Refresh);
+                }
+                Err(error) => {
+                    app.error = Some(format!("Renommage impossible : {error}"));
+                }
+            }
+        }
+        Message::ToggleDelete(path) => {
+            app.delete_confirm = Some(path);
+        }
+        Message::DeleteConfirm => {
+            let Some(path) = app.delete_confirm.take() else {
+                return Task::none();
+            };
+            let target = app.vault_root.join(&path);
+            match fs::remove_file(&target) {
+                Ok(()) => {
+                    if app.open.as_ref().is_some_and(|o| o.path == path) {
+                        app.open = None;
+                    }
+                    return update(app, Message::Refresh);
+                }
+                Err(error) => {
+                    app.error = Some(format!("Suppression impossible : {error}"));
+                }
+            }
+        }
+        Message::FolderDialogOpen => {
+            app.folder_dialog = true;
+        }
+        Message::FolderCreate(name) => {
+            app.folder_dialog = false;
+            let name = name.trim();
+            if name.is_empty() {
+                app.error = Some("Nom de dossier vide.".to_string());
+                return Task::none();
+            }
+            // Confinement : refuse les chemins absolus et les traversées.
+            let path = Path::new(name);
+            if path.is_absolute()
+                || path.components().any(|c| {
+                    matches!(
+                        c,
+                        std::path::Component::ParentDir | std::path::Component::RootDir
+                    )
+                })
+            {
+                app.error = Some("Nom de dossier invalide (absolu ou « .. »).".to_string());
+                return Task::none();
+            }
+            let dir = app.vault_root.join(path);
+            if let Err(error) = fs::create_dir_all(&dir) {
+                app.error = Some(format!("Création du dossier impossible : {error}"));
+            }
+        }
+        Message::FolderName(name) => {
+            app.folder_name = name;
+        }
+        Message::RenameDraft(draft) => {
+            if let Some((_, name)) = &mut app.rename_dialog {
+                *name = draft;
             }
         }
         Message::ToggleGraph => {

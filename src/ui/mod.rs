@@ -105,6 +105,21 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
+    } else if app.rename_dialog.is_some() {
+        stack([root, rename_overlay(app)])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    } else if app.delete_confirm.is_some() {
+        stack([root, delete_confirm_overlay(app)])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    } else if app.folder_dialog {
+        stack([root, folder_overlay(app)])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     } else {
         root
     }
@@ -201,6 +216,116 @@ fn settings_overlay<'a>(app: &'a App) -> Element<'a, Message> {
     .style(panel_style)
     .width(Length::FillPortion(3))
     .max_width(460);
+
+    container(stack([panel.into()]))
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(overlay_style)
+        .into()
+}
+
+/// Overlay de renommage d'une note.
+fn rename_overlay<'a>(app: &'a App) -> Element<'a, Message> {
+    use iced::widget::{button as btn, stack, text_input as ti};
+    let Some((current, draft)) = &app.rename_dialog else {
+        return stack([]).into();
+    };
+    let panel = container(
+        column![
+            text(format!("Renommer {}", current.display()))
+                .size(15)
+                .font(bold_font()),
+            ti("Nouveau nom (sans .md)", draft)
+                .on_input(Message::RenameDraft)
+                .padding(8),
+            row![
+                btn(text("Valider"))
+                    .on_press(Message::RenameCommit)
+                    .style(primary_button_style),
+                btn(text("Annuler"))
+                    .on_press(Message::ToggleRename(current.clone()))
+                    .style(ghost_button_style),
+            ]
+            .spacing(8),
+        ]
+        .spacing(12)
+        .padding(20),
+    )
+    .style(panel_style)
+    .width(Length::FillPortion(3))
+    .max_width(440);
+
+    container(stack([panel.into()]))
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(overlay_style)
+        .into()
+}
+
+/// Overlay de confirmation de suppression.
+fn delete_confirm_overlay<'a>(app: &'a App) -> Element<'a, Message> {
+    use iced::widget::{button as btn, stack};
+    let Some(path) = &app.delete_confirm else {
+        return stack([]).into();
+    };
+    let panel = container(
+        column![
+            text("Supprimer définitivement ?")
+                .size(15)
+                .font(bold_font()),
+            text(path.display().to_string()).size(13),
+            row![
+                btn(text("Supprimer"))
+                    .on_press(Message::DeleteConfirm)
+                    .style(primary_button_style),
+                btn(text("Annuler"))
+                    .on_press(Message::ToggleDelete(path.clone()))
+                    .style(ghost_button_style),
+            ]
+            .spacing(8),
+        ]
+        .spacing(12)
+        .padding(20),
+    )
+    .style(panel_style)
+    .width(Length::FillPortion(3))
+    .max_width(440);
+
+    container(stack([panel.into()]))
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(overlay_style)
+        .into()
+}
+
+/// Overlay de création de dossier.
+fn folder_overlay<'a>(app: &'a App) -> Element<'a, Message> {
+    use iced::widget::{button as btn, stack, text_input as ti};
+    if !app.folder_dialog {
+        return stack([]).into();
+    }
+    let panel = container(
+        column![
+            text("Nouveau dossier").size(15).font(bold_font()),
+            ti("Nom du dossier", &app.folder_name)
+                .on_input(Message::FolderName)
+                .padding(8),
+            row![
+                btn(text("Créer"))
+                    .on_press(Message::FolderCreate(app.folder_name.clone()))
+                    .style(primary_button_style),
+                btn(text("Annuler"))
+                    .on_press(Message::FolderDialogOpen)
+                    .style(ghost_button_style),
+            ]
+            .spacing(8),
+        ]
+        .spacing(12)
+        .padding(20),
+    )
+    .style(panel_style)
+    .width(Length::FillPortion(3))
+    .max_width(440);
 
     container(stack([panel.into()]))
         .center_x(Length::Fill)
@@ -624,7 +749,16 @@ fn error_banner(error: &str) -> Element<'_, Message> {
 
 /// Barre latérale : arborescence des notes, dossiers repliables.
 fn sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
-    scrollable(tree_node(app, notes, Path::new(""), 0))
+    let header = row![
+        text("Explorer").size(14).font(bold_font()),
+        text("").width(Length::Fill),
+        button(text("+ Dossier"))
+            .on_press(Message::FolderDialogOpen)
+            .style(crate::ui::ghost_button_style),
+    ]
+    .spacing(8)
+    .padding([4, 8]);
+    column![header, scrollable(tree_node(app, notes, Path::new(""), 0))]
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
@@ -709,6 +843,12 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
     let header = row![
         text(&open.name).size(16).font(bold_font()),
         text("").width(Length::Fill),
+        button(text("Renommer"))
+            .on_press(Message::ToggleRename(open.path.clone()))
+            .style(ghost_button_style),
+        button(text("Supprimer"))
+            .on_press(Message::ToggleDelete(open.path.clone()))
+            .style(ghost_button_style),
         button(text("Sauvegarder"))
             .on_press(Message::SaveNote)
             .style(primary_button_style),
