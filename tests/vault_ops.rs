@@ -186,3 +186,130 @@ fn operations_echouent_proprement_sur_root_inexistant() {
 
     assert!(!root.exists(), "aucun effet de bord sur un root inexistant");
 }
+
+// 9. create_note rejette les chemins absolus (confinement).
+#[test]
+fn create_note_chemin_absolu_rejete() -> anyhow::Result<()> {
+    let vault = TempVault::new();
+    let absolu = vault.root.join("note.md");
+
+    let err = create_note(&vault.root, &absolu, "contenu").unwrap_err();
+    assert!(
+        err.to_string().contains("absolu"),
+        "message d'erreur explicite : {}",
+        err
+    );
+    assert!(!vault.join("note.md").exists(), "aucun fichier créé");
+    Ok(())
+}
+
+// 10. create_note rejette les chemins relatifs avec ``..`` (remontée hors du
+//     vault).
+#[test]
+fn create_note_chemin_avec_parent_dir_rejete() -> anyhow::Result<()> {
+    let vault = TempVault::new();
+    let hors_vault = vault.root.parent().unwrap().join("hors-vault.md");
+
+    let err = create_note(&vault.root, Path::new("../hors-vault.md"), "contenu").unwrap_err();
+    assert!(
+        err.to_string().contains(".."),
+        "message d'erreur explicite : {}",
+        err
+    );
+    assert!(!hors_vault.exists(), "aucun fichier hors du vault");
+    Ok(())
+}
+
+// 11. move_note rejette les chemins absolus et ``..`` (confinement).
+#[test]
+fn move_note_chemins_non_confines_rejetes() -> anyhow::Result<()> {
+    let vault = TempVault::new();
+    create_note(&vault.root, Path::new("source.md"), "# Source")?;
+
+    let absolu = vault.root.join("cible.md");
+    assert!(move_note(&vault.root, Path::new("source.md"), &absolu).is_err());
+    assert!(move_note(
+        &vault.root,
+        Path::new("source.md"),
+        Path::new("../cible.md")
+    )
+    .is_err());
+
+    assert!(vault.join("source.md").is_file(), "source intacte");
+    assert!(!vault.join("cible.md").exists(), "aucune cible créée");
+    Ok(())
+}
+
+// 12. write_note rejette les chemins absolus et ``..`` (confinement).
+#[test]
+fn write_note_chemins_non_confines_rejetes() -> anyhow::Result<()> {
+    let vault = TempVault::new();
+    create_note(&vault.root, Path::new("note.md"), "# Existant")?;
+
+    let absolu = vault.root.join("autre.md");
+    assert!(write_note(&vault.root, &absolu, "contenu").is_err());
+    assert!(write_note(&vault.root, Path::new("../hors.md"), "contenu").is_err());
+
+    assert_eq!(fs::read_to_string(vault.join("note.md"))?, "# Existant");
+    Ok(())
+}
+
+// 13. write_note sur une note inexistante → erreur, sans créer de fichier.
+#[test]
+fn write_note_sur_note_inexistante_erreur() -> anyhow::Result<()> {
+    let vault = TempVault::new();
+
+    let err = write_note(&vault.root, Path::new("absente.md"), "contenu").unwrap_err();
+    assert!(!err.to_string().is_empty(), "message d'erreur présent");
+    assert!(!vault.join("absente.md").exists(), "aucun fichier créé");
+    Ok(())
+}
+
+// 14. move_note vers un lien symbolique mort → erreur, sans écrasement.
+#[cfg(unix)]
+#[test]
+fn move_note_vers_lien_symbolique_mort_erreur_sans_ecrasement() -> anyhow::Result<()> {
+    use std::os::unix::fs::symlink;
+
+    let vault = TempVault::new();
+    create_note(&vault.root, Path::new("source.md"), "# Source")?;
+    let lien_mort = vault.join("lien-mort.md");
+    symlink("cible-absente.md", &lien_mort)?;
+
+    let err = move_note(
+        &vault.root,
+        Path::new("source.md"),
+        Path::new("lien-mort.md"),
+    )
+    .unwrap_err();
+    assert!(!err.to_string().is_empty(), "message d'erreur présent");
+
+    assert!(vault.join("source.md").is_file(), "source intacte");
+    let meta = fs::symlink_metadata(&lien_mort)?;
+    assert!(
+        meta.file_type().is_symlink(),
+        "le lien symbolique mort est conservé, non écrasé"
+    );
+    Ok(())
+}
+
+// 15. create_note vers un lien symbolique mort → erreur, sans écrasement.
+#[cfg(unix)]
+#[test]
+fn create_note_vers_lien_symbolique_mort_erreur_sans_ecrasement() -> anyhow::Result<()> {
+    use std::os::unix::fs::symlink;
+
+    let vault = TempVault::new();
+    let lien_mort = vault.join("lien-mort.md");
+    symlink("cible-absente.md", &lien_mort)?;
+
+    let err = create_note(&vault.root, Path::new("lien-mort.md"), "contenu").unwrap_err();
+    assert!(!err.to_string().is_empty(), "message d'erreur présent");
+
+    let meta = fs::symlink_metadata(&lien_mort)?;
+    assert!(
+        meta.file_type().is_symlink(),
+        "le lien symbolique mort est conservé, non écrasé"
+    );
+    Ok(())
+}

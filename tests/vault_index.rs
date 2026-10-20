@@ -157,3 +157,20 @@ fn build_index_stable_sur_des_notes_sans_wikilinks() {
     assert!(index.outgoing(&notes[0]).is_empty());
     assert_eq!(index.resolve("A").len(), 1);
 }
+
+#[test]
+fn search_nom_long_ne_panique_pas_et_trie_correctement() {
+    // Le nom long porte des caractères correspondants très tard : la somme de
+    // leurs positions dépasse 10_000, ce qui faisait déborder le score
+    // (`10_000 - positions_sum` → panique u64). La recherche ne doit ni
+    // paniquer ni classer ce nom devant des correspondances bien meilleures.
+    let long_name = format!("{}{}", "a".repeat(370), "z".repeat(30));
+    let taille = "z".repeat(30);
+    let notes = vec![sans_liens(long_name.as_str()), sans_liens(taille.as_str())];
+    let index = NoteIndex::build_index(&notes);
+
+    let res = index.search(&taille, &notes, 10);
+    let noms: Vec<&str> = res.iter().map(|n| n.name.as_str()).collect();
+
+    assert_eq!(noms, vec![taille.as_str(), long_name.as_str()]);
+}

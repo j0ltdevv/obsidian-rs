@@ -19,8 +19,13 @@ use super::wikilinks::parse_wikilinks;
 /// silencieux). Écriture atomique (fichier temporaire + rename).
 pub fn create_note(root: &Path, rel_path: &Path, content: &str) -> Result<Note> {
     require_root(root)?;
-    let target = root.join(rel_path);
-    if target.exists() {
+    let rel_path = confine_rel_path(rel_path)?;
+    let target = root.join(&rel_path);
+    // `symlink_metadata` détecte aussi les liens symboliques morts (contrairement
+    // à `exists`, qui suit le lien) : toute présence est refusée, sans
+    // écrasement silencieux. En mono-utilisateur, le résidu TOCTOU (cible
+    // apparue entre la vérification et le `rename`) est accepté.
+    if fs::symlink_metadata(&target).is_ok() {
         bail!("la note existe déjà : {}", target.display());
     }
     if let Some(parent) = target.parent() {
@@ -32,7 +37,7 @@ pub fn create_note(root: &Path, rel_path: &Path, content: &str) -> Result<Note> 
         })?;
     }
     write_atomic(&target, content)?;
-    Ok(build_note(rel_path, content))
+    Ok(build_note(&rel_path, content))
 }
 
 /// Renomme/déplace une note de `from` vers `to` (chemins relatifs au root).
@@ -40,12 +45,16 @@ pub fn create_note(root: &Path, rel_path: &Path, content: &str) -> Result<Note> 
 /// déplacement atomique (`rename`).
 pub fn move_note(root: &Path, from: &Path, to: &Path) -> Result<()> {
     require_root(root)?;
+    let from = confine_rel_path(from)?;
+    let to = confine_rel_path(to)?;
     let source = root.join(from);
     let dest = root.join(to);
     if !source.is_file() {
         bail!("la note source n'existe pas : {}", source.display());
     }
-    if dest.exists() {
+    // Idem `create_note` : `symlink_metadata` refuse aussi les liens symboliques
+    // morts. Résidu TOCTOU accepté en mono-utilisateur.
+    if fs::symlink_metadata(&dest).is_ok() {
         bail!("la note cible existe déjà : {}", dest.display());
     }
     if let Some(parent) = dest.parent() {
@@ -70,7 +79,8 @@ pub fn move_note(root: &Path, from: &Path, to: &Path) -> Result<()> {
 /// temporaire + rename), sans jamais laisser de fichier temporaire.
 pub fn write_note(root: &Path, rel_path: &Path, content: &str) -> Result<()> {
     require_root(root)?;
-    let target = root.join(rel_path);
+    let rel_path = confine_rel_path(rel_path)?;
+    let target = root.join(&rel_path);
     if !target.is_file() {
         bail!("la note n'existe pas : {}", target.display());
     }
@@ -83,6 +93,34 @@ fn require_root(root: &Path) -> Result<()> {
         bail!("la racine du vault n'existe pas : {}", root.display());
     }
     Ok(())
+}
+/// Vérifie que `rel_path` est un chemin relatif sûr : rejette tout chemin
+/// absolu, tout composant ``..`` (remontée hors du vault) et le chemin vide,
+/// puis retourne la forme normalisée (composants `.` redondants supprimés).
+fn confine_rel_path(rel_path: &Path) -> Result<PathBuf> {
+    if rel_path.as_os_str().is_empty() {
+        bail!("chemin relatif vide");
+    }
+    if rel_path.is_absolute() {
+        bail!("chemin absolu interdit : {}", rel_path.display());
+    }
+    let mut normalized = PathBuf::new();
+    for component in rel_path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                bail!("composant \"..\" interdit : {}", rel_path.display());
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::Normal(part) => normalized.push(part),
+            std::path::Component::RootDir | std::path::Component::Prefix(_) => {
+                bail!("chemin absolu interdit : {}", rel_path.display());
+            }
+        }
+    }
+    if normalized.as_os_str().is_empty() {
+        bail!("chemin relatif vide après normalisation");
+    }
+    Ok(normalized)
 }
 
 /// Écrit `content` dans `target` de façon atomique : fichier temporaire dans le

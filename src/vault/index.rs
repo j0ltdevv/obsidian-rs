@@ -91,6 +91,10 @@ impl NoteIndex {
     /// décroissant, limitées à `limit`. Requête vide → notes dans l'ordre du
     /// vault.
     pub fn search<'a>(&'a self, query: &str, notes: &'a [Note], limit: usize) -> Vec<&'a Note> {
+        debug_assert!(
+            notes.iter().all(|n| self.notes.contains(n)),
+            "recherche : toutes les notes doivent provenir de l'index"
+        );
         let mut scored: Vec<(&'a Note, u64)> = Vec::new();
         if query.is_empty() {
             scored.extend(notes.iter().map(|note| (note, 0)));
@@ -157,5 +161,5 @@ fn score(query: &str, name: &str) -> Option<u64> {
     let coverage = 100 * query_len / name_len;
     let prefix_bonus = if name.starts_with(&query) { 500 } else { 0 };
 
-    Some(10_000 - positions_sum as u64 + coverage + prefix_bonus)
+    Some(10_000u64.saturating_sub(positions_sum as u64) + coverage + prefix_bonus)
 }
