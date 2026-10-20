@@ -203,6 +203,9 @@ fn push_code_block(lines: &[&str], start: usize, out: &mut Vec<Segment>) -> usiz
 
 /// Découpe une ligne hors bloc de code en segments.
 fn push_line_segments(line: &str, line_no: usize, out: &mut Vec<Segment>) {
+    let cleaned = sanitize_inline_html(line);
+    let expanded = expand_emoji(&cleaned);
+    let line = expanded.as_str();
     // Ligne vide : aucun segment.
     if line.trim().is_empty() {
         return;
@@ -451,7 +454,64 @@ fn parse_liste_numerotee(trim: &str) -> Option<&str> {
         None
     }
 }
+/// Liste blanche des balises inline autorisées (fermeture incluse).
+const SAFE_INLINE_TAGS: &[&str] = &[
+    "b", "/b", "strong", "/strong", "i", "/i", "em", "/em", "br", "/br", "code", "/code", "u",
+    "/u", "mark", "/mark", "s", "/s",
+];
 
+/// Nettoie le HTML inline : retire uniquement les balises de la liste
+/// blanche, laisse tout le reste intact (aucune exécution, aucun autre tag).
+fn sanitize_inline_html(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(lt) = rest.find('<') {
+        out.push_str(&rest[..lt]);
+        let after = &rest[lt + 1..];
+        let Some(gt) = after.find('>') else {
+            out.push('<');
+            out.push_str(after);
+            return out;
+        };
+        let tag = after[..gt].trim().to_lowercase();
+        if SAFE_INLINE_TAGS.contains(&tag.as_str()) {
+            rest = &after[gt + 1..];
+        } else {
+            out.push('<');
+            out.push_str(after);
+            return out;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Remplace les emoji `:nom:` courants par leur glyphe Unicode.
+fn expand_emoji(line: &str) -> String {
+    const EMOJIS: &[(&str, &str)] = &[
+        (":smile:", "😊"),
+        (":grin:", "😁"),
+        (":thumbsup:", "👍"),
+        (":+1:", "👍"),
+        (":warning:", "⚠️"),
+        (":x:", "❌"),
+        (":check:", "✅"),
+        (":star:", "⭐"),
+        (":heart:", "❤️"),
+        (":fire:", "🔥"),
+        (":bulb:", "💡"),
+        (":rocket:", "🚀"),
+        (":eyes:", "👀"),
+        (":clipboard:", "📋"),
+        (":calendar:", "📅"),
+        (":hourglass:", "⏳"),
+    ];
+    let mut out = line.to_string();
+    for (name, glyph) in EMOJIS {
+        out = out.replace(name, glyph);
+    }
+    out
+}
 /// Découpe le contenu inline d'une ligne en segments.
 fn push_inline(ligne: &str, line_no: usize, out: &mut Vec<Segment>) {
     let chars: Vec<char> = ligne.chars().collect();
@@ -1352,6 +1412,30 @@ mod tests {
                 SegmentStyle::CodeBlock,
                 0,
             )])
+        );
+    }
+
+    #[test]
+    fn html_inline_balises_autorisees_retirees() {
+        assert_eq!(
+            render_markdown("<b>gras</b> <i>italique</i>"),
+            segs(&[("gras italique", SegmentStyle::Plain, 0)])
+        );
+    }
+
+    #[test]
+    fn html_inline_balise_inconnue_conservee() {
+        assert_eq!(
+            render_markdown("<script>alert(1)</script>"),
+            segs(&[("<script>alert(1)</script>", SegmentStyle::Plain, 0)])
+        );
+    }
+
+    #[test]
+    fn emoji_etendus_en_glyphes() {
+        assert_eq!(
+            render_markdown("réussi :check: !"),
+            segs(&[("réussi ✅ !", SegmentStyle::Plain, 0)])
         );
     }
 }
