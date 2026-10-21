@@ -100,6 +100,8 @@ pub enum Message {
     ClearSelection,
     /// Déplace les notes sélectionnées vers la corbeille.
     DeleteSelected,
+    /// Prend un snapshot global de tout le vault (copie de chaque note).
+    TakeVaultSnapshot,
     /// Ouvre la palette de commandes.
     OpenCommandPalette,
     /// Ferme la palette de commandes.
@@ -983,6 +985,9 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                             "insert-template" => {
                                 return insert_template_in_open_note(app);
                             }
+                            "snapshot-vault" => {
+                                return update(app, Message::TakeVaultSnapshot);
+                            }
                             _ => {}
                         }
                     }
@@ -1539,6 +1544,48 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 return Task::none();
             }
             return update(app, Message::Refresh);
+        }
+        Message::TakeVaultSnapshot => {
+            if !acquire_write_lock(&app.vault_root) {
+                app.error = Some(
+                    "Vault verrouillé par une autre instance (fichier .obsidian/lock).".to_string(),
+                );
+                return Task::none();
+            }
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+                .to_string();
+            let snap_dir = app
+                .vault_root
+                .join(".obsidian")
+                .join("snapshots")
+                .join("vault")
+                .join(&stamp);
+            let mut errored = false;
+            if let Ok(notes) = &app.notes {
+                for note in notes {
+                    let source = app.vault_root.join(&note.path);
+                    let target = snap_dir.join(&note.path);
+                    if let Some(parent) = target.parent() {
+                        if fs::create_dir_all(parent).is_err() {
+                            errored = true;
+                            break;
+                        }
+                    }
+                    if fs::copy(&source, &target).is_err() {
+                        errored = true;
+                        break;
+                    }
+                }
+            }
+            release_write_lock(&app.vault_root, true);
+            if errored {
+                app.error = Some("Prendre le snapshot global a échoué.".to_string());
+            } else {
+                app.error = Some(format!("Snapshot global enregistré ({stamp})."));
+            }
         }
         Message::FolderDialogOpen => {
             app.folder_dialog = true;
@@ -2409,6 +2456,38 @@ mod tests {
         assert!(!dir.join("b.md").exists());
         assert!(dir.join(".trash").is_dir());
         assert!(app.selected_note_paths.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn snapshot_vault_copie_toutes_les_notes() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        dir.push(format!("obsidian-rs-snap-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "contenu a").unwrap();
+        std::fs::write(dir.join("b.md"), "contenu b").unwrap();
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let (mut app, _task) = boot();
+        app.vault_root = dir.clone();
+        app.notes = notes;
+        let _ = update(&mut app, Message::TakeVaultSnapshot);
+        let snap_root = dir.join(".obsidian").join("snapshots").join("vault");
+        assert!(snap_root.is_dir());
+        let mut found = false;
+        for entry in std::fs::read_dir(&snap_root).unwrap() {
+            let stamp_dir = entry.unwrap().path();
+            if stamp_dir.is_dir()
+                && stamp_dir.join("a.md").exists()
+                && stamp_dir.join("b.md").exists()
+            {
+                found = true;
+            }
+        }
+        assert!(found, "le snapshot doit contenir a.md et b.md");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
