@@ -9,16 +9,22 @@ Le comportement se déduit du format Markdown et des conventions Obsidian
 
 - **Vault** : scan récursif, tags, frontmatter YAML, wikilinks, aliases,
   backlinks/outgoing, ops atomiques (créer/déplacer/écrire) avec confinement
-  des chemins.
+  des chemins, corbeille `.trash`, import/export `.zip`, snapshots globaux.
 - **Édition** : éditeur texte + prévisualisation live (titres, listes,
   tâches, tableaux, callouts, math, embeds, block refs, footnotes),
   sauvegarde atomique, indicateur « non enregistré » (●), renommage
   (préserve le dossier), suppression avec confirmation, création de
-  note/dossier (confinée).
+  note/dossier (confinée), **multi-onglets** (tampons non sauvegardés
+  préservés au changement d'onglet).
 - **Navigation** : Quick Switcher (notes récentes), palette de commandes
-  (Ctrl+P), onglet Explorer, plan (outline), tâches globales, recherche
-  full-text avec opérateurs (`path:`, `tag:`, `line:`, `-exclu`) et
-  extraits, remplacement global.
+  (Ctrl+P), **sidebar gauche à onglets** (Fichiers/Recherche/Tags/
+  Backlinks/Calendrier), plan (outline) cliquable, recherche full-text avec
+  opérateurs (`path:`, `tag:`, `line:`, `-exclu`) et extraits, remplacement
+  global, recherche in-note précédent/suivant.
+- **UI façon Obsidian** : ribbon d'icônes Lucide (SVG embarqués), barre
+  d'état, **panneaux redimensionnables** (pane_grid, disposition persistée),
+  thème clair/sombre construit depuis les tokens du vault, police Inter
+  embarquée (OFL).
 - **Graphe** : vues complète/local, filtres dossier/tag, groupes colorés
   par dossier, glisser-déposer des nœuds, clic tag → filtre.
 - **Canvas** : cartes éditables (titre/contenu/groupe), auto-layout,
@@ -30,6 +36,7 @@ Le comportement se déduit du format Markdown et des conventions Obsidian
   `.obsidian/hotkeys.json` lus/écrits de façon atomique.
 - **Gabarits / notes du jour** : `{{title}}`/`{{date}}`, dossier
   `Templates` ou `templates`, note `AAAA-MM-JJ.md`.
+- **CLI compagnon** : `obsidian-cli` (`notes`, `grep`, `stats`).
 
 ## Compiler / tester
 
@@ -40,8 +47,8 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 ```
 
-L'application démarre sur `demo-vault` (dossier fourni). Lancez
-`cargo run` depuis la racine du dépôt.
+L'application démarre sur `demo-vault` (dossier fourni). Lancez :
+`cargo run --bin obsidian-rs` (ou `cargo run --bin obsidian-cli -- --help`).
 
 ## Architecture
 

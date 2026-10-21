@@ -3,7 +3,36 @@
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) —
 semver.
 
-## [Non publié] — en cours
+## [0.2.0] — 2026-10-21
+
+### Ajouté
+- **UI façon Obsidian** : ribbon d'icônes Lucide (SVG embarqués), barre
+  d'état, sidebar gauche à onglets (Fichiers/Recherche/Tags/Backlinks/
+  Calendrier), sidebar droite (Backlinks + Plan cliquable).
+- **Multi-onglets** de notes (tampons non sauvegardés préservés à la
+  bascule ; les onglets suivent renommage/suppression/refresh).
+- **Panneaux redimensionnables** (`pane_grid`), disposition persistée dans
+  `.obsidian/pane_layout.json`.
+- **Thème iced** construit depuis les tokens du vault (dark/light) ;
+  panneaux/boutons/onglets dérivés de `extended_palette`.
+- **Police Inter embarquée** (OFL) + feature `svg`.
+- Recherche in-note précédent/suivant (compteur + curseur déplacé).
+- Sélection multiple de notes (checkbox) + suppression groupée vers la
+  corbeille.
+- Snapshot global du vault (commande palette, copie horodatée).
+- Tests de régression (intégrité onglets, ratios pane, occurrence_line_col).
+- `docs/MANUEL.md` (manuel utilisateur).
+
+### Corrigé
+- `weekday_of` : décalage Zeller correct (lundi=0).
+- Caches `file_mtimes` conservées au boot (filtre date fonctionnel dès le
+  lancement).
+- Verrou d'écriture appliqué au renommage et à la suppression.
+- SaveNote vide le tampon caché ; CloseTab préserve les éditions non
+  sauvegardées ; purge des sélections/onglets périmés au Refresh.
+- Snapshot global écrit atomiquement (tmp → rename).
+
+## [0.1.0] — précédent
 
 ### Ajouté
 - P8c : import de `.obsidian/canvas.json` + suppression de carte (canvas).
