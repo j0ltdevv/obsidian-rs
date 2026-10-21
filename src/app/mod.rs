@@ -405,6 +405,8 @@ pub struct App {
     pub editor_undo: Vec<String>,
     /// Pile de rétablissement.
     pub editor_redo: Vec<String>,
+    /// Nombre d'éditions depuis la dernière sauvegarde (autosave).
+    pub edits_since_save: u32,
     /// Cache texte par chemin pour l'index incrémental (mtime).
     pub text_cache: std::collections::HashMap<PathBuf, String>,
     /// Dernière modification observée par chemin (mtime).
@@ -524,6 +526,7 @@ pub fn boot() -> (App, Task<Message>) {
         canvas_remove_confirm: None,
         editor_undo: Vec::new(),
         editor_redo: Vec::new(),
+        edits_since_save: 0,
         text_cache: HashMap::new(),
         file_mtimes: HashMap::new(),
         sort_alpha: false,
@@ -664,11 +667,12 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                         }
                     }
                     app.editor_redo.clear();
+                    app.edits_since_save += 1;
+                    app.open_dirty = true;
                 }
                 open.content.perform(action);
-                app.open_dirty = true;
             }
-            if !app.editor_undo.is_empty() && app.editor_undo.len().is_multiple_of(50) {
+            if app.edits_since_save >= 50 {
                 return update(app, Message::Autosave);
             }
         }
@@ -740,6 +744,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     Ok(()) => {
                         app.error = None;
                         app.open_dirty = false;
+                        app.edits_since_save = 0;
                         let note_count = app.notes.as_ref().map(|n| n.len()).unwrap_or(0);
                         let ctx = PluginContext {
                             vault_name: DEMO_VAULT,
@@ -1140,6 +1145,12 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             let Ok(notes) = &app.notes else {
                 return Task::none();
             };
+            if !acquire_write_lock(&app.vault_root) {
+                app.error = Some(
+                    "Vault verrouillé par une autre instance (fichier .obsidian/lock).".to_string(),
+                );
+                return Task::none();
+            }
             // Sauvegarde de sécurité avant toute écriture (snapshots).
             let backup_dir = app
                 .vault_root
@@ -1147,6 +1158,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 .join("snapshots")
                 .join("backup-global");
             if fs::create_dir_all(&backup_dir).is_err() {
+                release_write_lock(&app.vault_root, true);
                 app.error = Some("Backup global impossible.".to_string());
                 return Task::none();
             }
@@ -1176,15 +1188,18 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     .collect();
                 let backup_path = backup_dir.join(format!("{stamp}-{sanitized}.md"));
                 if fs::copy(app.vault_root.join(&note.path), &backup_path).is_err() {
+                    release_write_lock(&app.vault_root, true);
                     app.error = Some(format!("Backup impossible pour {}", note.path.display()));
                     return Task::none();
                 }
                 let replaced = source.replace(&find.query, &find.replace);
                 if let Err(error) = write_note(&app.vault_root, &note.path, &replaced) {
+                    release_write_lock(&app.vault_root, true);
                     app.error = Some(format!("Remplacement global impossible : {error}"));
                     return Task::none();
                 }
             }
+            release_write_lock(&app.vault_root, true);
             return update(app, Message::Refresh);
         }
         Message::PluginToggle(id) => {
