@@ -7,11 +7,24 @@ fn main() -> iced::Result {
         .centered()
         .subscription(app::subscription)
         .theme(|app: &obsidian_rs::app::App| {
-            if app.current_theme.eq_ignore_ascii_case("light") {
-                iced::Theme::Light
+            use obsidian_rs::vault::themes::{DEFAULT_DARK, DEFAULT_LIGHT};
+            let (bg, fg, accent) = if app.current_theme.eq_ignore_ascii_case("light") {
+                (DEFAULT_LIGHT.bg, DEFAULT_LIGHT.fg, DEFAULT_LIGHT.accent)
             } else {
-                iced::Theme::Dark
-            }
+                (DEFAULT_DARK.bg, DEFAULT_DARK.fg, DEFAULT_DARK.accent)
+            };
+            let rgb = |c: (u8, u8, u8)| iced::Color::from_rgb8(c.0, c.1, c.2);
+            iced::Theme::custom(
+                "obsidian".to_string(),
+                iced::theme::Palette {
+                    background: rgb(bg),
+                    text: rgb(fg),
+                    primary: rgb(accent),
+                    success: iced::Color::from_rgb8(46, 160, 67),
+                    warning: iced::Color::from_rgb8(230, 150, 30),
+                    danger: iced::Color::from_rgb8(214, 69, 69),
+                },
+            )
         })
         .run()
 }

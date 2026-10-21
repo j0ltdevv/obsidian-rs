@@ -564,15 +564,20 @@ impl App {
 fn default_pane_state() -> iced::widget::pane_grid::State<PaneKind> {
     use iced::widget::pane_grid::{Axis, State};
     let (mut state, sidebar) = State::new(PaneKind::Sidebar);
-    let (editor, _) = state
+    let (editor, s1) = state
         .split(Axis::Vertical, sidebar, PaneKind::Editor)
         .unwrap();
-    let (preview, _) = state
+    let (preview, s2) = state
         .split(Axis::Vertical, editor, PaneKind::Preview)
         .unwrap();
-    let (_right, _) = state
+    let (_right, s3) = state
         .split(Axis::Vertical, preview, PaneKind::Right)
         .unwrap();
+    // Ratios raisonnables : sidebar 22 %, éditeur 62 % du reste, aperçu/droite
+    // partagés à 50 %.
+    state.resize(s1, 0.22);
+    state.resize(s2, 0.62);
+    state.resize(s3, 0.5);
     state
 }
 
