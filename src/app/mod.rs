@@ -426,10 +426,32 @@ pub struct App {
     /// Affiche le panneau Backlinks de la note ouverte.
     pub show_backlinks: bool,
 }
+/// `true` si la note doit être ignorée par l'Explorer : à l'intérieur du
+/// dossier de gabarits configuré ou dans un dossier `.archive`.
+fn is_ignored_note(note: &Note, templates_dir: &str) -> bool {
+    let first = note
+        .path
+        .components()
+        .next()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if !templates_dir.is_empty() && first == templates_dir {
+        return true;
+    }
+    first == ".archive"
+}
+
 impl App {
-    /// Scanne le vault donné et reconstitue notes + index.
-    fn rescan(vault_root: &Path) -> (Result<Vec<Note>, String>, Option<NoteIndex>) {
-        let notes = scan_vault(vault_root).map_err(|error| error.to_string());
+    /// Scanne le vault donné et reconstitue notes + index, en excluant les
+    /// notes ignorées (gabarits, .archive).
+    fn rescan(
+        vault_root: &Path,
+        templates_dir: &str,
+    ) -> (Result<Vec<Note>, String>, Option<NoteIndex>) {
+        let mut notes = scan_vault(vault_root).map_err(|error| error.to_string());
+        if let Ok(list) = &mut notes {
+            list.retain(|note| !is_ignored_note(note, templates_dir));
+        }
         let index = notes
             .as_ref()
             .ok()
@@ -464,9 +486,10 @@ impl App {
     }
 }
 
-/// Point d'entrée iced : construit l'état initial en scannant le vault.
+// Point d'entrée iced : construit l'état initial en scannant le vault.
 pub fn boot() -> (App, Task<Message>) {
-    let (notes, index) = App::rescan(Path::new(DEMO_VAULT));
+    let settings = load_app_settings(Path::new(DEMO_VAULT)).unwrap_or_default();
+    let (notes, index) = App::rescan(Path::new(DEMO_VAULT), &settings.templates_dir);
     let canvas = App::build_canvas(
         notes.as_ref().map(|n| n.as_slice()).unwrap_or_default(),
         &index,
@@ -603,7 +626,7 @@ fn release_write_lock(vault_root: &Path, held: bool) {
 pub fn update(app: &mut App, message: Message) -> Task<Message> {
     match message {
         Message::Refresh => {
-            let (notes, index) = App::rescan(&app.vault_root);
+            let (notes, index) = App::rescan(&app.vault_root, &app.settings.templates_dir);
             // Conserve la note ouverte si son fichier existe toujours ; on ne
             // recharge pas son contenu (le tampon d'édition est préservé).
             let keep_open = match (&notes, &app.open) {
@@ -2134,5 +2157,43 @@ mod tests {
     fn rewrite_wikilink_target_ignore_prefixes() {
         let out = rewrite_wikilink_target("a [[anciens]] b", "ancien", "nouveau");
         assert_eq!(out, "a [[anciens]] b");
+    }
+
+    #[test]
+    fn is_ignored_note_exclut_gabarits_et_archive() {
+        fn note(path: &str) -> Note {
+            Note {
+                path: PathBuf::from(path),
+                name: "n".to_string(),
+                metadata: NoteMetadata {
+                    frontmatter: None,
+                    frontmatter_error: None,
+                    wikilinks: Vec::new(),
+                    tags: Vec::new(),
+                },
+            }
+        }
+        assert!(is_ignored_note(&note("Templates/modele.md"), "Templates"));
+        assert!(is_ignored_note(&note(".archive/ancienne.md"), "Templates"));
+        assert!(!is_ignored_note(&note("Projets/a.md"), "Templates"));
+        assert!(!is_ignored_note(&note("a.md"), ""));
+    }
+
+    #[test]
+    fn rescan_filtre_les_notes_ignorees() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        dir.push(format!("obsidian-rs-ignore-{unique}"));
+        std::fs::create_dir_all(dir.join("Templates")).unwrap();
+        std::fs::write(dir.join("a.md"), "x").unwrap();
+        std::fs::write(dir.join("Templates/modele.md"), "y").unwrap();
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let notes = notes.unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].name, "a");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
