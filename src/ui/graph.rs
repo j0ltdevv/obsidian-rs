@@ -83,6 +83,19 @@ fn visible_edges(
         .collect()
 }
 
+/// Options de vue du graphe (zoom, pan, affichage).
+#[derive(Debug, Clone, Copy)]
+pub struct ViewOpts {
+    /// Facteur de zoom (1.0 = 100 %).
+    pub zoom: f32,
+    /// Décalage de pan (px).
+    pub pan: (f32, f32),
+    /// Affiche les noms.
+    pub show_labels: bool,
+    /// Affiche un quadrillage.
+    pub show_grid: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct GraphScene {
     /// Positions des nœuds (indice de note → point dans le canevas).
@@ -93,6 +106,14 @@ pub struct GraphScene {
     edges: Vec<(NodeId, NodeId)>,
     /// Couleurs de groupe par nœud (dossier).
     colors: HashMap<usize, Color>,
+    /// Facteur de zoom (1.0 = 100 %).
+    zoom: f32,
+    /// Décalage de pan (px).
+    pan: (f32, f32),
+    /// Affiche les noms.
+    show_labels: bool,
+    /// Affiche un quadrillage.
+    show_grid: bool,
 }
 
 impl GraphScene {
@@ -107,6 +128,7 @@ impl GraphScene {
         filters: &GraphFilters,
         drags: &HashMap<usize, (f32, f32)>,
         mtimes: &std::collections::HashMap<std::path::PathBuf, std::time::SystemTime>,
+        view: &ViewOpts,
     ) -> Self {
         let graph = build_graph(notes, index);
         let mut positions: HashMap<usize, Point> = HashMap::new();
@@ -120,6 +142,10 @@ impl GraphScene {
                 names,
                 colors,
                 edges,
+                zoom: view.zoom,
+                pan: view.pan,
+                show_labels: view.show_labels,
+                show_grid: view.show_grid,
             };
         }
 
@@ -134,6 +160,10 @@ impl GraphScene {
                 names,
                 colors,
                 edges,
+                zoom: view.zoom,
+                pan: view.pan,
+                show_labels: view.show_labels,
+                show_grid: view.show_grid,
             };
         }
 
@@ -252,14 +282,32 @@ impl GraphScene {
             names,
             colors,
             edges,
+            zoom: view.zoom,
+            pan: view.pan,
+            show_labels: view.show_labels,
+            show_grid: view.show_grid,
         }
+    }
+
+    /// Convertit une coordonnée « monde » en coordonnée écran (zoom + pan).
+    fn to_screen(&self, p: Point) -> Point {
+        Point::new(p.x * self.zoom + self.pan.0, p.y * self.zoom + self.pan.1)
+    }
+
+    /// Convertit une coordonnée écran en coordonnée « monde ».
+    fn to_world(&self, p: Point) -> Point {
+        Point::new(
+            (p.x - self.pan.0) / self.zoom,
+            (p.y - self.pan.1) / self.zoom,
+        )
     }
 
     /// Retourne l'indice de la note sous le curseur, si un nœud est touché.
     pub fn hit_test(&self, point: Point) -> Option<usize> {
+        let world = self.to_world(point);
         for (&node, &pos) in &self.positions {
-            let dx = point.x - pos.x;
-            let dy = point.y - pos.y;
+            let dx = world.x - pos.x;
+            let dy = world.y - pos.y;
             if dx * dx + dy * dy <= HIT_RADIUS * HIT_RADIUS {
                 return Some(node);
             }
@@ -279,11 +327,44 @@ impl GraphScene {
         let dragged_delta = dragged.map(|d| (d.node, d.delta));
         let mut frame = canvas::Frame::new(renderer, bounds.size());
 
+        // Quadrillage optionnel (espacement fixe à l'écran).
+        if self.show_grid {
+            let step = 40.0;
+            let mut x = self.pan.0 % step;
+            while x < bounds.width {
+                if x > 0.0 {
+                    frame.stroke(
+                        &canvas::Path::line(Point::new(x, 0.0), Point::new(x, bounds.height)),
+                        canvas::Stroke {
+                            style: canvas::Style::Solid(Color::from_rgba(0.5, 0.5, 0.5, 0.15)),
+                            width: 1.0,
+                            ..Default::default()
+                        },
+                    );
+                }
+                x += step;
+            }
+            let mut y = self.pan.1 % step;
+            while y < bounds.height {
+                if y > 0.0 {
+                    frame.stroke(
+                        &canvas::Path::line(Point::new(0.0, y), Point::new(bounds.width, y)),
+                        canvas::Stroke {
+                            style: canvas::Style::Solid(Color::from_rgba(0.5, 0.5, 0.5, 0.15)),
+                            width: 1.0,
+                            ..Default::default()
+                        },
+                    );
+                }
+                y += step;
+            }
+        }
+
         // Arêtes (en arrière-plan) : un segment par lien.
         for &(a, b) in &self.edges {
             if let (Some(pa), Some(pb)) = (self.positions.get(&a), self.positions.get(&b)) {
                 frame.stroke(
-                    &canvas::Path::line(*pa, *pb),
+                    &canvas::Path::line(self.to_screen(*pa), self.to_screen(*pb)),
                     canvas::Stroke {
                         style: canvas::Style::Solid(EDGE_COLOR),
                         width: EDGE_WIDTH,
@@ -297,15 +378,16 @@ impl GraphScene {
 
         // Nœuds, colorés par groupe (dossier).
         for (node, pos) in &self.positions {
-            let draw_pos = match dragged_delta {
+            let base = match dragged_delta {
                 Some((dragged_node, delta)) if dragged_node == *node => {
-                    Point::new(pos.x + delta.x, pos.y + delta.y)
+                    Point::new(pos.x + delta.x / self.zoom, pos.y + delta.y / self.zoom)
                 }
                 _ => *pos,
             };
+            let draw_pos = self.to_screen(base);
             let color = self.colors.get(node).copied().unwrap_or(NODE_COLOR);
             frame.fill(
-                &canvas::Path::circle(draw_pos, NODE_RADIUS),
+                &canvas::Path::circle(draw_pos, NODE_RADIUS * self.zoom),
                 canvas::Fill {
                     style: canvas::Style::Solid(color),
                     ..Default::default()
@@ -313,29 +395,31 @@ impl GraphScene {
             );
         }
 
-        // Noms, centrés sous chaque nœud (décalés pour ne pas masquer le
-        // nœud ; omis si le nœud est trop près du bord).
-        for (node, pos) in &self.positions {
-            let draw_pos = match dragged_delta {
-                Some((dragged_node, delta)) if dragged_node == *node => {
-                    Point::new(pos.x + delta.x, pos.y + delta.y)
+        // Noms, si activés.
+        if self.show_labels {
+            for (node, pos) in &self.positions {
+                let base = match dragged_delta {
+                    Some((dragged_node, delta)) if dragged_node == *node => {
+                        Point::new(pos.x + delta.x / self.zoom, pos.y + delta.y / self.zoom)
+                    }
+                    _ => *pos,
+                };
+                let draw_pos = self.to_screen(base);
+                if draw_pos.y + 32.0 > bounds.height - 4.0 {
+                    continue;
                 }
-                _ => *pos,
-            };
-            if draw_pos.y + 32.0 > bounds.y + bounds.height - 4.0 {
-                continue;
+                let label = self.names.get(node).cloned().unwrap_or_default();
+                frame.fill_text(canvas::Text {
+                    content: label,
+                    position: Point::new(draw_pos.x, draw_pos.y + NODE_RADIUS * self.zoom + 10.0),
+                    size: (LABEL_SIZE as f32 * self.zoom).into(),
+                    font: LABEL_FONT,
+                    color: Color::from_rgb(0.3, 0.3, 0.35),
+                    align_x: iced::alignment::Horizontal::Center.into(),
+                    align_y: iced::alignment::Vertical::Center,
+                    ..Default::default()
+                });
             }
-            let label = self.names.get(node).cloned().unwrap_or_default();
-            frame.fill_text(canvas::Text {
-                content: label,
-                position: Point::new(draw_pos.x, draw_pos.y + NODE_RADIUS + 10.0),
-                size: (LABEL_SIZE as f32).into(),
-                font: LABEL_FONT,
-                color: Color::from_rgb(0.3, 0.3, 0.35),
-                align_x: iced::alignment::Horizontal::Center.into(),
-                align_y: iced::alignment::Vertical::Center,
-                ..Default::default()
-            });
         }
 
         vec![frame.into_geometry()]
@@ -345,12 +429,14 @@ impl GraphScene {
 // État de session d'un glisser-déposer de nœud.
 #[derive(Debug, Clone, Copy)]
 pub struct DragState {
-    /// Nœud déplacé.
+    /// Nœud déplacé (usize::MAX si pan).
     node: usize,
     /// Position du curseur au moment du clic (dans le canevas).
     origin: Point,
     /// Décalage courant du curseur depuis l'origine.
     delta: Point,
+    /// Vrai si c'est un pan (glisser sur le fond), faux si nœud.
+    is_pan: bool,
 }
 
 // Programme iced pour le canevas du graphe.
@@ -398,19 +484,26 @@ impl canvas::Program<Message> for GraphProgram {
                 // Coordonnées locales au canevas (le curseur est global).
                 let p = cursor.position_over(bounds)?;
                 let point = Point::new(p.x - bounds.x, p.y - bounds.y);
-                let node = self.scene.hit_test(point)?;
+                let node = self.scene.hit_test(point);
+                let is_pan = node.is_none();
+                let node_id = node.unwrap_or(usize::MAX);
                 *drag = Some(DragState {
-                    node,
+                    node: node_id,
                     origin: point,
                     delta: Point::new(0.0, 0.0),
+                    is_pan,
                 });
-                Some(
-                    canvas::Action::publish(Message::GraphDragStart {
-                        node,
-                        origin: (point.x, point.y),
-                    })
-                    .and_capture(),
-                )
+                if is_pan {
+                    Some(canvas::Action::request_redraw().and_capture())
+                } else {
+                    Some(
+                        canvas::Action::publish(Message::GraphDragStart {
+                            node: node_id,
+                            origin: (point.x, point.y),
+                        })
+                        .and_capture(),
+                    )
+                }
             }
             iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
                 let d = drag.as_mut()?;
@@ -420,14 +513,31 @@ impl canvas::Program<Message> for GraphProgram {
             }
             iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
                 let d = drag.take()?;
-                Some(
-                    canvas::Action::publish(Message::GraphDragApply {
-                        node: d.node,
-                        dx: d.delta.x,
-                        dy: d.delta.y,
-                    })
-                    .and_capture(),
-                )
+                if d.is_pan {
+                    Some(
+                        canvas::Action::publish(Message::GraphPan {
+                            dx: d.delta.x,
+                            dy: d.delta.y,
+                        })
+                        .and_capture(),
+                    )
+                } else {
+                    Some(
+                        canvas::Action::publish(Message::GraphDragApply {
+                            node: d.node,
+                            dx: d.delta.x,
+                            dy: d.delta.y,
+                        })
+                        .and_capture(),
+                    )
+                }
+            }
+            iced::Event::Mouse(iced::mouse::Event::WheelScrolled { delta }) => {
+                let scroll = match delta {
+                    iced::mouse::ScrollDelta::Lines { y, .. } => *y,
+                    iced::mouse::ScrollDelta::Pixels { y, .. } => *y / 50.0,
+                };
+                Some(canvas::Action::publish(Message::GraphZoom(scroll)))
             }
             _ => None,
         }
@@ -457,6 +567,12 @@ pub fn graph_view<'a>(app: &'a App, notes: &'a [Note], size: Size) -> Element<'a
         &app.graph_filters,
         &app.graph_drags,
         &app.file_mtimes,
+        &ViewOpts {
+            zoom: app.graph_zoom,
+            pan: app.graph_pan,
+            show_labels: app.graph_show_labels,
+            show_grid: app.graph_show_grid,
+        },
     );
 
     // Réutilise le programme persistant s'il a déjà été construit (la scène
@@ -518,6 +634,24 @@ pub fn graph_view<'a>(app: &'a App, notes: &'a [Note], size: Size) -> Element<'a
         button(text(period_label))
             .on_press(Message::GraphCyclePeriod)
             .style(super::ghost_button_style),
+    );
+    toolbar = toolbar.push(
+        button(text(if app.graph_show_labels {
+            "Noms ✓"
+        } else {
+            "Noms"
+        }))
+        .on_press(Message::GraphToggleLabels)
+        .style(super::ghost_button_style),
+    );
+    toolbar = toolbar.push(
+        button(text(if app.graph_show_grid {
+            "Quadrillage ✓"
+        } else {
+            "Quadrillage"
+        }))
+        .on_press(Message::GraphToggleGrid)
+        .style(super::ghost_button_style),
     );
     toolbar = toolbar.push(
         button(text("Effacer"))
@@ -583,6 +717,12 @@ mod tests {
             &GraphFilters::default(),
             &no_drags,
             &HashMap::new(),
+            &ViewOpts {
+                zoom: 1.0,
+                pan: (0.0, 0.0),
+                show_labels: true,
+                show_grid: false,
+            },
         );
 
         let drags = HashMap::from([(0usize, (12.0, -7.0))]);
@@ -593,6 +733,12 @@ mod tests {
             &GraphFilters::default(),
             &drags,
             &HashMap::new(),
+            &ViewOpts {
+                zoom: 1.0,
+                pan: (0.0, 0.0),
+                show_labels: true,
+                show_grid: false,
+            },
         );
 
         let base_0 = base.positions[&0];
@@ -618,6 +764,12 @@ mod tests {
             &GraphFilters::default(),
             &no_drags,
             &HashMap::new(),
+            &ViewOpts {
+                zoom: 1.0,
+                pan: (0.0, 0.0),
+                show_labels: true,
+                show_grid: false,
+            },
         );
         let drags = HashMap::from([(0usize, (50.0, 40.0))]);
         let dragged = GraphScene::layout(
@@ -627,6 +779,12 @@ mod tests {
             &GraphFilters::default(),
             &drags,
             &HashMap::new(),
+            &ViewOpts {
+                zoom: 1.0,
+                pan: (0.0, 0.0),
+                show_labels: true,
+                show_grid: false,
+            },
         );
 
         // Le curseur sur la position décalée touche le nœud déplacé.
@@ -650,6 +808,12 @@ mod tests {
             &GraphFilters::default(),
             &HashMap::new(),
             &HashMap::new(),
+            &ViewOpts {
+                zoom: 1.0,
+                pan: (0.0, 0.0),
+                show_labels: true,
+                show_grid: false,
+            },
         );
         let program = GraphProgram::new(scene);
         let mut drag = None;

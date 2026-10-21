@@ -244,6 +244,14 @@ pub enum Message {
     GraphCycleDepth,
     /// Fait cycler le filtre « modifiées depuis » (aucun→7j→30j→90j→aucun).
     GraphCyclePeriod,
+    /// Zoom du graphe (delta de molette).
+    GraphZoom(f32),
+    /// Pan du graphe.
+    GraphPan { dx: f32, dy: f32 },
+    /// Bascule l'affichage des noms de nœuds.
+    GraphToggleLabels,
+    /// Bascule le quadrillage.
+    GraphToggleGrid,
     /// Bascule le mini-calendrier dans la sidebar.
     ToggleCalendar,
     /// Ouvre la note journalière de la date ISO `AAAA-MM-JJ` (créée si absente).
@@ -504,14 +512,22 @@ pub struct App {
     pub show_backlinks: bool,
     /// Notes sélectionnées dans l'explorateur (sélection multiple).
     pub selected_note_paths: HashSet<PathBuf>,
+    /// Renommage d'une pièce jointe : (chemin, nouveau nom sans extension).
+    pub attachment_rename: Option<(PathBuf, String)>,
+    /// Facteur de zoom du graphe (1.0 = 100 %).
+    pub graph_zoom: f32,
+    /// Décalage de pan du graphe (px).
+    pub graph_pan: (f32, f32),
+    /// Affiche les noms des nœuds.
+    pub graph_show_labels: bool,
+    /// Affiche un quadrillage.
+    pub graph_show_grid: bool,
     /// Onglet actif de la sidebar gauche.
     pub sidebar_tab: SidebarTab,
     /// État des panneaux redimensionnables (pane_grid).
     pub pane_state: iced::widget::pane_grid::State<PaneKind>,
     /// Inventaire des pièces jointes du vault.
     pub attachments: Vec<crate::vault::attachments::Attachment>,
-    /// Renommage d'une pièce jointe : (chemin, nouveau nom sans extension).
-    pub attachment_rename: Option<(PathBuf, String)>,
 }
 /// `true` si la note doit être ignorée par l'Explorer : à l'intérieur du
 /// dossier de gabarits configuré ou dans un dossier `.archive`.
@@ -737,6 +753,10 @@ pub fn boot() -> (App, Task<Message>) {
         pane_state,
         attachments: Vec::new(),
         attachment_rename: None,
+        graph_zoom: 1.0,
+        graph_pan: (0.0, 0.0),
+        graph_show_labels: true,
+        graph_show_grid: false,
         open_tabs: Vec::new(),
         open_tabs_active: 0,
         open_buffers: HashMap::new(),
@@ -980,6 +1000,20 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 }
                 Some(_) => now.checked_sub(std::time::Duration::from_secs(30 * DAY)),
             };
+        }
+        Message::GraphZoom(delta) => {
+            let factor = if delta > 0.0 { 1.1 } else { 1.0 / 1.1 };
+            app.graph_zoom = (app.graph_zoom * factor).clamp(0.25, 4.0);
+        }
+        Message::GraphPan { dx, dy } => {
+            app.graph_pan.0 += dx;
+            app.graph_pan.1 += dy;
+        }
+        Message::GraphToggleLabels => {
+            app.graph_show_labels = !app.graph_show_labels;
+        }
+        Message::GraphToggleGrid => {
+            app.graph_show_grid = !app.graph_show_grid;
         }
         Message::ToggleCalendar => {
             app.show_calendar = !app.show_calendar;
