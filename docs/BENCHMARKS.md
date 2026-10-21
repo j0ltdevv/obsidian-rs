@@ -37,28 +37,53 @@ Chiffres **mesurés** sur cette machine, sauf mention contraire.
 
 **Gain du rendu logiciel : −49 % à vide, −31 % sur 5 000 notes.**
 
-### Re mesure du 21 octobre — nouveau build (box `pour-omp`)
+### Re mesure du 21 octobre — nouveau build (boîtes instabox)
 
-| Configuration | RSS stable | Détail |
-|---|---|---|
-| iced + tiny-skia, build **debug** (`CARGO_PROFILE_DEV_DEBUG=0`), vault démo (3 notes), **aucune note ouverte** | **39,6 Mo** (40 548 Ko) | stable de T+2 s à T+20 s ; 10 threads ; VSZ 650 Mo |
+| Configuration | RSS | VmHWM | Détail |
+|---|---|---|---|
+| iced + tiny-skia, **release** (`cargo build --release`) | **22,0 Mo** (22 488 Ko) | 23,3 Mo | 10 threads, binaire 12,8 Mo — mesuré sur `pour-omp` |
+| iced + tiny-skia, **debug** (`CARGO_PROFILE_DEV_DEBUG=0`) | **39,6 Mo** (40 548 Ko) | — | stable de T+2 s à T+20 s — `pour-omp` |
+| iced + tiny-skia, debug, **vault de 5 000 notes** (20 Mo, 40 dossiers) | **70,7 Mo** (72 416 Ko) | 72,4 Mo | VmHWM = VmRSS : aucun pic de mémoire — `hermes` |
 
-Le build debug avec debuginfo réduite revient à 39,6 Mo, soit ~1 Mo de plus que
-le build release mesuré plus haut (38,4 Mo à vide) : l'écart vient du binaire,
-pas du code. La mesure reste **« à vide »** (le scan du vault est asynchrone et
-aucune note n'est ouverte à ce stade) — la valeur « note ouverte » est mesurée
-séparément quand l'ouverture au démarrage est en place.
+Le build release descend à **22 Mo** : l'écart avec le build debug (39,6 Mo)
+vient du binaire et de la debuginfo, pas du code. Les trois mesures sont des
+**RSS de processus unique**, relevées sur `/proc/<pid>/status` après
+stabilisation.
+
+Comparaison avec la mesure de 5 000 notes plus ancienne (83,8 Mo) : non
+strictement homogène (hôtes différents, build debug dans les deux cas).
 
 Le coût est la pile GPU (contexte wgpu + driver mappé + atlas de textures), pas le
 code de l'application. D'où l'option `default-features = false` avec la feature
 `tiny-skia` dans `Cargo.toml` — **exclusive** avec wgpu : un moteur HTML embarqué
 (Blitz, CEF, Servo) exige le device wgpu d'iced et fait remonter la conso.
 
+## Planchers mémoire des runtimes (mesurés le 21 octobre)
+
+| Runtime | Charge | PSS | RSS | Détail |
+|---|---|---|---|---|
+| **notre UI native** (iced + tiny-skia, release) | page Markdown réelle | **22,0 Mo** | 22,5 Mo | 1 processus, 10 threads — `pour-omp` |
+| **Tauri 2 + WebKitGTK** | page HTML **vide** | **286 Mo** | 467 Mo | 87,6 Mo (Tauri) + 176 Mo (WebKitWebProcess) + 29 Mo (réseau) — `pour-omp` |
+| Tauri 2 + WebKitGTK + **CodeMirror 6** | page éditeur réelle | **395 Mo** | 576 Mo | mesuré plus tôt sur le même banc |
+| **Chromium** | page HTML **vide** | — | 843 Mo cumulé | RSS cumulé sur 7 processus (la mémoire partagée y est comptée plusieurs fois) — `ssss` |
+| Electron (Obsidian) | application réelle | — | 180-250 Mo | **rapport tiers**, non mesuré ici |
+
+**Conséquence** : une UI web (webview du système ou Chromium) coûte **plus cher
+qu'Electron lui-même** — WebKitGTK alone vaut 286 Mo PSS pour une page vide. Le
+budget « < 150 Mo » **exclut donc les webviews** : le seul stack qui le respecte
+est le rendu natif (22 Mo), et la fidélité visuelle doit venir du travail de
+rendu (métriques, typographie, thème), pas d'un webview.
+
+Corollaire : l'alternative crédible à « exécuter leur renderer » n'est pas
+« notre UI en HTML/CSS », mais **notre UI native soignée** — d'où la
+spécification de fidélité (`demonstrations/obsidian-rea/UI-SPEC.md`).
+
 ## Comparaison — Obsidian (Electron)
 
 | Configuration | RSS | PSS | Libs GL mappées |
 |---|---|---|---|
-| **obsidian-rs** (iced + tiny-skia, debug) | **39,6 Mo** | — | 0 |
+| **obsidian-rs** (iced + tiny-skia, release) | **22,0 Mo** | — | 0 |
+| **obsidian-rs** (iced + tiny-skia, debug, 5 000 notes) | **70,7 Mo** | — | 0 |
 | Obsidian 1.7.3 (vault léger) — **rapport tiers, non mesuré ici** | 180-250 Mo | — | oui |
 
 Comparaison hétérogène (notre chiffre = 1 process, celui d'Obsidian = rapport
