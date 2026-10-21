@@ -1,0 +1,20 @@
+[package]
+name = "obsidian-rs-desktop"
+version = "0.2.0"
+edition = "2021"
+description = "Coquille de bureau (Tauri) d'obsidian-rs : front HTML/CSS + moteur Rust"
+license = "MIT"
+
+# Paquet autonome : il ne fait pas partie d'un espace de travail parent.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

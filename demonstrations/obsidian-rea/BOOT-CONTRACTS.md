@@ -28,7 +28,7 @@ Ressources attendues : `lib/*` (pdfjs, mathjax, mermaid, reveal, prism),
 |---|---|---|
 | 1 | `window.require('electron')` doit renvoyer `{ipcRenderer, remote, webFrame}` **et** `window.electron` doit exister (nodeIntegration actif : 0 contextBridge, 0 preload) | boot avorté |
 | 2 | `ipcRenderer.sendSync('vault')` doit renvoyer `{id, path}`. Si `fs.existsSync(path)` est faux → le renderer appelle `sendSync('starter')` puis `window.close()` | **point de rupture n°1** |
-| 3 | `sendSync('version')` → chaîne ; `remote.app.getVersion()` → build ; `sendSync('policy')` → objet ; `sendSync('terms')` → **exactement** la chaîne d'acceptation de 286 caractères (« I understand and agree that I am not allowed to distribute the Obsidian application… ») | `window.close()` |
+| 3 | `sendSync('version')` → chaîne ; `remote.app.getVersion()` → build ; `sendSync('policy')` → objet ; `sendSync('terms')` → **exactement** la chaîne d'acceptation de **284 caractères** (longueur mesurée le 21/10 sur Obsidian 1.14.4 ; « I understand and agree that I am not allowed to distribute the Obsidian application… ») | `window.close()` |
 | 4 | `process.platform` doit valoir `'linux'` (sinon `Qy.isLinux` est faux) ; `process.versions.electron` est lu au démarrage (branche `electron.clipboard` vs `electron.remote.clipboard`) | comportement silently faux |
 | 5 | **La liste des fichiers ne passe pas par un canal IPC** : l'adaptateur fs fait `fs.promises.readdir/stat/lstat/readFile` sur `path.join(basePath, chemin)` | l'explorateur de fichiers est vide |
 | 6 | Modules requis au boot : `original-fs`, `path`, `url`, `os` (optionnel), `electron` ; `crypto.scrypt` seulement pour les vaults chiffrés ; `btime` optionnel | boot avorté |
