@@ -157,9 +157,9 @@ pub fn render_markdown(content: &str) -> Vec<Segment> {
             continue;
         }
 
-        // Bloc de code : trois apostrophes inverses (langue optionnelle).
-        if line.trim_start().starts_with("```") {
-            index = push_code_block(&lines, index, &mut segments);
+        // Bloc de code : fence ouvrante (``` ou ~~~), langue optionnelle.
+        if let Some(fence) = super::editor::fence_open(line) {
+            index = push_code_block(&lines, index, &fence, &mut segments);
             continue;
         }
 
@@ -174,12 +174,17 @@ pub fn render_markdown(content: &str) -> Vec<Segment> {
 ///
 /// Retourne l'index de la ligne à traiter ensuite. Un bloc jamais
 /// fermé produit tout de même un segment (contenu jusqu'à la fin).
-fn push_code_block(lines: &[&str], start: usize, out: &mut Vec<Segment>) -> usize {
+fn push_code_block(
+    lines: &[&str],
+    start: usize,
+    open: &super::editor::Fence,
+    out: &mut Vec<Segment>,
+) -> usize {
     let mut body: Vec<&str> = Vec::new();
     let mut index = start + 1;
 
     while index < lines.len() {
-        if lines[index].trim_start().starts_with("```") {
+        if super::editor::fence_close(lines[index], open) {
             break;
         }
         body.push(lines[index]);
@@ -393,18 +398,12 @@ fn nettoyer_ligne_tableau(line: &str) -> String {
 
 /// Détecte un titre en début de ligne : renvoie le niveau et le reste.
 ///
-/// `###x` n'est pas un titre (pas d'espace après les `#`).
+/// `###x` n'est pas un titre (pas d'espace après les `#`) et une ligne
+/// indentée de quatre espaces est du code indenté, pas un titre. Même règle
+/// que `editor::heading_prefix`, partagée avec la coloration de la source.
 fn parse_titre(line: &str) -> Option<(usize, &str)> {
-    let trim = line.trim_start();
-    let niveau = trim.chars().take_while(|&c| c == '#').count();
-    if niveau == 0 || niveau > 6 {
-        return None;
-    }
-    let reste = &trim[niveau..];
-    if !reste.starts_with(' ') {
-        return None;
-    }
-    Some((niveau, reste.trim_start()))
+    let prefix = super::editor::heading_prefix(line)?;
+    Some((prefix.level as usize, &line[prefix.text_start..]))
 }
 
 /// Détecte un préfixe de bloc (tâche, liste, citation).
@@ -468,7 +467,7 @@ fn parse_tache(trim: &str) -> Option<(&str, SegmentStyle)> {
 }
 
 /// Détecte une puce de liste non ordonnée (`-`, `*` ou `+`).
-fn parse_puce(trim: &str) -> Option<&str> {
+pub(crate) fn parse_puce(trim: &str) -> Option<&str> {
     let apres = strip_puce(trim)?;
     if apres.is_empty() || apres.starts_with(char::is_whitespace) {
         Some(apres)
@@ -491,7 +490,7 @@ fn strip_puce(trim: &str) -> Option<&str> {
 }
 
 /// Détecte une liste numérotée `1. x` (un ou plusieurs chiffres).
-fn parse_liste_numerotee(trim: &str) -> Option<&str> {
+pub(crate) fn parse_liste_numerotee(trim: &str) -> Option<&str> {
     let chiffres = trim.chars().take_while(|c| c.is_ascii_digit()).count();
     if chiffres == 0 {
         return None;
@@ -730,12 +729,12 @@ fn vider_tampon(tampon: &mut String, line_no: usize, out: &mut Vec<Segment>) {
 }
 
 /// Première position de `cible` à partir de `debut`.
-fn position(chars: &[char], debut: usize, cible: char) -> Option<usize> {
+pub(crate) fn position(chars: &[char], debut: usize, cible: char) -> Option<usize> {
     (debut..chars.len()).find(|&i| chars[i] == cible)
 }
 
 /// Première position d'une paire `cc` à partir de `debut`.
-fn position_double(chars: &[char], debut: usize, cible: char) -> Option<usize> {
+pub(crate) fn position_double(chars: &[char], debut: usize, cible: char) -> Option<usize> {
     (debut..chars.len()).find(|&i| chars[i] == cible && chars.get(i + 1) == Some(&cible))
 }
 
@@ -743,7 +742,7 @@ fn position_double(chars: &[char], debut: usize, cible: char) -> Option<usize> {
 ///
 /// On préfère `***` à `**` et `**` à `*` ; chaque marqueur doit
 /// être fermé par son exact équivalent.
-fn parse_emphase(chars: &[char], i: usize) -> Option<(SegmentStyle, usize, String)> {
+pub(crate) fn parse_emphase(chars: &[char], i: usize) -> Option<(SegmentStyle, usize, String)> {
     let deux_etoiles = chars.get(i + 1) == Some(&'*');
     let trois_etoiles =
         deux_etoiles && chars.get(i + 2) == Some(&'*') && chars.get(i + 3) != Some(&'*');
@@ -782,7 +781,7 @@ fn parse_emphase(chars: &[char], i: usize) -> Option<(SegmentStyle, usize, Strin
 ///
 /// L'URL d'un lien `http(s)://` génère un segment `ExternalUrl`
 /// (le segment `Link` est réservé aux liens internes du vault).
-fn parse_lien(chars: &[char], i: usize) -> Option<(String, String, usize)> {
+pub(crate) fn parse_lien(chars: &[char], i: usize) -> Option<(String, String, usize)> {
     let fin_texte = position(chars, i + 1, ']')?;
     let texte: String = chars[i + 1..fin_texte].iter().collect();
 
@@ -816,7 +815,7 @@ fn parse_url_nue(chars: &[char], i: usize) -> Option<usize> {
 }
 
 /// Parse un wikilink `[[cible]]` à partir de `i` ; gère l'alias.
-fn parse_wikilink(chars: &[char], i: usize) -> Option<(String, usize)> {
+pub(crate) fn parse_wikilink(chars: &[char], i: usize) -> Option<(String, usize)> {
     let apres = &chars[i + 2..];
     let fin = position(apres, 0, ']')?;
     if apres.get(fin + 1) != Some(&']') {
@@ -835,7 +834,10 @@ fn parse_wikilink(chars: &[char], i: usize) -> Option<(String, usize)> {
 /// Miroir de `embeds::parse_embed` : le texte du segment est la cible (sans
 /// `![[ ]]`, sans section ni alias) et le style dépend de la nature de la
 /// cible (`embed_kind`).
-fn parse_embed_inline(chars: &[char], i: usize) -> Option<(SegmentStyle, String, usize)> {
+pub(crate) fn parse_embed_inline(
+    chars: &[char],
+    i: usize,
+) -> Option<(SegmentStyle, String, usize)> {
     let apres = &chars[i + 3..];
     let fin = position(apres, 0, ']')?;
     if apres.get(fin + 1) != Some(&']') {
@@ -860,7 +862,7 @@ fn parse_embed_inline(chars: &[char], i: usize) -> Option<(SegmentStyle, String,
 ///
 /// Règle : le `#` doit être en début de ligne ou précédé d'un
 /// espace, et être suivi d'un caractère de tag.
-fn debut_de_tag(chars: &[char], i: usize) -> bool {
+pub(crate) fn debut_de_tag(chars: &[char], i: usize) -> bool {
     let debut_ligne = i == 0;
     let apres_espace = i > 0 && chars[i - 1] == ' ';
     if !debut_ligne && !apres_espace {
@@ -874,7 +876,7 @@ fn debut_de_tag(chars: &[char], i: usize) -> bool {
 
 /// Fin (exclue) du tag démarrant à `debut` (premier caractère après
 /// le `#`), ou `None` si `debut` n'est pas un caractère de tag.
-fn fin_tag(chars: &[char], debut: usize) -> Option<usize> {
+pub(crate) fn fin_tag(chars: &[char], debut: usize) -> Option<usize> {
     chars.get(debut).filter(|c| est_caractere_de_tag(**c))?;
     let fin = debut
         + chars
@@ -1045,6 +1047,26 @@ mod tests {
     }
 
     #[test]
+    fn test_fence_tildes_reconnue() {
+        assert_eq!(
+            render_markdown("~~~\ncode\n~~~\nsuite"),
+            segs(&[
+                ("code", SegmentStyle::CodeBlock, 0),
+                ("suite", SegmentStyle::Plain, 3),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_titre_indente_de_quatre_espaces_n_est_pas_un_titre() {
+        // Quatre espaces : c'est du code indenté, pas un titre.
+        let segments = render_markdown("    # pas un titre");
+        assert!(!segments
+            .iter()
+            .any(|segment| segment.style == SegmentStyle::H1));
+    }
+
+    #[test]
     fn test_marqueurs_absents_du_texte() {
         for s in &render_markdown("**a** *b* ~~c~~ `d`") {
             assert!(!s.text.contains('*'), " marqueur dans {}", s.text);
@@ -1183,7 +1205,8 @@ mod tests {
 
     #[test]
     fn test_hash_seul_n_est_pas_un_tag() {
-        assert_eq!(render_markdown("#"), segs(&[("#", SegmentStyle::Plain, 0)]));
+        // Un `#` seul est un titre vide (règle de l'éditeur), pas un tag.
+        assert_eq!(render_markdown("#"), segs(&[("", SegmentStyle::H1, 0)]));
         assert_eq!(
             render_markdown("texte # "),
             segs(&[("texte # ", SegmentStyle::Plain, 0)])

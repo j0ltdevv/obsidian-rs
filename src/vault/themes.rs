@@ -3,6 +3,14 @@
 //! Deux thèmes sont fournis : `DEFAULT_DARK` et `DEFAULT_LIGHT`. Le reste du
 //! code les sélectionne par nom via `by_name`, de façon insensible à la casse
 //! et sans allocation.
+//!
+//! Un vault peut aussi fournir ses propres thèmes CSS (`.obsidian/themes/`).
+//! [`theme_css_path`] et [`theme_css_source`] résolvent alors le nom du thème
+//! actif vers le fichier correspondant ; l'interface-native les traduit en
+//! variables (voir `crate::ui::theme_vars`).
+
+use std::fs;
+use std::path::{Path, PathBuf};
 
 /// Palette complète d'un thème.
 ///
@@ -63,6 +71,55 @@ pub fn by_name(name: &str) -> Option<&'static Theme> {
         .iter()
         .find(|theme| theme.name.eq_ignore_ascii_case(name))
         .copied()
+}
+
+/// Résout le nom du thème actif vers un fichier CSS du vault.
+///
+/// Recherche, dans `.obsidian/themes/` :
+/// 1. le fichier `<nom du thème>.css` ;
+/// 2. un fichier dont le nom correspond sans tenir compte de la casse ;
+/// 3. le premier fichier `*.css` du dossier, par ordre alphabétique.
+///
+/// Retourne `None` quand le vault ne fournit aucun fichier de thème : les
+/// valeurs par défaut restent alors en vigueur. Un nom de thème contenant un
+/// séparateur de chemin est refusé, pour ne jamais sortir du vault.
+pub fn theme_css_path(vault_root: &Path, theme_name: &str) -> Option<PathBuf> {
+    let name = theme_name.trim();
+    if name.is_empty() || name.contains('/') || name.contains('\\') || name.contains("..") {
+        return None;
+    }
+    let dir = vault_root.join(".obsidian").join("themes");
+    let exact = dir.join(format!("{name}.css"));
+    if exact.is_file() {
+        return Some(exact);
+    }
+    let entries = fs::read_dir(&dir).ok()?;
+    let mut candidates: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("css"))
+        .collect();
+    candidates.sort();
+    let wanted = name.to_ascii_lowercase();
+    candidates
+        .iter()
+        .find(|path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(|stem| stem.to_ascii_lowercase() == wanted)
+                .unwrap_or(false)
+        })
+        .cloned()
+        .or_else(|| candidates.into_iter().next())
+}
+
+/// Source CSS du thème actif du vault, si celui-ci en fournit une.
+///
+/// Un fichier illisible est ignoré (retour `None`) : l'application conserve
+/// alors les valeurs par défaut plutôt que d'échouer au démarrage.
+pub fn theme_css_source(vault_root: &Path, theme_name: &str) -> Option<String> {
+    let path = theme_css_path(vault_root, theme_name)?;
+    fs::read_to_string(path).ok()
 }
 
 /// Luminance relative sRGB d'une couleur (WCAG 2.x).
