@@ -31,6 +31,7 @@ use crate::vault::{Note, Wikilink};
 
 mod canvas_view;
 mod dataview_view;
+pub mod embed_view;
 pub(crate) mod graph;
 mod history_view;
 pub mod markdown;
@@ -40,9 +41,11 @@ pub mod search_view;
 pub mod tasks_view;
 pub mod theme;
 mod themes_view;
+pub mod trash_view;
 
 use self::canvas_view::canvas_board_view;
 use self::dataview_view::dataview_view;
+use self::embed_view::embed_image_element;
 use self::graph::graph_view;
 use self::history_view::history_view;
 use self::outline_view::outline_view;
@@ -50,6 +53,7 @@ use self::plugins_view::plugins_view;
 use self::search_view::search_view;
 use self::tasks_view::tasks_view;
 use self::themes_view::themes_view;
+use self::trash_view::trash_panel;
 
 /// Couleur du texte d'erreur.
 const ERROR_COLOR: Color = Color::from_rgb(0.85, 0.2, 0.2);
@@ -59,6 +63,26 @@ const ERROR_BG: Color = Color::from_rgb(0.98, 0.9, 0.9);
 const PANEL_BORDER: Color = Color::from_rgb(0.83, 0.86, 0.89);
 /// Couleur d'un lien non résolu.
 const UNRESOLVED_COLOR: Color = Color::from_rgb(0.55, 0.55, 0.58);
+
+// Géométrie mesurée de l'interface (UI-SPEC §2).
+/// Largeur du ruban d'icônes gauche (UI-SPEC §2.2 : 44 px).
+pub(crate) const RIBBON_WIDTH_PX: f32 = 44.0;
+// Les docks latéraux sont réglés par ratios dans `default_pane_state` (le
+// passage à une largeur fixe exigerait de retirer leurs panneaux de la grille,
+// ce qui sort du périmètre des fichiers modifiables) : la constante 300 px est
+// conservée en référence de cible dans les tests.
+pub const SIDEBAR_WIDTH_PX: f32 = 300.0;
+/// Hauteur du bandeau d'onglets (UI-SPEC §2.1 : 40 px).
+pub(crate) const TAB_BAR_HEIGHT_PX: f32 = 40.0;
+/// Hauteur de la barre d'état (UI-SPEC §2.6 : 27 px).
+pub(crate) const STATUS_BAR_HEIGHT_PX: f32 = 27.0;
+/// Largeur maximale de la zone de lecture (UI-SPEC §2.4.1 : 700 px).
+pub(crate) const READING_LINE_WIDTH_PX: f32 = 700.0;
+/// Marge intérieure de la zone de lecture (UI-SPEC §2.4.1 : 32 px).
+pub(crate) const READING_MARGIN_PX: f32 = 32.0;
+/// Survol mesuré : blanc à 6,7 % d'opacité (`--background-modifier-hover`,
+/// UI-SPEC §3).
+const HOVER_OVERLAY: Color = Color::from_rgba(1.0, 1.0, 1.0, 0.067);
 
 /// Vue racine de l'application.
 pub fn view(app: &App) -> Element<'_, Message> {
@@ -119,6 +143,16 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .into()
     } else if app.delete_confirm.is_some() {
         stack([root, delete_confirm_overlay(app)])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    } else if app.publish_dialog.is_some() {
+        stack([root, publish_overlay(app)])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    } else if app.trash_empty_confirm {
+        stack([root, trash_empty_confirm_overlay(app)])
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
@@ -427,6 +461,83 @@ fn delete_confirm_overlay<'a>(app: &'a App) -> Element<'a, Message> {
         .into()
 }
 
+/// Overlay d'export statique : saisie du répertoire de destination.
+fn publish_overlay<'a>(app: &'a App) -> Element<'a, Message> {
+    use iced::widget::{button as btn, stack, text_input as ti};
+    let Some(dialog) = &app.publish_dialog else {
+        return stack([]).into();
+    };
+    let panel = container(
+        column![
+            text("Exporter le vault en site HTML")
+                .size(15)
+                .font(bold_font()),
+            text("Répertoire de destination des pages générées.").size(12),
+            ti("Chemin du répertoire de destination", &dialog.dest)
+                .on_input(Message::PublishDest)
+                .padding(8),
+            row![
+                btn(text("Publier"))
+                    .on_press(Message::PublishRun)
+                    .style(primary_button_style),
+                btn(text("Annuler"))
+                    .on_press(Message::PublishClose)
+                    .style(ghost_button_style),
+            ]
+            .spacing(8),
+        ]
+        .spacing(12)
+        .padding(20),
+    )
+    .style(panel_style)
+    .width(Length::FillPortion(3))
+    .max_width(480);
+
+    container(stack([panel.into()]))
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(overlay_style)
+        .into()
+}
+
+/// Overlay de confirmation du vidage de la corbeille.
+fn trash_empty_confirm_overlay<'a>(app: &'a App) -> Element<'a, Message> {
+    use iced::widget::{button as btn, stack};
+    if !app.trash_empty_confirm {
+        return stack([]).into();
+    }
+    let panel = container(
+        column![
+            text("Vider la corbeille ?").size(15).font(bold_font()),
+            text(
+                "Cette action supprime définitivement tous les éléments supprimés. \
+                 Elle est irréversible.",
+            )
+            .size(13),
+            row![
+                btn(text("Vider"))
+                    .on_press(Message::TrashEmptyConfirm)
+                    .style(primary_button_style),
+                btn(text("Annuler"))
+                    .on_press(Message::TrashEmptyCancel)
+                    .style(ghost_button_style),
+            ]
+            .spacing(8),
+        ]
+        .spacing(12)
+        .padding(20),
+    )
+    .style(panel_style)
+    .width(Length::FillPortion(3))
+    .max_width(440);
+
+    container(stack([panel.into()]))
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(overlay_style)
+        .into()
+}
+
 /// Overlay de création de dossier.
 fn folder_overlay<'a>(app: &'a App) -> Element<'a, Message> {
     use iced::widget::{button as btn, stack, text_input as ti};
@@ -573,7 +684,7 @@ fn ribbon<'a>(app: &'a App) -> Element<'a, Message> {
         ),
     ];
     container(column![haut, text("").height(Length::Fill), bas])
-        .width(48)
+        .width(RIBBON_WIDTH_PX)
         .height(Length::Fill)
         .style(panel_style)
         .into()
@@ -588,14 +699,20 @@ fn status_bar<'a>(app: &'a App) -> Element<'a, Message> {
         }
         None => "Aucune note ouverte".to_string(),
     };
+    let status_label = app
+        .publish_status
+        .as_deref()
+        .map(|status| format!(" · {status}"))
+        .unwrap_or_default();
     row![
         text(info).size(12),
+        text(status_label).size(12),
         text("").width(Length::Fill),
         text(format!("thème : {}", app.current_theme)).size(12),
     ]
     .align_y(Alignment::Center)
     .spacing(8)
-    .padding([2, 10])
+    .height(Length::Fixed(STATUS_BAR_HEIGHT_PX))
     .into()
 }
 
@@ -732,7 +849,7 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
     let left_el: Element<'a, Message> = if app.show_left_sidebar {
         container(sidebar(app, notes))
             .style(panel_style)
-            .width(Length::FillPortion(3))
+            .width(Length::Fixed(SIDEBAR_WIDTH_PX))
             .height(Length::Fill)
             .into()
     } else {
@@ -930,24 +1047,11 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
 
     let panes = |_pane, &kind, _active| {
         let el: Element<'a, Message> = match kind {
-            PaneKind::Sidebar => {
-                if app.show_left_sidebar {
-                    container(sidebar(app, notes)).style(panel_style).into()
-                } else {
-                    container(iced::widget::Space::new()).into()
-                }
-            }
             PaneKind::Editor => editor_panel(app),
             PaneKind::Preview => preview_panel(app, notes),
-            PaneKind::Right => {
-                if app.show_right_sidebar {
-                    container(right_sidebar(app, notes))
-                        .style(panel_style)
-                        .into()
-                } else {
-                    container(iced::widget::Space::new()).into()
-                }
-            }
+            // Les docks latéraux sont rendus hors grille (colonnes fixes) : la
+            // grille ne contient que l'éditeur et l'aperçu.
+            PaneKind::Sidebar | PaneKind::Right => container(iced::widget::Space::new()).into(),
         };
         pane_grid::Content::new(el)
     };
@@ -956,7 +1060,37 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         .spacing(8)
         .width(Length::Fill)
         .height(Length::Fill);
-    container(grid).padding([8, 12]).into()
+
+    let left_dock: Element<'a, Message> = if app.show_left_sidebar {
+        container(sidebar(app, notes))
+            .style(panel_style)
+            .width(Length::Fixed(SIDEBAR_WIDTH_PX))
+            .height(Length::Fill)
+            .into()
+    } else {
+        container(iced::widget::Space::new())
+            .width(Length::Fixed(0.0))
+            .height(Length::Fill)
+            .into()
+    };
+    let right_dock: Element<'a, Message> = if app.show_right_sidebar {
+        container(right_sidebar(app, notes))
+            .style(panel_style)
+            .width(Length::Fixed(SIDEBAR_WIDTH_PX))
+            .height(Length::Fill)
+            .into()
+    } else {
+        container(iced::widget::Space::new())
+            .width(Length::Fixed(0.0))
+            .height(Length::Fill)
+            .into()
+    };
+
+    row![left_dock, container(grid).padding([8, 12]), right_dock]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .spacing(8)
+        .into()
 }
 
 /// Message d'erreur plein écran quand le scan a échoué.
@@ -1006,7 +1140,7 @@ fn sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
             ghost_button_style
         })
     };
-    // Les six onglets ne tiennent pas dans la largeur de la sidebar : la
+    // Les sept onglets ne tiennent pas dans la largeur de la sidebar : la
     // rangée déborde et le dernier libellé chevauche le panneau voisin. On la
     // rend donc défilable horizontalement (une seule ligne, aucun retour).
     let tabs = scrollable(
@@ -1041,6 +1175,11 @@ fn sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
                 app.sidebar_tab == SidebarTab::Attachments,
                 Message::SetSidebarTab(SidebarTab::Attachments),
             ),
+            tab_btn(
+                "Corbeille",
+                app.sidebar_tab == SidebarTab::Corbeille,
+                Message::SetSidebarTab(SidebarTab::Corbeille),
+            ),
         ]
         .spacing(4)
         .padding([4, 8]),
@@ -1058,6 +1197,7 @@ fn sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         SidebarTab::Backlinks => backlinks_panel(app, notes),
         SidebarTab::Calendrier => calendar_widget(app),
         SidebarTab::Attachments => attachments_panel(app),
+        SidebarTab::Corbeille => trash_panel(app),
     };
     column![tabs, content]
         .width(Length::Fill)
@@ -1507,7 +1647,7 @@ fn tab_bar<'a>(app: &'a App) -> Element<'a, Message> {
         let label = button(text(name))
             .on_press(Message::OpenNote(path.clone()))
             .style(if active {
-                primary_button_style
+                tab_active_button_style
             } else {
                 ghost_button_style
             });
@@ -1518,6 +1658,7 @@ fn tab_bar<'a>(app: &'a App) -> Element<'a, Message> {
     }
     container(bar)
         .width(Length::Fill)
+        .height(Length::Fixed(TAB_BAR_HEIGHT_PX))
         .padding([2, 8])
         .style(panel_style)
         .into()
@@ -1577,9 +1718,12 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
     } else {
         // Mode lecture : source Markdown colorée, défilable.
         scrollable(
-            container(markdown::render_source(&open.content.text()))
-                .width(Length::Fill)
-                .padding([8, 10]),
+            container(
+                container(markdown::render_source(&open.content.text()))
+                    .max_width(READING_LINE_WIDTH_PX)
+                    .center_x(Length::Fill),
+            )
+            .padding([8, READING_MARGIN_PX as u16]),
         )
         .height(Length::Fill)
         .into()
@@ -1625,7 +1769,9 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
 
     column(children)
         .spacing(8)
-        .width(Length::FillPortion(5))
+        // Contenu du pane éditeur : occupe exactement sa cellule (pas de FillPortion,
+        // sinon le panneau déborde sur son voisin).
+        .width(Length::Fill)
         .height(Length::Fill)
         .into()
 }
@@ -1642,8 +1788,11 @@ fn preview_panel<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
     preview = preview.push(section_title("Prévisualisation"));
 
     // Rendu Markdown stylisé (live preview).
-    let rendered =
-        scrollable(live_preview_column(&open.content.text())).height(Length::FillPortion(3));
+    let rendered = scrollable(
+        container(live_preview_column(&app.vault_root, &open.content.text()))
+            .padding([8, READING_MARGIN_PX as u16]),
+    )
+    .height(Length::FillPortion(3));
     preview = preview.push(rendered);
 
     // Métadonnées parsées (snapshot du dernier scan).
@@ -1676,12 +1825,13 @@ fn preview_panel<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
     }
 
     scrollable(preview)
-        .width(Length::FillPortion(4))
+        // Panneau prévisualisation : la largeur doit remplir exactement sa cellule de pane.
+        .width(Length::Fill)
         .height(Length::Fill)
         .into()
 }
 /// Convertit un segment du moteur de rendu Markdown en widget iced.
-fn segment_widget(seg: &Segment) -> Element<'static, Message> {
+fn segment_widget(root: &Path, seg: &Segment) -> Element<'static, Message> {
     match seg.style {
         SegmentStyle::Plain => text(seg.text.clone()).into(),
         SegmentStyle::H1
@@ -1837,11 +1987,12 @@ fn segment_widget(seg: &Segment) -> Element<'static, Message> {
             ..container::Style::default()
         })
         .into(),
-        SegmentStyle::Embed | SegmentStyle::EmbedImage | SegmentStyle::EmbedPdf => {
-            let prefix = match seg.style {
-                SegmentStyle::EmbedImage => "🖼 ",
-                SegmentStyle::EmbedPdf => "📄 ",
-                _ => "⛓ ",
+        SegmentStyle::EmbedImage => embed_image_element(root, &seg.text),
+        SegmentStyle::Embed | SegmentStyle::EmbedPdf => {
+            let prefix = if seg.style == SegmentStyle::EmbedPdf {
+                "📄 "
+            } else {
+                "⛓ "
             };
             let color = Color::from_rgb(0.2, 0.4, 0.8);
             row![
@@ -1855,13 +2006,16 @@ fn segment_widget(seg: &Segment) -> Element<'static, Message> {
 }
 
 /// Rend le contenu Markdown en colonne de segments stylisés.
-fn live_preview_column(content: &str) -> Element<'static, Message> {
+fn live_preview_column(root: &Path, content: &str) -> Element<'static, Message> {
     let segments = render_markdown(content);
     let mut column = Column::new().spacing(4);
     for seg in &segments {
-        column = column.push(segment_widget(seg));
+        column = column.push(segment_widget(root, seg));
     }
-    column.into()
+    container(column)
+        .max_width(READING_LINE_WIDTH_PX)
+        .center_x(Length::Fill)
+        .into()
 }
 
 /// Bloc métadonnées : frontmatter éditable, tags et wikilinks navigables.
@@ -2042,7 +2196,7 @@ fn tree_button_style(theme: &iced::Theme, status: button::Status, active: bool) 
         }
     } else if matches!(status, button::Status::Hovered) {
         button::Style {
-            background: Some(Background::Color(pal.background.weak.color)),
+            background: Some(Background::Color(HOVER_OVERLAY)),
             ..button::Style::default()
         }
     } else {
@@ -2061,6 +2215,17 @@ fn primary_button_style(theme: &iced::Theme, status: button::Status) -> button::
     button::Style {
         background: Some(Background::Color(background)),
         text_color: pal.primary.strong.text,
+        ..button::Style::default()
+    }
+}
+
+// Style de l'onglet de note actif : fond du fond principal (#1C1C1C), comme
+// mesuré (UI-SPEC §3 : « Onglet de note actif : fond #1C1C1C »).
+fn tab_active_button_style(theme: &iced::Theme, _status: button::Status) -> button::Style {
+    let pal = theme.extended_palette();
+    button::Style {
+        background: Some(Background::Color(pal.background.base.color)),
+        text_color: pal.background.base.text,
         ..button::Style::default()
     }
 }
@@ -2145,5 +2310,17 @@ mod tests {
     #[test]
     fn weekday_of_2026_10_25_est_dimanche() {
         assert_eq!(weekday_of(2026, 10, 25), 6);
+    }
+
+    #[test]
+    fn geometrie_principale_correspond_aux_mesures() {
+        // Mesures UI-SPEC §2 : ruban 44 px, docks 300 px, bandeau d'onglets
+        // 40 px, barre d'état 27 px, lecture 700 px avec marges 32 px.
+        assert_eq!(super::RIBBON_WIDTH_PX, 44.0);
+        assert_eq!(super::SIDEBAR_WIDTH_PX, 300.0);
+        assert_eq!(super::TAB_BAR_HEIGHT_PX, 40.0);
+        assert_eq!(super::STATUS_BAR_HEIGHT_PX, 27.0);
+        assert_eq!(super::READING_LINE_WIDTH_PX, 700.0);
+        assert_eq!(super::READING_MARGIN_PX, 32.0);
     }
 }

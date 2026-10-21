@@ -29,6 +29,7 @@ use crate::vault::ops::{create_note, write_note};
 use crate::vault::search::{build_text_index, FullTextIndex};
 use crate::vault::settings::{load_app_settings, save_app_settings, AppSettings};
 use crate::vault::tasks::{aggregate_tasks, Task as VaultTask};
+use crate::vault::trash::{empty_trash, list_trash, restore_trash, TrashEntry};
 use crate::vault::{scan_vault, Note, NoteMetadata};
 use iced::widget::text_editor;
 use iced::{Element, Task};
@@ -292,6 +293,29 @@ pub enum Message {
     OpenDailyDate(String),
     /// Bascule le panneau Backlinks de la note ouverte.
     ToggleBacklinks,
+    /// Ouvre le dialogue d'export statique du vault (site HTML).
+    PublishOpen,
+    /// Ferme le dialogue d'export statique.
+    PublishClose,
+    /// Édite le chemin du répertoire de destination de l'export.
+    PublishDest(String),
+    /// Lance l'export statique vers le répertoire saisi.
+    PublishRun,
+    /// Restaure un élément de la corbeille à son emplacement d'origine.
+    TrashRestore(TrashEntry),
+    /// Demande à vider la corbeille (ouvre la confirmation).
+    TrashEmptyRequest,
+    /// Annule le vidage de la corbeille.
+    TrashEmptyCancel,
+    /// Confirme le vidage définitif de la corbeille.
+    TrashEmptyConfirm,
+}
+
+// Brouillon du dialogue d'export statique (site HTML).
+#[derive(Debug)]
+pub struct PublishDraft {
+    /// Chemin du répertoire de destination saisi par l'utilisateur.
+    pub dest: String,
 }
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
@@ -410,17 +434,20 @@ pub enum SidebarTab {
     Calendrier,
     /// Pièces jointes du vault.
     Attachments,
+    /// Corbeille du vault.
+    Corbeille,
 }
 
 impl SidebarTab {
     /// Ordre de navigation clavier (Ctrl+Tab fait le tour).
-    pub const ORDER: [SidebarTab; 6] = [
+    pub const ORDER: [SidebarTab; 7] = [
         SidebarTab::Explorer,
         SidebarTab::Recherche,
         SidebarTab::Tags,
         SidebarTab::Backlinks,
         SidebarTab::Calendrier,
         SidebarTab::Attachments,
+        SidebarTab::Corbeille,
     ];
 
     /// Onglet suivant dans l'ordre (cyclique).
@@ -603,6 +630,17 @@ pub struct App {
     pub pane_state: iced::widget::pane_grid::State<PaneKind>,
     /// Inventaire des pièces jointes du vault.
     pub attachments: Vec<crate::vault::attachments::Attachment>,
+    /// Inventaire courant de la corbeille (chargé à l'ouverture de l'onglet).
+    pub trash_entries: Vec<TrashEntry>,
+    /// Message d'erreur du dernier échec d'une action de la corbeille.
+    pub trash_error: Option<String>,
+    /// Confirmation de vidage de la corbeille en attente.
+    pub trash_empty_confirm: bool,
+    /// Dialogue d'export statique ouvert (destination), si présent.
+    pub publish_dialog: Option<PublishDraft>,
+    /// Message d'état du dernier export statique (succès), affiché en barre
+    /// d'état. Une erreur d'export passe par `App::error`.
+    pub publish_status: Option<String>,
 }
 /// `true` si la note doit être ignorée par l'Explorer : à l'intérieur du
 /// dossier de gabarits configuré ou dans un dossier `.archive`.
@@ -664,29 +702,20 @@ impl App {
     }
 }
 
-// Construit l'état initial des panneaux : 4 colonnes redimensionnables
-// (sidebar | éditeur | prévisualisation | droite).
+// Construit l'état initial des panneaux centraux : éditeur + aperçu,
+// redimensionnables entre eux. Les docks latéraux sont rendus hors grille,
+// en largeurs fixes (300 px), dans `ui::workspace_view`.
 fn default_pane_state() -> (
     iced::widget::pane_grid::State<PaneKind>,
     Vec<iced::widget::pane_grid::Split>,
 ) {
     use iced::widget::pane_grid::{Axis, State};
-    let (mut state, sidebar) = State::new(PaneKind::Sidebar);
-    let (editor, s1) = state
-        .split(Axis::Vertical, sidebar, PaneKind::Editor)
-        .unwrap();
-    let (preview, s2) = state
+    let (mut state, editor) = State::new(PaneKind::Editor);
+    let (_preview, s1) = state
         .split(Axis::Vertical, editor, PaneKind::Preview)
         .unwrap();
-    let (_right, s3) = state
-        .split(Axis::Vertical, preview, PaneKind::Right)
-        .unwrap();
-    // Ratios raisonnables : sidebar 22 %, éditeur 62 % du reste, aperçu/droite
-    // partagés à 50 %.
-    state.resize(s1, 0.22);
-    state.resize(s2, 0.62);
-    state.resize(s3, 0.5);
-    (state, vec![s1, s2, s3])
+    state.resize(s1, 0.5);
+    (state, vec![s1])
 }
 
 // Extrait les ratios des splits d'un état pane_grid, dans l'ordre du layout.
@@ -834,13 +863,28 @@ pub fn boot() -> (App, Task<Message>) {
     let hotkeys = crate::vault::settings::load_hotkeys(Path::new(DEMO_VAULT)).unwrap_or_default();
     let keymap = KeyMap::from_hotkeys(&hotkeys);
     let (mut pane_state, pane_splits) = default_pane_state();
+    // Un fichier de ratios d'une version antérieure (grille à 4 panneaux) ne
+    // correspond plus à la grille à 2 panneaux : on l'ignore pour ne pas
+    // distordre le partage éditeur/aperçu. Seuls les ratios de même structure
+    // sont appliqués.
     if let Some(ratios) = load_pane_ratios(Path::new(DEMO_VAULT)) {
-        for (i, ratio) in ratios.into_iter().enumerate() {
-            if let Some(split) = pane_splits.get(i) {
-                pane_state.resize(*split, ratio.clamp(0.05, 0.95));
+        if ratios.len() == pane_splits.len() {
+            for (i, ratio) in ratios.into_iter().enumerate() {
+                if let Some(split) = pane_splits.get(i) {
+                    pane_state.resize(*split, ratio.clamp(0.05, 0.95));
+                }
             }
         }
     }
+    // Registre des commandes de la palette : les commandes par défaut, plus
+    // la commande d'export statique du vault.
+    let mut commands = palette_commands(&keymap);
+    commands.push(Command {
+        id: "publish-site",
+        label: "Exporter le vault en site HTML…",
+        shortcut: None,
+        category: "Fichier",
+    });
     let mut app = App {
         notes,
         index,
@@ -860,7 +904,7 @@ pub fn boot() -> (App, Task<Message>) {
         canvas,
         plugins,
         show_plugins: false,
-        commands: palette_commands(&keymap),
+        commands,
         command_palette: None,
         show_outline: false,
         show_shortcuts: false,
@@ -906,6 +950,11 @@ pub fn boot() -> (App, Task<Message>) {
         sidebar_tab: SidebarTab::Explorer,
         pane_state,
         attachments: Vec::new(),
+        trash_entries: Vec::new(),
+        trash_error: None,
+        trash_empty_confirm: false,
+        publish_dialog: None,
+        publish_status: None,
         attachment_rename: None,
         graph_zoom: 1.0,
         graph_pan: (0.0, 0.0),
@@ -1325,6 +1374,10 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.rename_dialog = None;
             } else if app.delete_confirm.is_some() {
                 app.delete_confirm = None;
+            } else if app.publish_dialog.is_some() {
+                app.publish_dialog = None;
+            } else if app.trash_empty_confirm {
+                app.trash_empty_confirm = false;
             } else if app.folder_dialog {
                 app.folder_dialog = false;
             } else if app.show_settings {
@@ -1381,6 +1434,9 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                             }
                             "insert-template" => {
                                 return insert_template_in_open_note(app);
+                            }
+                            "publish-site" => {
+                                return update(app, Message::PublishOpen);
                             }
                             "snapshot-vault" => {
                                 return update(app, Message::TakeVaultSnapshot);
@@ -1582,6 +1638,9 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     query: String::new(),
                     results: hits,
                 });
+            }
+            if tab == SidebarTab::Corbeille {
+                app.trash_entries = load_trash_entries(&app.vault_root);
             }
         }
         Message::NextTab => {
@@ -2233,6 +2292,84 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 return Task::none();
             }
             return update(app, Message::Refresh);
+        }
+        Message::TrashRestore(entry) => match restore_trash(&app.vault_root, &entry) {
+            Ok(()) => {
+                app.error = None;
+                app.trash_entries = load_trash_entries(&app.vault_root);
+                return update(app, Message::Refresh);
+            }
+            Err(err) => {
+                app.trash_error = Some(
+                    restore_conflict_message(&err)
+                        .unwrap_or_else(|| format!("Restauration impossible : {err}")),
+                );
+            }
+        },
+        Message::TrashEmptyRequest => {
+            if should_open_trash_confirm(app.trash_entries.len(), app.trash_empty_confirm) {
+                app.trash_empty_confirm = true;
+            } else {
+                // Corbeille vide : rien à confirmer ni à vider.
+                app.trash_empty_confirm = false;
+            }
+        }
+        Message::TrashEmptyCancel => {
+            app.trash_empty_confirm = false;
+        }
+        Message::TrashEmptyConfirm => {
+            // Aucun vidage silencieux : on n'exécute que si une confirmation
+            // explicite a d'abord été demandée (TrashEmptyRequest).
+            if !app.trash_empty_confirm {
+                return Task::none();
+            }
+            app.trash_empty_confirm = false;
+            match empty_trash(&app.vault_root) {
+                Ok(()) => {
+                    app.trash_error = None;
+                    app.trash_entries = Vec::new();
+                }
+                Err(err) => {
+                    app.trash_error = Some(format!("Vidage impossible : {err}"));
+                }
+            }
+        }
+        Message::PublishOpen => {
+            app.publish_dialog = Some(PublishDraft {
+                dest: String::new(),
+            });
+        }
+        Message::PublishClose => {
+            app.publish_dialog = None;
+        }
+        Message::PublishDest(dest) => {
+            if let Some(dialog) = &mut app.publish_dialog {
+                dialog.dest = dest;
+            }
+        }
+        Message::PublishRun => {
+            let Some(dialog) = app.publish_dialog.take() else {
+                return Task::none();
+            };
+            let dest = dialog.dest.trim().to_string();
+            if dest.is_empty() {
+                app.error = Some("Chemin de destination vide.".to_string());
+                app.publish_dialog = Some(dialog);
+                return Task::none();
+            }
+            match crate::vault::publish::publish_site(&app.vault_root, Path::new(&dest)) {
+                Ok(report) => {
+                    app.error = None;
+                    app.publish_status = Some(format!(
+                        "Publication terminée : {} page(s), {} pièce(s) jointe(s) exportées.",
+                        report.pages, report.assets
+                    ));
+                }
+                Err(err) => {
+                    app.error = Some(format!("Publication impossible : {err}"));
+                    app.publish_dialog = Some(dialog);
+                }
+            }
         }
         Message::TakeVaultSnapshot => {
             if !acquire_write_lock(&app.vault_root) {
@@ -3235,6 +3372,79 @@ fn property_display(value: &serde_yaml::Value) -> String {
             .unwrap_or_else(|_| format!("{other:?}")),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Helpers purs de l'interface corbeille / export (sans I/O), exposés pour
+// être testables sans fenêtre.
+// ---------------------------------------------------------------------------
+
+/// Taille humaine lisible (o, Ko, Mo, Go) depuis un nombre d'octets.
+pub fn human_size(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+    let bytes = bytes as f64;
+    if bytes >= GB {
+        format!("{:.1} Go", bytes / GB)
+    } else if bytes >= MB {
+        format!("{:.1} Mo", bytes / MB)
+    } else if bytes >= KB {
+        format!("{:.1} Ko", bytes / KB)
+    } else {
+        format!("{bytes:.0} o")
+    }
+}
+
+/// Formate un horodatage Unix (secondes) en `AAAA-MM-JJ HH:MM` (temps
+/// universel, déterministe). Conversion civile `civil_from_days` (Hinnant).
+pub fn format_deleted_at(secs: u64) -> String {
+    let days = secs / 86_400;
+    let rem = secs % 86_400;
+    let hh = rem / 3600;
+    let mm = (rem % 3600) / 60;
+    let z = days as i64 + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02} {hh:02}:{mm:02}")
+}
+
+/// Message d'erreur utilisateur pour les refus de restauration, ou `None`
+/// pour les erreurs génériques (affichées telles quelles).
+pub fn restore_conflict_message(err: &crate::vault::trash::TrashError) -> Option<String> {
+    use crate::vault::trash::TrashError;
+    match err {
+        TrashError::DestinationExists(p) => Some(format!(
+            "Restauration impossible : une note existe déjà à « {p} »."
+        )),
+        TrashError::SymlinkEntry(p) => Some(format!(
+            "Restauration refusée : entrée protégée (lien symbolique) à « {p} »."
+        )),
+        TrashError::InvalidRelativePath(p) => {
+            Some(format!("Restauration refusée : chemin invalide « {p} »."))
+        }
+        _ => None,
+    }
+}
+
+/// Décide si le clic sur « Vider la corbeille » doit ouvrir l'overlay de
+/// confirmation. Le vidage n'est jamais silencieux : il faut au minimum une
+/// entrée et aucune confirmation déjà en attente.
+pub fn should_open_trash_confirm(entry_count: usize, pending: bool) -> bool {
+    entry_count > 0 && !pending
+}
+
+/// Charge l'inventaire de la corbeille (I/O best-effort : une corbeille
+/// illisible est traitée comme vide).
+fn load_trash_entries(root: &Path) -> Vec<TrashEntry> {
+    list_trash(root).unwrap_or_default()
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3724,13 +3934,18 @@ mod tests {
     }
 
     #[test]
-    fn pane_defaut_contient_quatre_panneaux() {
+    fn pane_defaut_contient_editeur_et_apercu() {
+        // La grille centrale ne conserve que l'éditeur et l'aperçu ; les
+        // docks latéraux sont rendus hors grille en largeurs fixes.
         let (state, splits) = default_pane_state();
-        assert_eq!(state.len(), 4);
-        assert_eq!(splits.len(), 3);
+        assert_eq!(state.len(), 2);
+        assert_eq!(splits.len(), 1);
         let ratios = pane_ratios(&state);
-        assert_eq!(ratios.len(), 3);
-        assert!(ratios[0] < 0.4, "sidebar ne doit pas être géante");
+        assert_eq!(ratios.len(), 1);
+        assert!(
+            (ratios[0] - 0.5).abs() < 1e-3,
+            "partage éditeur/aperçu à 50 %"
+        );
     }
 
     #[test]
@@ -3819,15 +4034,18 @@ mod tests {
 
     #[test]
     fn sidebar_tab_cycle_avant_arriere() {
-        use SidebarTab::{Attachments, Backlinks, Calendrier, Explorer, Recherche, Tags};
+        use SidebarTab::{
+            Attachments, Backlinks, Calendrier, Corbeille, Explorer, Recherche, Tags,
+        };
         assert_eq!(Explorer.next(), Recherche);
         assert_eq!(Recherche.next(), Tags);
         assert_eq!(Tags.next(), Backlinks);
         assert_eq!(Backlinks.next(), Calendrier);
         assert_eq!(Calendrier.next(), Attachments);
-        assert_eq!(Attachments.next(), Explorer);
+        assert_eq!(Attachments.next(), Corbeille);
+        assert_eq!(Corbeille.next(), Explorer);
         // Retour : l'inverse exact.
-        assert_eq!(Explorer.prev(), Attachments);
+        assert_eq!(Explorer.prev(), Corbeille);
         assert_eq!(Recherche.prev(), Explorer);
         for tab in SidebarTab::ORDER {
             assert_eq!(tab.next().prev(), tab);

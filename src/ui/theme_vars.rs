@@ -117,17 +117,17 @@ impl ThemeVars {
     /// Valeurs par défaut du mode sombre (palette proche d'Obsidian).
     pub fn defaults_dark() -> ThemeVars {
         ThemeVars {
-            background_primary: Color::from_rgb8(0x1e, 0x1e, 0x1e),
-            background_secondary: Color::from_rgb8(0x26, 0x26, 0x26),
+            background_primary: Color::from_rgb8(0x1c, 0x1c, 0x1c),
+            background_secondary: Color::from_rgb8(0x28, 0x28, 0x28),
             background_modifier_border: Color::from_rgb8(0x33, 0x33, 0x33),
-            background_modifier_hover: Color::from_rgb8(0x2f, 0x2f, 0x2f),
+            background_modifier_hover: Color::from_rgba(1.0, 1.0, 1.0, 0.067),
             text_normal: Color::from_rgb8(0xda, 0xda, 0xda),
-            text_muted: Color::from_rgb8(0xa0, 0xa0, 0xa0),
+            text_muted: Color::from_rgb8(0xb3, 0xb3, 0xb3),
             text_faint: Color::from_rgb8(0x66, 0x66, 0x66),
-            text_accent: Color::from_rgb8(0x8a, 0x5c, 0xf5),
+            text_accent: Color::from_rgb8(0xa6, 0x8a, 0xf9),
             text_on_accent: Color::from_rgb8(0xff, 0xff, 0xff),
             accent: Color::from_rgb8(0x8a, 0x5c, 0xf5),
-            accent_hover: Color::from_rgb8(0x9b, 0x6f, 0xff),
+            accent_hover: Color::from_rgb8(0xa6, 0x8a, 0xf9),
             interactive_accent: Color::from_rgb8(0x8a, 0x5c, 0xf5),
             font_interface: "Inter".to_string(),
             font_text: "Inter".to_string(),

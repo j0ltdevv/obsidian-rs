@@ -6,7 +6,7 @@ description = "Client Obsidian-like en Rust + iced (clean-room)"
 license = "MIT"
 
 [dependencies]
-iced = { version = "0.14", default-features = false, features = ["tiny-skia", "canvas", "svg", "crisp", "web-colors", "thread-pool", "linux-theme-detection", "x11", "wayland"] }
+iced = { version = "0.14", default-features = false, features = ["tiny-skia", "canvas", "svg", "crisp", "web-colors", "thread-pool", "linux-theme-detection", "x11", "wayland", "image"] }
 thiserror = "2"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }

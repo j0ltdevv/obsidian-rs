@@ -171,16 +171,31 @@ fn niveau_de_titre_mappe_vers_style_et_taille() {
     assert_eq!(heading_style(0), SegmentStyle::H1);
     assert_eq!(heading_style(9), SegmentStyle::H6);
 
-    // Tailles d'Obsidian : 1.6em, 1.4em, 1.2em, 1.1em, 1em, 1em.
-    assert_eq!(typography::heading_size_em(1), 1.6);
-    assert_eq!(typography::heading_size_em(2), 1.4);
-    assert_eq!(typography::heading_size_em(3), 1.2);
-    assert_eq!(typography::heading_size_em(4), 1.1);
-    assert_eq!(typography::heading_size_em(5), 1.0);
+    // Tailles mesurées d'Obsidian (UI-SPEC §1.2.4) : 1.618, 1.462, 1.318,
+    // 1.188, 1.076, 1.0 em.
+    assert_eq!(typography::heading_size_em(1), 1.618);
+    assert_eq!(typography::heading_size_em(2), 1.462);
+    assert_eq!(typography::heading_size_em(3), 1.318);
+    assert_eq!(typography::heading_size_em(4), 1.188);
+    assert_eq!(typography::heading_size_em(5), 1.076);
     assert_eq!(typography::heading_size_em(6), 1.0);
-    assert_eq!(typography::LINE_HEIGHT, 1.6);
-    assert_eq!(typography::HEADING_LINE_HEIGHT, 1.4);
-    assert_eq!(typography::CODE_SIZE_EM, 0.9);
+    // Interligne du corps mesuré (UI-SPEC §1.2.3) : 1.5.
+    assert_eq!(typography::LINE_HEIGHT, 1.5);
+    // Interlignes des titres par niveau (UI-SPEC §1.2.4).
+    assert_eq!(typography::heading_line_height_em(1), 1.2);
+    assert_eq!(typography::heading_line_height_em(2), 1.2);
+    assert_eq!(typography::heading_line_height_em(3), 1.3);
+    assert_eq!(typography::heading_line_height_em(4), 1.4);
+    assert_eq!(typography::heading_line_height_em(5), 1.5);
+    assert_eq!(typography::heading_line_height_em(6), 1.5);
+    // Taille du code mesurée (UI-SPEC §1.2.2) : 0.875 em.
+    assert_eq!(typography::CODE_SIZE_EM, 0.875);
+    // Espacement de paragraphe mesuré (UI-SPEC §2.4.1) : 16 px = 1 em.
+    assert_eq!(typography::PARAGRAPH_SPACING_EM, 1.0);
+    // Retrait de citation mesuré (UI-SPEC §2.4.1) : 24 px.
+    assert_eq!(typography::BLOCKQUOTE_INDENT_PX, 24.0);
+    // Case à cocher mesurée (UI-SPEC §2.4.1) : 16 px = 1 em.
+    assert_eq!(typography::TASK_CHECKBOX_SIZE_EM, 1.0);
 }
 
 #[test]

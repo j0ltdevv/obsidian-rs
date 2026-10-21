@@ -104,6 +104,25 @@ fn defauts_sombre_et_clair() {
     );
 }
 
+// Les valeurs par défaut du mode sombre correspondent aux mesures de la spec
+// (UI-SPEC §1.1 / §5.1).
+#[test]
+fn defauts_sombre_mesures_spec() {
+    let dark = ThemeVars::defaults_dark();
+    assert_eq!(dark.background_primary, Color::from_rgb8(0x1c, 0x1c, 0x1c));
+    assert_eq!(
+        dark.background_secondary,
+        Color::from_rgb8(0x28, 0x28, 0x28)
+    );
+    assert_eq!(dark.text_muted, Color::from_rgb8(0xb3, 0xb3, 0xb3));
+    assert_eq!(dark.text_accent, Color::from_rgb8(0xa6, 0x8a, 0xf9));
+    assert_eq!(dark.accent_hover, Color::from_rgb8(0xa6, 0x8a, 0xf9));
+    assert_eq!(
+        dark.background_modifier_hover,
+        Color::from_rgba(1.0, 1.0, 1.0, 0.067)
+    );
+}
+
 /// 5. Les déclarations situées dans un commentaire sont ignorées.
 #[test]
 fn commentaires_ignores() {

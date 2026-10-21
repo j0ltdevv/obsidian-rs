@@ -162,16 +162,12 @@ fn image_corrompue_retourne_erreur_sans_panique() {
         [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A],
     )
     .unwrap();
-    let err = image_dimensions(&dir.join("bad.png"))
-        .err()
-        .expect("erreur attendue");
+    let err = image_dimensions(&dir.join("bad.png")).expect_err("erreur attendue");
     assert!(err.to_string().contains("corrompu"));
 
     // Fichier non-image : format non pris en charge.
     std::fs::write(dir.join("texte.txt"), "pas une image").unwrap();
-    let err2 = image_dimensions(&dir.join("texte.txt"))
-        .err()
-        .expect("erreur attendue");
+    let err2 = image_dimensions(&dir.join("texte.txt")).expect_err("erreur attendue");
     assert!(err2.to_string().contains("non pris en charge"));
 
     let _ = std::fs::remove_dir_all(&dir);

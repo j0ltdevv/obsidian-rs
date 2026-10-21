@@ -637,10 +637,10 @@ pub fn occurrence_line_col(content: &str, query: &str, nth: usize) -> Option<(us
 /// Ce module ne contient que des **données** : ni couleur, ni police
 /// effective, ni rendu. La couche UI en tire ses dimensions.
 pub mod typography {
-    /// Interligne du texte : 1.6.
+    /// Interligne du corps de note : 1.5 (16 px / 24 px).
     ///
-    /// Miroir de `--line-height` (1.6 dans le thème par défaut d'Obsidian).
-    pub const LINE_HEIGHT: f32 = 1.6;
+    /// Mesure UI-SPEC §1.2.3 et §5.1 (`--line-height-normal: 1.5`).
+    pub const LINE_HEIGHT: f32 = 1.5;
 
     /// Taille du texte du corps, en pixels : 16.
     ///
@@ -653,28 +653,28 @@ pub mod typography {
     /// Miroir de `--font-interface` (13 px par défaut dans Obsidian).
     pub const INTERFACE_FONT_SIZE_PX: f32 = 13.0;
 
-    /// Interligne des titres : 1.4.
+    /// Interlignes des titres, par niveau (H1→H6), en `em`.
     ///
-    /// Miroir de `--h1-line-height` … `--h6-line-height` (1.4 dans Obsidian).
-    pub const HEADING_LINE_HEIGHT: f32 = 1.4;
+    /// Mesures UI-SPEC §1.2.4 : 1.2, 1.2, 1.3, 1.4, 1.5, 1.5.
+    pub const HEADING_LINE_HEIGHTS_EM: [f32; 6] = [1.2, 1.2, 1.3, 1.4, 1.5, 1.5];
 
     /// Tailles relatives des titres, en `em`, pour les niveaux 1 à 6.
     ///
-    /// Miroir de `--h1-size` … `--h6-size` d'Obsidian : 1.6, 1.4, 1.2, 1.1,
-    /// 1 et 1.
-    pub const HEADING_SIZES_EM: [f32; 6] = [1.6, 1.4, 1.2, 1.1, 1.0, 1.0];
+    /// Mesures UI-SPEC §1.2.4 : 1.618, 1.462, 1.318, 1.188, 1.076, 1.0.
+    pub const HEADING_SIZES_EM: [f32; 6] = [1.618, 1.462, 1.318, 1.188, 1.076, 1.0];
 
-    /// Espacement entre deux paragraphes, en `em` : 0.75 (12 px pour un corps
-    /// à 16 px).
+    /// Espacement entre deux paragraphes : 1 em (16 px pour un corps à 16 px).
     ///
-    /// Obsidian n'expose pas de variable publique pour cet espacement : la
-    /// valeur reprend le thème par défaut.
-    pub const PARAGRAPH_SPACING_EM: f32 = 0.75;
+    /// Mesure UI-SPEC §2.4.1 et §1.2.4 (« paragraphe margin 16px 0 »).
+    /// Exprimé en `em` pour rester cohérent avec le reste du module : 16 px de
+    /// corps font 1 em.
+    pub const PARAGRAPH_SPACING_EM: f32 = 1.0;
 
-    /// Taille du texte des blocs de code, en `em` : 0.9.
+    /// Taille du texte des blocs de code, en `em` : 0.875.
     ///
-    /// Miroir de `--code-size` d'Obsidian (0.9em).
-    pub const CODE_SIZE_EM: f32 = 0.9;
+    /// Mesure UI-SPEC §1.2.2 (`--code-size: 0.875em`, soit 14 px sur un corps
+    /// 16 px).
+    pub const CODE_SIZE_EM: f32 = 0.875;
 
     /// Rayon des arrondis du code, en pixels : 4.
     ///
@@ -687,11 +687,11 @@ pub mod typography {
     /// thème par défaut.
     pub const INLINE_CODE_PADDING_EM: f32 = 0.2;
 
-    /// Retrait des citations, en pixels : 20.
+    /// Retrait des citations, en pixels : 24.
     ///
-    /// Obsidian n'expose pas de variable publique : la valeur reprend le
-    /// thème par défaut.
-    pub const BLOCKQUOTE_INDENT_PX: f32 = 20.0;
+    /// Mesure UI-SPEC §2.4.1 (citation : bordure gauche 2 px accent, padding
+    /// gauche 24 px).
+    pub const BLOCKQUOTE_INDENT_PX: f32 = 24.0;
 
     /// Épaisseur de la bordure de citation, en pixels : 2.
     ///
@@ -704,11 +704,10 @@ pub mod typography {
     /// thème par défaut.
     pub const LIST_INDENT_EM: f32 = 2.0;
 
-    /// Taille de la case à cocher d'une tâche, en `em` : 1.15.
+    /// Taille de la case à cocher d'une tâche : 1 em (16 px).
     ///
-    /// Obsidian n'expose pas de variable publique : la valeur reprend le
-    /// thème par défaut.
-    pub const TASK_CHECKBOX_SIZE_EM: f32 = 1.15;
+    /// Mesure UI-SPEC §2.4.1 (case à cocher « 16×16 »).
+    pub const TASK_CHECKBOX_SIZE_EM: f32 = 1.0;
 
     /// Rayon de la case à cocher d'une tâche, en pixels : 4.
     ///
@@ -722,6 +721,14 @@ pub mod typography {
     pub fn heading_size_em(level: u8) -> f32 {
         let index = usize::from(level.clamp(1, 6)) - 1;
         HEADING_SIZES_EM[index]
+    }
+
+    /// Interligne (en `em`) du titre de niveau `level`.
+    ///
+    /// Un niveau hors bornes (0, 7 ou plus) est ramené au niveau 1 ou 6.
+    pub fn heading_line_height_em(level: u8) -> f32 {
+        let index = usize::from(level.clamp(1, 6)) - 1;
+        HEADING_LINE_HEIGHTS_EM[index]
     }
 }
 

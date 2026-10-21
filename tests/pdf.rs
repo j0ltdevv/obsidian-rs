@@ -96,7 +96,7 @@ fn parentheses_echappees() {
     // Dans un littéral PDF, `(` et `)` doivent être échappés : le texte
     // `(exemple)` s'écrit `\(exemple\)` dans le flux.
     assert!(
-        pdf.windows(12).any(|w| w == br"\(exemple\)"),
+        pdf.windows(11).any(|w| w == br"\(exemple\)"),
         "parenthèses échappées"
     );
 }
