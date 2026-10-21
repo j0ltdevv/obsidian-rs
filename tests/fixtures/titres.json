@@ -1,0 +1,5 @@
+[
+  {"style":"H1","text":"Titre un","line":0},
+  {"style":"H2","text":"Titre deux","line":1},
+  {"style":"Plain","text":"Texte brut.","line":2}
+]

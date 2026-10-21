@@ -3015,4 +3015,48 @@ mod tests {
         assert_eq!(ratios.len(), 3);
         assert!(ratios[0] < 0.4, "sidebar ne doit pas être géante");
     }
+
+    #[test]
+    fn verrou_ecriture_exclusif() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        dir.push(format!("obsidian-rs-lock-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(
+            acquire_write_lock(&dir),
+            "première acquisition doit réussir"
+        );
+        assert!(
+            !acquire_write_lock(&dir),
+            "seconde acquisition doit échouer (verrou tenu)"
+        );
+        release_write_lock(&dir, true);
+        assert!(acquire_write_lock(&dir), "réacquisition après libération");
+        release_write_lock(&dir, true);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[ignore = "benchmark manuel : scan d'un gros vault"]
+    fn benchmark_scan_gros_vault() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        dir.push(format!("obsidian-rs-bench-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        for i in 0..10_000 {
+            std::fs::write(dir.join(format!("note_{i}.md")), "# T\nTexte\n").unwrap();
+        }
+        let t0 = std::time::Instant::now();
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let elapsed = t0.elapsed();
+        assert!(notes.is_ok());
+        eprintln!("scan 10k notes : {:?}", elapsed);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
