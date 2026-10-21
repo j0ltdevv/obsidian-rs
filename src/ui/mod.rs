@@ -37,7 +37,7 @@ pub mod outline_view;
 mod plugins_view;
 pub mod search_view;
 pub mod tasks_view;
-mod theme;
+pub mod theme;
 mod themes_view;
 
 use self::canvas_view::canvas_board_view;

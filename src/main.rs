@@ -6,6 +6,7 @@ fn main() -> iced::Result {
         .font(std::borrow::Cow::Borrowed(
             &include_bytes!("../assets/fonts/Inter-Regular.ttf")[..],
         ))
+        .default_font(obsidian_rs::ui::theme::font())
         .window_size((720, 480))
         .centered()
         .subscription(app::subscription)

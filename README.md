@@ -78,4 +78,5 @@ décisions d'architecture à part (moteur JS, protocole de sync).
 
 ## Licence
 
-MIT (voir `Cargo.toml`).
+MIT (voir `Cargo.toml`). Les assets tiers embarqués (police Inter, icônes
+Lucide) et leurs licences sont documentés dans `THIRD-PARTY.md`.
