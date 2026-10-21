@@ -136,6 +136,10 @@ pub enum Message {
     FindReplaceText(String),
     /// Remplace toutes les occurrences dans la note ouverte.
     FindReplaceAll,
+    /// Va à l'occurrence suivante de la recherche in-note.
+    FindNext,
+    /// Va à l'occurrence précédente de la recherche in-note.
+    FindPrev,
     /// Sélectionne une carte du canvas (clic).
     CanvasSelect(CardId),
     /// Édite le titre d'une carte du canvas.
@@ -230,6 +234,10 @@ pub struct FindState {
     pub query: String,
     /// Texte de remplacement.
     pub replace: String,
+    /// Nombre d'occurrences de `query` dans la note ouverte.
+    pub occurrences: usize,
+    /// Indice (0-based) de l'occurrence courante.
+    pub current: usize,
 }
 
 /// Note actuellement ouverte : chemin, métadonnées du dernier scan et tampon
@@ -1076,9 +1084,16 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             app.graph_drags.insert(node, (px + dx, py + dy));
         }
         Message::FindOpen => {
+            let occurrences = app
+                .open
+                .as_ref()
+                .map(|open| count_occurrences(&open.content.text(), ""))
+                .unwrap_or(0);
             app.find = Some(FindState {
                 query: String::new(),
                 replace: String::new(),
+                occurrences,
+                current: 0,
             });
         }
         Message::FindClose => {
@@ -1087,6 +1102,12 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::FindQuery(query) => {
             if let Some(find) = &mut app.find {
                 find.query = query;
+                find.occurrences = app
+                    .open
+                    .as_ref()
+                    .map(|open| count_occurrences(&open.content.text(), &find.query))
+                    .unwrap_or(0);
+                find.current = 0;
             }
         }
         Message::FindReplaceText(text) => {
@@ -1103,6 +1124,28 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 if !find.query.is_empty() {
                     let replaced = current.replace(&find.query, &find.replace);
                     open.content = text_editor::Content::with_text(&replaced);
+                }
+            }
+            if let Some(find) = &mut app.find {
+                find.occurrences = app
+                    .open
+                    .as_ref()
+                    .map(|open| count_occurrences(&open.content.text(), &find.query))
+                    .unwrap_or(0);
+                find.current = 0;
+            }
+        }
+        Message::FindNext => {
+            if let Some(find) = &mut app.find {
+                if find.occurrences > 0 {
+                    find.current = (find.current + 1) % find.occurrences;
+                }
+            }
+        }
+        Message::FindPrev => {
+            if let Some(find) = &mut app.find {
+                if find.occurrences > 0 {
+                    find.current = (find.current + find.occurrences - 1) % find.occurrences;
                 }
             }
         }
@@ -1898,6 +1941,15 @@ fn char_boundary(s: &str, mut i: usize) -> usize {
     i.min(s.len())
 }
 
+/// Compte les occurrences (non chevauchantes) de `query` dans `content`.
+/// Une requête vide retourne 0.
+fn count_occurrences(content: &str, query: &str) -> usize {
+    if query.is_empty() {
+        return 0;
+    }
+    content.match_indices(query).count()
+}
+
 /// Résout une cible de lien (`[[cible]]` ou alias) vers les notes
 /// correspondantes. Combine l'index des wikilinks puis l'index des alias,
 /// en dédupliquant par chemin (l'ordre de l'index prime).
@@ -2217,5 +2269,43 @@ mod tests {
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].name, "a");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn count_occurrences_compte_sans_chevauchement() {
+        assert_eq!(count_occurrences("aXaXa", "X"), 2);
+        assert_eq!(count_occurrences("aaaa", "aa"), 2);
+        assert_eq!(count_occurrences("abc", ""), 0);
+        assert_eq!(count_occurrences("abc", "zz"), 0);
+    }
+
+    #[test]
+    fn find_next_prev_cycle_dans_les_occurrences() {
+        let (mut app, _task) = boot();
+        app.open = Some(OpenNote {
+            path: PathBuf::from("a.md"),
+            name: "a".to_string(),
+            content: text_editor::Content::with_text("un deux un deux un"),
+            metadata: NoteMetadata {
+                frontmatter: None,
+                frontmatter_error: None,
+                wikilinks: Vec::new(),
+                tags: Vec::new(),
+            },
+            property_drafts: PropertyDrafts::default(),
+        });
+        let _ = update(&mut app, Message::FindOpen);
+        let _ = update(&mut app, Message::FindQuery("un".to_string()));
+        let find = app.find.as_ref().unwrap();
+        assert_eq!(find.occurrences, 3);
+        assert_eq!(find.current, 0);
+        let _ = update(&mut app, Message::FindNext);
+        assert_eq!(app.find.as_ref().unwrap().current, 1);
+        let _ = update(&mut app, Message::FindNext);
+        assert_eq!(app.find.as_ref().unwrap().current, 2);
+        let _ = update(&mut app, Message::FindNext);
+        assert_eq!(app.find.as_ref().unwrap().current, 0);
+        let _ = update(&mut app, Message::FindPrev);
+        assert_eq!(app.find.as_ref().unwrap().current, 2);
     }
 }

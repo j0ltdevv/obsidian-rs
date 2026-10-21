@@ -1149,6 +1149,11 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
 
     let mut children: Vec<Element<'a, Message>> = vec![header.into()];
     if let Some(find) = &app.find {
+        let counter = if find.occurrences > 0 {
+            format!("{}/{}", find.current + 1, find.occurrences)
+        } else {
+            "0/0".to_string()
+        };
         let bar = row![
             text_input("Rechercher…", &find.query)
                 .on_input(Message::FindQuery)
@@ -1156,6 +1161,13 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
             text_input("Remplacer par…", &find.replace)
                 .on_input(Message::FindReplaceText)
                 .width(Length::FillPortion(3)),
+            button(text("◀"))
+                .on_press(Message::FindPrev)
+                .style(ghost_button_style),
+            text(counter).size(12),
+            button(text("▶"))
+                .on_press(Message::FindNext)
+                .style(ghost_button_style),
             button(text("Tout remplacer"))
                 .on_press(Message::FindReplaceAll)
                 .style(ghost_button_style),
@@ -1167,6 +1179,7 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
                 .style(ghost_button_style),
         ]
         .spacing(6)
+        .align_y(Alignment::Center)
         .padding([0, 8]);
         children.push(bar.into());
     }
