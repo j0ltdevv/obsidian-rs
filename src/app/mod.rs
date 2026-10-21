@@ -114,6 +114,8 @@ pub enum Message {
     CloseTab(PathBuf),
     /// Bascule l'affichage de la sidebar droite.
     ToggleRightSidebar,
+    /// Redimensionne un panneau (pane_grid).
+    PaneResized(iced::widget::pane_grid::ResizeEvent),
     /// Ferme la palette de commandes.
     CloseCommandPalette,
     /// Change la requête de la palette (résultats recalculés).
@@ -355,6 +357,19 @@ pub enum SidebarTab {
     Calendrier,
 }
 
+/// Contenu d'un panneau redimensionnable de l'espace de travail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaneKind {
+    /// Sidebar gauche (Fichiers/Recherche/Tags/Backlinks/Calendrier).
+    Sidebar,
+    /// Éditeur de la note active.
+    Editor,
+    /// Prévisualisation Markdown.
+    Preview,
+    /// Sidebar droite (Backlinks + Plan).
+    Right,
+}
+
 /// État global de l'application.
 pub struct App {
     /// Résultat du dernier scan : liste des notes ou message d'erreur.
@@ -481,6 +496,8 @@ pub struct App {
     pub selected_note_paths: HashSet<PathBuf>,
     /// Onglet actif de la sidebar gauche.
     pub sidebar_tab: SidebarTab,
+    /// État des panneaux redimensionnables (pane_grid).
+    pub pane_state: iced::widget::pane_grid::State<PaneKind>,
 }
 /// `true` si la note doit être ignorée par l'Explorer : à l'intérieur du
 /// dossier de gabarits configuré ou dans un dossier `.archive`.
@@ -540,6 +557,23 @@ impl App {
         }
         board
     }
+}
+
+// Construit l'état initial des panneaux : 4 colonnes redimensionnables
+// (sidebar | éditeur | prévisualisation | droite).
+fn default_pane_state() -> iced::widget::pane_grid::State<PaneKind> {
+    use iced::widget::pane_grid::{Axis, State};
+    let (mut state, sidebar) = State::new(PaneKind::Sidebar);
+    let (editor, _) = state
+        .split(Axis::Vertical, sidebar, PaneKind::Editor)
+        .unwrap();
+    let (preview, _) = state
+        .split(Axis::Vertical, editor, PaneKind::Preview)
+        .unwrap();
+    let (_right, _) = state
+        .split(Axis::Vertical, preview, PaneKind::Right)
+        .unwrap();
+    state
 }
 
 // Point d'entrée iced : construit l'état initial en scannant le vault.
@@ -629,6 +663,7 @@ pub fn boot() -> (App, Task<Message>) {
         selected_note_paths: HashSet::new(),
         show_left_sidebar: true,
         sidebar_tab: SidebarTab::Explorer,
+        pane_state: default_pane_state(),
         open_tabs: Vec::new(),
         open_tabs_active: 0,
         open_buffers: HashMap::new(),
@@ -1087,6 +1122,9 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::ToggleRightSidebar => {
             app.show_right_sidebar = !app.show_right_sidebar;
+        }
+        Message::PaneResized(event) => {
+            app.pane_state.resize(event.split, event.ratio);
         }
         Message::CloseTab(path) => {
             if let Some(i) = app.open_tabs.iter().position(|p| *p == path) {
@@ -2907,5 +2945,11 @@ mod tests {
         let _ = update(&mut app, Message::SaveNote);
         assert!(!app.open_buffers.contains_key(&a));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pane_defaut_contient_quatre_panneaux() {
+        let state = default_pane_state();
+        assert_eq!(state.len(), 4);
     }
 }

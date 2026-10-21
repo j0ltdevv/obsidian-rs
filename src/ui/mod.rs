@@ -19,12 +19,12 @@ use iced::border::Radius;
 use iced::font::Style as FontStyle;
 use iced::font::Weight;
 use iced::widget::{
-    button, column, container, responsive, row, scrollable, stack, text, text_editor, text_input,
-    Column, Row,
+    button, column, container, pane_grid, responsive, row, scrollable, stack, text, text_editor,
+    text_input, Column, Row,
 };
 use iced::{Alignment, Background, Border, Color, Element, Font, Length};
 
-use crate::app::{App, Message, SidebarTab};
+use crate::app::{App, Message, PaneKind, SidebarTab};
 use crate::vault::live_preview::{render_markdown, Segment, SegmentStyle};
 use crate::vault::outline::extract_outline;
 use crate::vault::{Note, Wikilink};
@@ -590,7 +590,7 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         return responsive(move |size| graph_view(app, notes, size)).into();
     }
 
-    let sidebar: Element<'a, Message> = if app.show_left_sidebar {
+    let left_el: Element<'a, Message> = if app.show_left_sidebar {
         container(sidebar(app, notes))
             .style(panel_style)
             .width(Length::FillPortion(3))
@@ -673,7 +673,7 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
             }
         }
 
-        return row![sidebar, stack]
+        return row![left_el, stack]
             .width(Length::Fill)
             .height(Length::Fill)
             .spacing(8)
@@ -685,7 +685,7 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         let on_select = |name: String| Message::SelectTheme(name);
         let themes = themes_view(&app.current_theme, &on_select, &app.css_snippets);
         return row![
-            sidebar,
+            left_el,
             container(themes)
                 .style(panel_style)
                 .width(Length::FillPortion(4))
@@ -703,7 +703,7 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
             Message::RestoreSnapshot(index)
         });
         return row![
-            sidebar,
+            left_el,
             container(history)
                 .style(panel_style)
                 .width(Length::FillPortion(4))
@@ -721,7 +721,7 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
             Message::PluginToggle(id.to_string())
         });
         return row![
-            sidebar,
+            left_el,
             container(plugins)
                 .style(panel_style)
                 .width(Length::FillPortion(4))
@@ -740,7 +740,7 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
             Message::OpenNote(path)
         });
         return row![
-            sidebar,
+            left_el,
             container(dview)
                 .style(panel_style)
                 .width(Length::FillPortion(4))
@@ -757,7 +757,7 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         let panel = container(search_view(app))
             .width(Length::Fill)
             .height(Length::Fill);
-        return row![sidebar, panel]
+        return row![left_el, panel]
             .width(Length::Fill)
             .height(Length::Fill)
             .spacing(8)
@@ -769,7 +769,7 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         let panel = container(tasks_view(app))
             .width(Length::Fill)
             .height(Length::Fill);
-        return row![sidebar, panel]
+        return row![left_el, panel]
             .width(Length::Fill)
             .height(Length::Fill)
             .spacing(8)
@@ -781,7 +781,7 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         let panel = container(outline_view(app))
             .width(Length::Fill)
             .height(Length::Fill);
-        return row![sidebar, panel]
+        return row![left_el, panel]
             .width(Length::Fill)
             .height(Length::Fill)
             .spacing(8)
@@ -789,30 +789,35 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
             .into();
     }
 
-    let editor = editor_panel(app);
-    let preview = preview_panel(app, notes);
-    let right: Element<'a, Message> = if app.show_right_sidebar {
-        container(right_sidebar(app, notes))
-            .style(panel_style)
-            .width(Length::FillPortion(2))
-            .height(Length::Fill)
-            .into()
-    } else {
-        container(
-            iced::widget::Space::new()
-                .width(Length::Fixed(0.0))
-                .height(Length::Fill),
-        )
-        .width(Length::Fixed(0.0))
-        .height(Length::Fill)
-        .into()
+    let panes = |_pane, &kind, _active| {
+        let el: Element<'a, Message> = match kind {
+            PaneKind::Sidebar => {
+                if app.show_left_sidebar {
+                    container(sidebar(app, notes)).style(panel_style).into()
+                } else {
+                    container(iced::widget::Space::new()).into()
+                }
+            }
+            PaneKind::Editor => editor_panel(app),
+            PaneKind::Preview => preview_panel(app, notes),
+            PaneKind::Right => {
+                if app.show_right_sidebar {
+                    container(right_sidebar(app, notes))
+                        .style(panel_style)
+                        .into()
+                } else {
+                    container(iced::widget::Space::new()).into()
+                }
+            }
+        };
+        pane_grid::Content::new(el)
     };
-    row![sidebar, editor, preview, right]
-        .width(Length::Fill)
-        .height(Length::Fill)
+    let grid = pane_grid::PaneGrid::new(&app.pane_state, panes)
+        .on_resize(10, Message::PaneResized)
         .spacing(8)
-        .padding([8, 12])
-        .into()
+        .width(Length::Fill)
+        .height(Length::Fill);
+    container(grid).padding([8, 12]).into()
 }
 
 /// Message d'erreur plein écran quand le scan a échoué.
