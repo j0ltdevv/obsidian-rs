@@ -16,3 +16,11 @@ zip = "2"
 
 [dev-dependencies]
 proptest = "1"
+
+# Binaire release compact (même recette que les clients natifs de référence) :
+# LTO + un seul codegen unit + symboles retirés + pas de déroulage de pile.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

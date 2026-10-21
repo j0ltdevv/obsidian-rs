@@ -24,23 +24,26 @@ pub struct Theme {
 }
 
 /// Thème sombre par défaut.
+///
+/// Valeurs des tokens documentés d'Obsidian (`--color-base-*` et l'accent
+/// par défaut HSL 258/88 %/66 % ≈ `#8A5CF5`).
 pub const DEFAULT_DARK: Theme = Theme {
     name: "dark",
-    accent: (127, 156, 245),
-    bg: (30, 30, 30),
-    fg: (204, 204, 204),
-    surface: (37, 37, 38),
-    border: (58, 58, 64),
+    accent: (138, 92, 245),
+    bg: (28, 28, 28),
+    fg: (218, 218, 218),
+    surface: (40, 40, 40),
+    border: (51, 51, 51),
 };
 
-// Thème clair par défaut (parité Obsidian).
+/// Thème clair par défaut (mêmes tokens, mode clair).
 pub const DEFAULT_LIGHT: Theme = Theme {
     name: "light",
-    accent: (59, 111, 212),
+    accent: (138, 92, 245),
     bg: (255, 255, 255),
     fg: (34, 34, 34),
-    surface: (242, 243, 245),
-    border: (224, 224, 224),
+    surface: (246, 246, 246),
+    border: (228, 228, 228),
 };
 
 /// Liste des thèmes connus, dans l'ordre de préférence d'affichage.

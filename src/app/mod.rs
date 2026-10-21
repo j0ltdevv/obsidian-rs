@@ -41,6 +41,14 @@ const SEARCH_PANEL_LIMIT: usize = 50;
 /// Racine du vault de démonstration, relative à la racine du dépôt.
 const DEMO_VAULT: &str = "demo-vault";
 
+/// Racine du vault de démonstration (publique, pour le binaire).
+pub const DEMO_VAULT_DIR: &str = DEMO_VAULT;
+
+/// Chemin du fichier de taille de fenêtre persistée, sous `.obsidian/`.
+pub fn window_size_path(root: &Path) -> PathBuf {
+    root.join(".obsidian").join("window.json")
+}
+
 /// Messages adressés à l'application.
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -108,6 +116,16 @@ pub enum Message {
     ToggleLeftSidebar,
     /// Change l'onglet actif de la sidebar gauche.
     SetSidebarTab(SidebarTab),
+    /// Onglet de note suivant (Ctrl+Tab).
+    NextTab,
+    /// Onglet de note précédent (Ctrl+Shift+Tab).
+    PrevTab,
+    /// Ferme l'onglet de note actif (Ctrl+W).
+    CloseActiveTab,
+    /// Onglet de sidebar suivant (Ctrl+PageDown).
+    NextSidebarTab,
+    /// Onglet de sidebar précédent (Ctrl+PageUp).
+    PrevSidebarTab,
     /// Ouvre la palette de commandes.
     OpenCommandPalette,
     /// Ferme l'onglet d'une note ouverte (active le voisin si besoin).
@@ -375,6 +393,30 @@ pub enum SidebarTab {
     Calendrier,
     /// Pièces jointes du vault.
     Attachments,
+}
+
+impl SidebarTab {
+    /// Ordre de navigation clavier (Ctrl+Tab fait le tour).
+    pub const ORDER: [SidebarTab; 6] = [
+        SidebarTab::Explorer,
+        SidebarTab::Recherche,
+        SidebarTab::Tags,
+        SidebarTab::Backlinks,
+        SidebarTab::Calendrier,
+        SidebarTab::Attachments,
+    ];
+
+    /// Onglet suivant dans l'ordre (cyclique).
+    pub fn next(self) -> Self {
+        let i = Self::ORDER.iter().position(|t| *t == self).unwrap_or(0);
+        Self::ORDER[(i + 1) % Self::ORDER.len()]
+    }
+
+    /// Onglet précédent dans l'ordre (cyclique).
+    pub fn prev(self) -> Self {
+        let i = Self::ORDER.iter().position(|t| *t == self).unwrap_or(0);
+        Self::ORDER[(i + Self::ORDER.len() - 1) % Self::ORDER.len()]
+    }
 }
 
 /// Contenu d'un panneau redimensionnable de l'espace de travail.
@@ -1024,7 +1066,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             if w > 0 && h > 0 {
                 app.window_size = (w, h);
                 if let Ok(json) = serde_json::to_string(&app.window_size) {
-                    let path = app.vault_root.join(".obsidian").join("window.json");
+                    let path = window_size_path(&app.vault_root);
                     if let Some(parent) = path.parent() {
                         let _ = fs::create_dir_all(parent);
                     }
@@ -1375,6 +1417,33 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     results: hits,
                 });
             }
+        }
+        Message::NextTab => {
+            if !app.open_tabs.is_empty() {
+                let i = (app.open_tabs_active + 1) % app.open_tabs.len();
+                let path = app.open_tabs[i].clone();
+                open_note(app, &path);
+            }
+        }
+        Message::PrevTab => {
+            if !app.open_tabs.is_empty() {
+                let i = (app.open_tabs_active + app.open_tabs.len() - 1) % app.open_tabs.len();
+                let path = app.open_tabs[i].clone();
+                open_note(app, &path);
+            }
+        }
+        Message::CloseActiveTab => {
+            if let Some(path) = app.open.as_ref().map(|o| o.path.clone()) {
+                return update(app, Message::CloseTab(path));
+            }
+        }
+        Message::NextSidebarTab => {
+            let next = app.sidebar_tab.next();
+            return update(app, Message::SetSidebarTab(next));
+        }
+        Message::PrevSidebarTab => {
+            let prev = app.sidebar_tab.prev();
+            return update(app, Message::SetSidebarTab(prev));
         }
         Message::ToggleSearch => {
             app.show_search = !app.show_search;
@@ -2289,6 +2358,27 @@ pub fn subscription(_app: &App) -> iced::Subscription<Message> {
             match key.as_ref() {
                 Key::Character(character) if character.eq_ignore_ascii_case("k") => {
                     return Some(Message::OpenSwitcher);
+                }
+                Key::Character(character) if character.eq_ignore_ascii_case("w") => {
+                    return Some(Message::CloseActiveTab);
+                }
+                Key::Character(character) if character.eq_ignore_ascii_case("b") => {
+                    if modifiers.shift() {
+                        return Some(Message::ToggleRightSidebar);
+                    }
+                    return Some(Message::ToggleLeftSidebar);
+                }
+                Key::Named(key::Named::Tab) => {
+                    if modifiers.shift() {
+                        return Some(Message::PrevTab);
+                    }
+                    return Some(Message::NextTab);
+                }
+                Key::Named(key::Named::PageDown) => {
+                    return Some(Message::NextSidebarTab);
+                }
+                Key::Named(key::Named::PageUp) => {
+                    return Some(Message::PrevSidebarTab);
                 }
                 Key::Character(character) if character.eq_ignore_ascii_case("s") => {
                     return Some(Message::SaveNote);
@@ -3312,7 +3402,57 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "benchmark manuel : latence recherche full-text"]
+    fn sidebar_tab_cycle_avant_arriere() {
+        use SidebarTab::{Attachments, Backlinks, Calendrier, Explorer, Recherche, Tags};
+        assert_eq!(Explorer.next(), Recherche);
+        assert_eq!(Recherche.next(), Tags);
+        assert_eq!(Tags.next(), Backlinks);
+        assert_eq!(Backlinks.next(), Calendrier);
+        assert_eq!(Calendrier.next(), Attachments);
+        assert_eq!(Attachments.next(), Explorer);
+        // Retour : l'inverse exact.
+        assert_eq!(Explorer.prev(), Attachments);
+        assert_eq!(Recherche.prev(), Explorer);
+        for tab in SidebarTab::ORDER {
+            assert_eq!(tab.next().prev(), tab);
+        }
+    }
+
+    #[test]
+    fn navigation_onglets_notes_cycle() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        dir.push(format!("obsidian-rs-keys-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "a").unwrap();
+        std::fs::write(dir.join("b.md"), "b").unwrap();
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let (mut app, _task) = boot();
+        app.vault_root = dir.clone();
+        app.notes = notes;
+        let a = PathBuf::from("a.md");
+        let b = PathBuf::from("b.md");
+        let _ = update(&mut app, Message::OpenNote(a.clone()));
+        let _ = update(&mut app, Message::OpenNote(b.clone()));
+        assert_eq!(app.open.as_ref().unwrap().path, b);
+
+        // Ctrl+Tab -> revient sur a (cyclique).
+        let _ = update(&mut app, Message::NextTab);
+        assert_eq!(app.open.as_ref().unwrap().path, a);
+        // Ctrl+Shift+Tab -> repart sur b.
+        let _ = update(&mut app, Message::PrevTab);
+        assert_eq!(app.open.as_ref().unwrap().path, b);
+        // Ctrl+W ferme l'onglet actif et active le voisin.
+        let _ = update(&mut app, Message::CloseActiveTab);
+        assert_eq!(app.open_tabs, vec![a.clone()]);
+        assert_eq!(app.open.as_ref().unwrap().path, a);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn benchmark_recherche_full_text_p95() {
         let mut dir = std::env::temp_dir();
         let unique = std::time::SystemTime::now()
