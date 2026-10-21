@@ -561,7 +561,10 @@ impl App {
 
 // Construit l'état initial des panneaux : 4 colonnes redimensionnables
 // (sidebar | éditeur | prévisualisation | droite).
-fn default_pane_state() -> iced::widget::pane_grid::State<PaneKind> {
+fn default_pane_state() -> (
+    iced::widget::pane_grid::State<PaneKind>,
+    Vec<iced::widget::pane_grid::Split>,
+) {
     use iced::widget::pane_grid::{Axis, State};
     let (mut state, sidebar) = State::new(PaneKind::Sidebar);
     let (editor, s1) = state
@@ -578,7 +581,48 @@ fn default_pane_state() -> iced::widget::pane_grid::State<PaneKind> {
     state.resize(s1, 0.22);
     state.resize(s2, 0.62);
     state.resize(s3, 0.5);
-    state
+    (state, vec![s1, s2, s3])
+}
+
+// Extrait les ratios des splits d'un état pane_grid, dans l'ordre du layout.
+fn pane_ratios(state: &iced::widget::pane_grid::State<PaneKind>) -> Vec<f32> {
+    use iced::widget::pane_grid::Node;
+    fn walk(node: &Node, out: &mut Vec<f32>) {
+        match node {
+            Node::Split { ratio, a, b, .. } => {
+                out.push(*ratio);
+                walk(a, out);
+                walk(b, out);
+            }
+            Node::Pane(_) => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(state.layout(), &mut out);
+    out
+}
+
+// Chemin du fichier de disposition des panneaux.
+fn pane_layout_path(root: &Path) -> PathBuf {
+    root.join(".obsidian").join("pane_layout.json")
+}
+
+// Charge les ratios persistés (None si absents/invalides).
+fn load_pane_ratios(root: &Path) -> Option<Vec<f32>> {
+    std::fs::read_to_string(pane_layout_path(root))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+}
+
+// Sauvegarde les ratios (écriture silencieuse en cas d'échec).
+fn save_pane_ratios(root: &Path, ratios: &[f32]) {
+    let path = pane_layout_path(root);
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(json) = serde_json::to_string(ratios) {
+        let _ = fs::write(path, json);
+    }
 }
 
 // Point d'entrée iced : construit l'état initial en scannant le vault.
@@ -610,6 +654,14 @@ pub fn boot() -> (App, Task<Message>) {
         &mut file_mtimes,
     );
     let aliases = notes.as_ref().ok().map(|notes| AliasIndex::build(notes));
+    let (mut pane_state, pane_splits) = default_pane_state();
+    if let Some(ratios) = load_pane_ratios(Path::new(DEMO_VAULT)) {
+        for (i, ratio) in ratios.into_iter().enumerate() {
+            if let Some(split) = pane_splits.get(i) {
+                pane_state.resize(*split, ratio.clamp(0.05, 0.95));
+            }
+        }
+    }
     let app = App {
         notes,
         index,
@@ -668,7 +720,7 @@ pub fn boot() -> (App, Task<Message>) {
         selected_note_paths: HashSet::new(),
         show_left_sidebar: true,
         sidebar_tab: SidebarTab::Explorer,
-        pane_state: default_pane_state(),
+        pane_state,
         open_tabs: Vec::new(),
         open_tabs_active: 0,
         open_buffers: HashMap::new(),
@@ -1130,6 +1182,8 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::PaneResized(event) => {
             app.pane_state.resize(event.split, event.ratio);
+            let ratios = pane_ratios(&app.pane_state);
+            save_pane_ratios(&app.vault_root, &ratios);
         }
         Message::CloseTab(path) => {
             if let Some(i) = app.open_tabs.iter().position(|p| *p == path) {
@@ -2954,7 +3008,11 @@ mod tests {
 
     #[test]
     fn pane_defaut_contient_quatre_panneaux() {
-        let state = default_pane_state();
+        let (state, splits) = default_pane_state();
         assert_eq!(state.len(), 4);
+        assert_eq!(splits.len(), 3);
+        let ratios = pane_ratios(&state);
+        assert_eq!(ratios.len(), 3);
+        assert!(ratios[0] < 0.4, "sidebar ne doit pas être géante");
     }
 }
