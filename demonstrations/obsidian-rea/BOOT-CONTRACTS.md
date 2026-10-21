@@ -9,9 +9,12 @@ Ces contrats ont été déduits par lecture du bundle **avant** tout essai
 d'exécution. Ils sont conservés ici parce que le harnais qui les avait produits
 (spike Tauri) n'a jamais réussi à démarrer et a été supprimé.
 
-> ⚠️ **Statut : deductions statiques, jamais exécutées.** Le renderer n'a pas
-> été lancé (le harnais s'est arrêté sur une erreur de configuration Tauri).
-> Aucun de ces contrats n'est confirmé par une exécution.
+> ✅ **Statut : contrats confirmés par exécution le 2026-10-21** (ils
+> étaient des déductions statiques jusqu'alors). Le renderer a été lancé sur la
+> box `hermes` : Electron 45 avec un processus principal de substitution →
+> **leur interface démarre** (explorateur peuplé, thème appliqué, 0
+> exception). Voir `RENDERER-BOOT.md` pour le diagnostic complet, les causes
+> réelles des échecs et les points de rupture restants.
 
 ## Entrée du renderer
 
@@ -46,7 +49,10 @@ Ressources attendues : `lib/*` (pdfjs, mathjax, mermaid, reveal, prism),
 
 ## Relancer l'essai
 
-Le harnais qui avait produit cette analyse a été supprimé (voie 2 abandonnée
-le 2026-10-21). Pour le reconstruire : voir `SHIM-SPEC.md` pour la surface
-requise et `shim/browser-shim.js` pour le pont synchrone déjà écrit
-(23 opérations, 25 vérifications au vert).
+Les contrats ci-dessus ont été **confirmés par exécution** le 2026-10-21 sur
+la box instabox `hermes` : voir `RENDERER-BOOT.md` (diagnostic complet, causes
+réelles des échecs, points de rupture restants, mesures mémoire) et
+`tools/` (harnais de test : processus principal Electron de substitution,
+preload `remote`, sonde CDP, mesure RSS/PSS). Pour la surface requise côté
+shim : `SHIM-SPEC.md` et `shim/browser-shim.js` (pont synchrone déjà écrit,
+23 opérations, 25 vérifications au vert).

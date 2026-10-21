@@ -1,0 +1,102 @@
+{
+  "port": 9226,
+  "waitMs": 30000,
+  "targets": [
+    {
+      "id": "39CEC05509BF3936005E018D547BB72A",
+      "type": "page",
+      "url": "file:///data/home/obsidian-rea/asar-x1/index.html",
+      "title": "New tab - vault - Obsidian 1.14.4",
+      "closed": false,
+      "closeTime": null
+    },
+    {
+      "id": "92AF55EFC87752557465DD7338BBB4B7",
+      "type": "worker",
+      "url": "",
+      "title": ""
+    },
+    {
+      "id": "AAB851CEBACAE4F175BAB98D073A6FCC",
+      "type": "worker",
+      "url": "",
+      "title": ""
+    }
+  ],
+  "console": [
+    {
+      "url": "file:///data/home/obsidian-rea/asar-x1/index.html",
+      "t": 28,
+      "type": "log",
+      "text": "[preload] remote minimal installé"
+    },
+    {
+      "url": "file:///data/home/obsidian-rea/asar-x1/index.html",
+      "t": 28,
+      "type": "log",
+      "text": "%cObsidian Developer Console color:#7f6df2; font-size:40px; font-weight:bold;"
+    }
+  ],
+  "exceptions": [],
+  "logs": [],
+  "timeline": [
+    {
+      "t": 30072,
+      "event": "cible sondée",
+      "url": "file:///data/home/obsidian-rea/asar-x1/index.html",
+      "closed": false
+    }
+  ],
+  "probes": [
+    {
+      "url": "file:///data/home/obsidian-rea/asar-x1/index.html",
+      "probe": {
+        "href": "file:///data/home/obsidian-rea/asar-x1/index.html",
+        "origin": "file://",
+        "title": "New tab - vault - Obsidian 1.14.4",
+        "readyState": "complete",
+        "bodyClass": "theme-dark mod-linux is-frameless is-focused obsidian-app styled-scrollbars show-inline-title is-floating-nav auto-full-screen show-ribbon show-view-header",
+        "bodyChildren": 16,
+        "bodyHtmlLen": 67201,
+        "bodyTextHead": "New tab - vault - Obsidian 1.14.4\nvault\nDossier\nNote-de-test\nProjet\nNew tab\nNew tab\nNew note\nCtrl + N\nNew base\nNew canvas\nGo to file\nCtrl + O",
+        "hasRequire": "function",
+        "hasElectron": "object",
+        "hasProcess": "object",
+        "platform": "linux",
+        "electronVersion": "45.0.0",
+        "appContainer": true,
+        "workspace": true,
+        "sidebarLeft": true,
+        "fileTitles": [
+          "Note-de-test",
+          "Projet"
+        ],
+        "fileCount": 2,
+        "activeFileTitle": "Files",
+        "ribbonIcons": 8,
+        "statusBar": "",
+        "modals": 0,
+        "themeClass": "theme-dark mod-linux is-frameless is-focused obsidian-app styled-scrollbars show-inline-title is-floating-nav auto-full-screen show-ribbon show-view-header",
+        "errorOverlay": false,
+        "scripts": [
+          "lib/codemirror/codemirror.js",
+          "lib/codemirror/overlay.js",
+          "lib/codemirror/markdown.js",
+          "lib/codemirror/cm-addons.js",
+          "lib/codemirror/vim.js",
+          "lib/codemirror/meta.min.js",
+          "lib/moment.min.js",
+          "lib/pixi.min.js",
+          "lib/i18next.min.js",
+          "lib/scrypt.js",
+          "lib/turndown.js",
+          "enhance.js",
+          "i18n.js",
+          "app.js"
+        ]
+      },
+      "screenshot": "/data/home/obsidian-rea/logs/electron-harness-page.png",
+      "screenshotError": null
+    }
+  ]
+}
