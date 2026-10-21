@@ -3279,4 +3279,45 @@ mod tests {
         assert!(app.open_dirty);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    #[ignore = "benchmark manuel : latence recherche full-text"]
+    fn benchmark_recherche_full_text_p95() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        dir.push(format!("obsidian-rs-bench-ft-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut queries = Vec::new();
+        for i in 0..5_000 {
+            let content =
+                format!("# Note {i}\nle contenu de la note {i} pour la recherche full-text.");
+            std::fs::write(dir.join(format!("note_{i}.md")), content).unwrap();
+            queries.push(format!("contenu note {i}"));
+        }
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let notes = notes.expect("scan");
+        let items: Vec<(String, String)> = notes
+            .iter()
+            .map(|n| {
+                (
+                    n.name.clone(),
+                    std::fs::read_to_string(dir.join(&n.path)).unwrap(),
+                )
+            })
+            .collect();
+        let index = crate::vault::search::build_text_index(&items);
+        let mut times = Vec::new();
+        for q in &queries {
+            let t0 = std::time::Instant::now();
+            index.search_text(q, 20);
+            times.push(t0.elapsed());
+        }
+        times.sort();
+        let p95 = times[(times.len() as f64 * 0.95) as usize];
+        eprintln!("recherche full-text : p95 = {:?}", p95);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
