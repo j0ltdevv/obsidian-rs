@@ -1,5 +1,14 @@
 use obsidian_rs::app;
 
+/// Recharge la taille de fenêtre persistée (sinon 720×480).
+fn saved_window_size() -> (u32, u32) {
+    let path = std::path::Path::new("demo-vault/.obsidian/window.json");
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<(u32, u32)>(&s).ok())
+        .unwrap_or((720, 480))
+}
+
 fn main() -> iced::Result {
     iced::application(app::boot, app::update, app::view)
         .title("obsidian-rs")
@@ -7,7 +16,7 @@ fn main() -> iced::Result {
             &include_bytes!("../assets/fonts/Inter-Regular.ttf")[..],
         ))
         .default_font(obsidian_rs::ui::theme::font())
-        .window_size((720, 480))
+        .window_size(saved_window_size())
         .centered()
         .subscription(app::subscription)
         .theme(|app: &obsidian_rs::app::App| {

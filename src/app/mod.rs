@@ -252,6 +252,8 @@ pub enum Message {
     GraphToggleLabels,
     /// Bascule le quadrillage.
     GraphToggleGrid,
+    /// Fenêtre redimensionnée (largeur, hauteur).
+    WindowResized(u32, u32),
     /// Bascule le mini-calendrier dans la sidebar.
     ToggleCalendar,
     /// Ouvre la note journalière de la date ISO `AAAA-MM-JJ` (créée si absente).
@@ -522,6 +524,8 @@ pub struct App {
     pub graph_show_labels: bool,
     /// Affiche un quadrillage.
     pub graph_show_grid: bool,
+    /// Taille de fenêtre persistée (largeur, hauteur).
+    pub window_size: (u32, u32),
     /// Onglet actif de la sidebar gauche.
     pub sidebar_tab: SidebarTab,
     /// État des panneaux redimensionnables (pane_grid).
@@ -757,6 +761,7 @@ pub fn boot() -> (App, Task<Message>) {
         graph_pan: (0.0, 0.0),
         graph_show_labels: true,
         graph_show_grid: false,
+        window_size: (720, 480),
         open_tabs: Vec::new(),
         open_tabs_active: 0,
         open_buffers: HashMap::new(),
@@ -1014,6 +1019,22 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::GraphToggleGrid => {
             app.graph_show_grid = !app.graph_show_grid;
+        }
+        Message::WindowResized(w, h) => {
+            if w > 0 && h > 0 {
+                app.window_size = (w, h);
+                if let Ok(json) = serde_json::to_string(&app.window_size) {
+                    let path = app.vault_root.join(".obsidian").join("window.json");
+                    if let Some(parent) = path.parent() {
+                        let _ = fs::create_dir_all(parent);
+                    }
+                    // Écriture atomique : temp puis rename.
+                    let tmp = path.with_extension("json.tmp");
+                    if fs::write(&tmp, json).is_ok() {
+                        let _ = fs::rename(&tmp, &path);
+                    }
+                }
+            }
         }
         Message::ToggleCalendar => {
             app.show_calendar = !app.show_calendar;
@@ -2304,7 +2325,17 @@ pub fn subscription(_app: &App) -> iced::Subscription<Message> {
         None
     });
 
-    keys
+    let windows = event::listen_raw(|event, _status, _window| {
+        let Event::Window(iced::window::Event::Resized(size)) = event else {
+            return None;
+        };
+        Some(Message::WindowResized(
+            size.width as u32,
+            size.height as u32,
+        ))
+    });
+
+    iced::Subscription::batch([keys, windows])
 }
 
 /// Calcule les indices des notes correspondant à `query` (recherche floue
