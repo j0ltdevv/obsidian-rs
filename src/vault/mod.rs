@@ -25,6 +25,7 @@ pub mod ops;
 pub mod outline;
 pub mod plugins_manifest;
 pub mod properties;
+pub mod publish;
 pub mod quick_switcher;
 pub mod scan;
 pub mod search;
@@ -35,6 +36,7 @@ pub mod tags;
 pub mod tasks;
 pub mod templates;
 pub mod themes;
+pub mod trash;
 pub mod vault_archive;
 pub mod wikilinks;
 

@@ -2,7 +2,11 @@
 //! classification par type (note, image, pdf, autre).
 
 use super::index::NoteIndex;
-use super::note::Note;
+use crate::vault::Note;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+use thiserror::Error;
 
 /// Nature d'un embed, déduite de l'extension de la cible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,6 +240,248 @@ pub fn resolve_embed<'a>(index: &'a NoteIndex, embed: &Embed) -> Vec<&'a Note> {
     } else {
         Vec::new()
     }
+}
+
+// ---------------------------------------------------------------------------
+// Résolution d'une cible d'embed vers un fichier concret du vault
+// ---------------------------------------------------------------------------
+
+/// Extensions reconnues comme des images (minuscules).
+const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico"];
+
+/// Extensions reconnues comme des pistes audio (minuscules).
+const AUDIO_EXTS: &[&str] = &["mp3", "wav", "flac", "ogg"];
+
+/// Extensions reconnues comme des vidéos (minuscules).
+const VIDEO_EXTS: &[&str] = &["mp4", "webm"];
+
+/// Type d'un embed résolu vers un fichier du vault.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmbedType {
+    /// Image (png, jpg, jpeg, gif, svg, webp, bmp, ico).
+    Image,
+    /// Document PDF.
+    Document,
+    /// Piste audio (mp3, wav, flac, ogg).
+    Audio,
+    /// Vidéo (mp4, webm).
+    Video,
+    /// Note Markdown (`cible.md`).
+    Note,
+    /// Cible absente du vault.
+    NotFound,
+}
+
+/// Un embed résolu vers un fichier concret du vault.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedEmbed {
+    /// Type de l'embed.
+    pub kind: EmbedType,
+    /// Chemin du fichier, relatif au root du vault.
+    pub path: PathBuf,
+}
+
+/// Résultat de la résolution d'une cible d'embed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResolveOutcome {
+    /// Fichier trouvé dans le vault.
+    Found(ResolvedEmbed),
+    /// Cible absente du vault.
+    NotFound,
+}
+
+/// Erreurs de résolution ou d'inspection d'un embed.
+#[derive(Debug, Error)]
+pub enum EmbedError {
+    /// Le fichier ne peut pas être lu.
+    #[error("fichier illisible : {0}")]
+    Io(#[from] io::Error),
+    /// Format de fichier non pris en charge.
+    #[error("format non pris en charge : {0}")]
+    UnsupportedFormat(String),
+    /// Fichier corrompu ou structure invalide.
+    #[error("fichier corrompu : {0}")]
+    Corrupt(String),
+}
+
+/// Dimensions d'une image (en pixels).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImageDimensions {
+    /// Largeur en pixels.
+    pub width: u32,
+    /// Hauteur en pixels.
+    pub height: u32,
+}
+
+/// Extrait la référence de fichier d'une cible d'embed brute (le texte entre
+/// `[[` et `]]`). Retire l'alias après `|`, la section après `#`, puis élague
+/// les espaces.
+fn file_target(raw: &str) -> &str {
+    let no_alias = raw.split_once('|').map(|(t, _)| t).unwrap_or(raw);
+    let no_section = no_alias.split_once('#').map(|(t, _)| t).unwrap_or(no_alias);
+    no_section.trim()
+}
+
+/// Type d'embed associé à une extension connue (comparée insensible à la
+/// casse). `None` si l'extension n'est reconnue ni comme image, ni comme PDF,
+/// ni comme audio, ni comme vidéo.
+fn kind_for_ext(ext: &str) -> Option<EmbedType> {
+    if IMAGE_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e)) {
+        Some(EmbedType::Image)
+    } else if ext.eq_ignore_ascii_case("pdf") {
+        Some(EmbedType::Document)
+    } else if AUDIO_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e)) {
+        Some(EmbedType::Audio)
+    } else if VIDEO_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e)) {
+        Some(EmbedType::Video)
+    } else {
+        None
+    }
+}
+
+/// `true` si la cible forme un chemin relatif sûr (aucun composant `..`,
+/// aucun chemin absolu).
+fn is_safe_relative(target: &str) -> bool {
+    if target.starts_with('/') || target.starts_with('\\') {
+        return false;
+    }
+    !target.split(['/', '\\']).any(|c| c == "..")
+}
+
+/// Résout une cible d'embed (le texte entre `[[` et `]]`, alias et section
+/// compris) vers le fichier correspondant du vault.
+///
+/// Ordre de recherche :
+/// 1. si la cible porte déjà une extension (ex. `img.png`, `note.md`), le
+///    fichier `root/cible` est cherché tel quel ;
+/// 2. sinon, `root/cible.md` est cherché d'abord, puis `root/cible.<extension>`
+///    pour chaque extension connue (image, pdf, audio, vidéo).
+///
+/// La présence d'un fichier mais un format non lisible n'est pas une erreur
+/// ici : la résolution réussit, et c'est [`image_dimensions`] qui signale
+/// l'échec de lecture d'une image.
+pub fn resolve_embed_target(root: &Path, raw: &str) -> ResolveOutcome {
+    let target = file_target(raw);
+    if target.is_empty() || !is_safe_relative(target) {
+        return ResolveOutcome::NotFound;
+    }
+
+    // Cible avec extension déjà écrite.
+    if let Some(ext) = extension_of(target) {
+        let kind = if ext.eq_ignore_ascii_case("md") {
+            Some(EmbedType::Note)
+        } else {
+            kind_for_ext(ext)
+        };
+        let kind = match kind {
+            Some(k) => k,
+            None => return ResolveOutcome::NotFound,
+        };
+        let path = root.join(target);
+        if path.is_file() {
+            return ResolveOutcome::Found(ResolvedEmbed { kind, path });
+        }
+        return ResolveOutcome::NotFound;
+    }
+
+    // Cible sans extension : `cible.md` d'abord, puis `cible.<extension>`.
+    let md_path = root.join(format!("{target}.md"));
+    if md_path.is_file() {
+        return ResolveOutcome::Found(ResolvedEmbed {
+            kind: EmbedType::Note,
+            path: md_path,
+        });
+    }
+
+    for (ext, kind) in IMAGE_EXTS
+        .iter()
+        .map(|e| (*e, EmbedType::Image))
+        .chain(std::iter::once(("pdf", EmbedType::Document)))
+        .chain(AUDIO_EXTS.iter().map(|e| (*e, EmbedType::Audio)))
+        .chain(VIDEO_EXTS.iter().map(|e| (*e, EmbedType::Video)))
+    {
+        let path = root.join(format!("{target}.{ext}"));
+        if path.is_file() {
+            return ResolveOutcome::Found(ResolvedEmbed { kind, path });
+        }
+    }
+
+    ResolveOutcome::NotFound
+}
+
+// ---------------------------------------------------------------------------
+// Lecture des dimensions d'une image (PNG / JPEG) sans dépendance externe
+// ---------------------------------------------------------------------------
+
+/// Lit les dimensions (largeur, hauteur) d'une image depuis son en-tête.
+///
+/// Formats pris en charge : PNG (signature + bloc `IHDR`) et JPEG (segments
+/// `SOF0`/`SOF2`). Un format inconnu ou un fichier corrompu retourne une
+/// erreur explicite, jamais une panique.
+pub fn image_dimensions(path: &Path) -> Result<ImageDimensions, EmbedError> {
+    let data = fs::read(path)?;
+    if data.len() >= 8 && data[..8] == [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A] {
+        png_dimensions(&data)
+    } else if data.len() >= 3 && data[0] == 0xFF && data[1] == 0xD8 {
+        jpeg_dimensions(&data)
+    } else {
+        Err(EmbedError::UnsupportedFormat(
+            "ni PNG ni JPEG (signature inconnue)".to_string(),
+        ))
+    }
+}
+
+/// Dimensions d'un PNG : signature 8 octets, puis longueur de bloc (4), type
+/// `IHDR` (4), largeur (4) et hauteur (4), en big-endian.
+fn png_dimensions(data: &[u8]) -> Result<ImageDimensions, EmbedError> {
+    if data.len() < 24 {
+        return Err(EmbedError::Corrupt("fichier PNG trop court".to_string()));
+    }
+    if &data[12..16] != b"IHDR" {
+        return Err(EmbedError::Corrupt("bloc IHDR absent".to_string()));
+    }
+    let width = u32::from_be_bytes([data[16], data[17], data[18], data[19]]);
+    let height = u32::from_be_bytes([data[20], data[21], data[22], data[23]]);
+    Ok(ImageDimensions { width, height })
+}
+
+/// Marqueurs JPEG de début de trame (SOF) qui portent les dimensions.
+const SOF_MARKERS: &[u8] = &[
+    0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF,
+];
+
+/// Dimensions d'un JPEG : on parcourt les segments après `FF D8` jusqu'à un
+/// segment `SOF` (précision 1 octet, puis hauteur 2 octets et largeur 2
+/// octets, en big-endian).
+fn jpeg_dimensions(data: &[u8]) -> Result<ImageDimensions, EmbedError> {
+    let mut i = 2usize; // après le marqueur SOI `FF D8`
+    while i + 3 < data.len() {
+        if data[i] != 0xFF {
+            return Err(EmbedError::Corrupt("marqueur JPEG attendu".to_string()));
+        }
+        let marker = data[i + 1];
+        // Marqueurs sans segment de données : RST0-7, SOI, EOI.
+        if marker == 0xD8 || marker == 0xD9 || (0xD0..=0xD7).contains(&marker) {
+            i += 2;
+            continue;
+        }
+        let seg_len = u16::from_be_bytes([data[i + 2], data[i + 3]]) as usize;
+        if seg_len < 2 || i + 2 + seg_len > data.len() {
+            return Err(EmbedError::Corrupt("segment JPEG invalide".to_string()));
+        }
+        if SOF_MARKERS.contains(&marker) {
+            // Payload : longueur (2) + précision (1) + hauteur (2) + largeur (2).
+            let payload = i + 4;
+            if payload + 4 > data.len() {
+                return Err(EmbedError::Corrupt("segment SOF tronqué".to_string()));
+            }
+            let height = u16::from_be_bytes([data[payload + 1], data[payload + 2]]) as u32;
+            let width = u16::from_be_bytes([data[payload + 3], data[payload + 4]]) as u32;
+            return Ok(ImageDimensions { width, height });
+        }
+        i += 2 + seg_len;
+    }
+    Err(EmbedError::Corrupt("aucun segment SOF trouvé".to_string()))
 }
 
 #[cfg(test)]
