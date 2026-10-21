@@ -525,8 +525,9 @@ impl canvas::Program<Message> for GraphProgram {
                     Some(
                         canvas::Action::publish(Message::GraphDragApply {
                             node: d.node,
-                            dx: d.delta.x,
-                            dy: d.delta.y,
+                            // Le delta persistant est en espace monde.
+                            dx: d.delta.x / self.scene.zoom,
+                            dy: d.delta.y / self.scene.zoom,
                         })
                         .and_capture(),
                     )
