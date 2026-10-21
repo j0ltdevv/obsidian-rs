@@ -846,7 +846,25 @@ fn sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
     ]
     .spacing(8)
     .padding([4, 8]);
-    let explorer = column![header, scrollable(tree_node(app, notes, Path::new(""), 0))]
+    let mut explorer_children: Vec<Element<'a, Message>> =
+        vec![tree_node(app, notes, Path::new(""), 0)];
+    if !app.selected_note_paths.is_empty() {
+        let n = app.selected_note_paths.len();
+        let bar = row![
+            text(format!("{n} sélectionnée(s)")).size(12),
+            text("").width(Length::Fill),
+            button(text("Effacer"))
+                .on_press(Message::ClearSelection)
+                .style(crate::ui::ghost_button_style),
+            button(text("Supprimer"))
+                .on_press(Message::DeleteSelected)
+                .style(crate::ui::primary_button_style),
+        ]
+        .spacing(6)
+        .padding([2, 8]);
+        explorer_children.push(bar.into());
+    }
+    let explorer = column![header, scrollable(column(explorer_children).spacing(2))]
         .width(Length::Fill)
         .height(Length::FillPortion(if app.show_calendar { 6 } else { 10 }));
 
@@ -1057,13 +1075,26 @@ fn tree_node<'a>(
 
     for note in files {
         let active = app.open.as_ref().is_some_and(|open| open.path == note.path);
-        let label = row![text(&note.name).width(Length::Fill)].into();
-        tree = tree.push(tree_button(
-            label,
-            Message::OpenNote(note.path.clone()),
-            active,
-            depth,
-        ));
+        let selected = app.selected_note_paths.contains(&note.path);
+        let check = container(
+            button(text(if selected { "☑" } else { "☐" }))
+                .on_press(Message::ToggleSelectNote(note.path.clone()))
+                .style(ghost_button_style),
+        )
+        .width(22);
+        let open_button = button(
+            container(text(&note.name))
+                .width(Length::Fill)
+                .padding([4, 4]),
+        )
+        .width(Length::Fill)
+        .on_press(Message::OpenNote(note.path.clone()))
+        .style(move |_theme, status| tree_button_style(status, active));
+        let row = row![check, open_button]
+            .spacing(2)
+            .padding([0_u16, (4 + depth * 12) as u16])
+            .align_y(Alignment::Center);
+        tree = tree.push(row);
     }
 
     tree.into()

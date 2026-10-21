@@ -94,6 +94,12 @@ pub enum Message {
     RestoreSnapshot(usize),
     /// Bascule la vue Canvas.
     ToggleCanvas,
+    /// Bascule la sélection d'une note dans l'explorateur.
+    ToggleSelectNote(PathBuf),
+    /// Vide la sélection multiple de notes.
+    ClearSelection,
+    /// Déplace les notes sélectionnées vers la corbeille.
+    DeleteSelected,
     /// Ouvre la palette de commandes.
     OpenCommandPalette,
     /// Ferme la palette de commandes.
@@ -433,6 +439,8 @@ pub struct App {
     pub show_calendar: bool,
     /// Affiche le panneau Backlinks de la note ouverte.
     pub show_backlinks: bool,
+    /// Notes sélectionnées dans l'explorateur (sélection multiple).
+    pub selected_note_paths: HashSet<PathBuf>,
 }
 /// `true` si la note doit être ignorée par l'Explorer : à l'intérieur du
 /// dossier de gabarits configuré ou dans un dossier `.archive`.
@@ -578,6 +586,7 @@ pub fn boot() -> (App, Task<Message>) {
         sort_alpha: false,
         show_calendar: false,
         show_backlinks: false,
+        selected_note_paths: HashSet::new(),
     };
     (app, Task::none())
 }
@@ -1477,6 +1486,60 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 }
             }
         }
+        Message::ToggleSelectNote(path) => {
+            if !app.selected_note_paths.remove(&path) {
+                app.selected_note_paths.insert(path);
+            }
+        }
+        Message::ClearSelection => {
+            app.selected_note_paths.clear();
+        }
+        Message::DeleteSelected => {
+            if app.selected_note_paths.is_empty() {
+                return Task::none();
+            }
+            if !acquire_write_lock(&app.vault_root) {
+                app.error = Some(
+                    "Vault verrouillé par une autre instance (fichier .obsidian/lock).".to_string(),
+                );
+                return Task::none();
+            }
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+                .to_string();
+            let mut errored = false;
+            let mut remaining = app.selected_note_paths.clone();
+            for path in &app.selected_note_paths {
+                let target = app.vault_root.join(path);
+                let trash = app.vault_root.join(".trash").join(&stamp).join(path);
+                if let Some(parent) = trash.parent() {
+                    if fs::create_dir_all(parent).is_err() {
+                        errored = true;
+                        break;
+                    }
+                }
+                match fs::rename(&target, &trash) {
+                    Ok(()) => {
+                        if app.open.as_ref().is_some_and(|o| o.path == *path) {
+                            app.open = None;
+                        }
+                        remaining.remove(path);
+                    }
+                    Err(error) => {
+                        app.error = Some(format!("Mise à la corbeille impossible : {error}"));
+                        errored = true;
+                    }
+                }
+            }
+            app.selected_note_paths = remaining;
+            release_write_lock(&app.vault_root, true);
+            if errored {
+                return Task::none();
+            }
+            return update(app, Message::Refresh);
+        }
         Message::FolderDialogOpen => {
             app.folder_dialog = true;
         }
@@ -2307,5 +2370,45 @@ mod tests {
         assert_eq!(app.find.as_ref().unwrap().current, 0);
         let _ = update(&mut app, Message::FindPrev);
         assert_eq!(app.find.as_ref().unwrap().current, 2);
+    }
+
+    #[test]
+    fn toggle_select_ajoute_et_retire() {
+        let (mut app, _task) = boot();
+        let path = PathBuf::from("a.md");
+        let _ = update(&mut app, Message::ToggleSelectNote(path.clone()));
+        assert!(app.selected_note_paths.contains(&path));
+        let _ = update(&mut app, Message::ToggleSelectNote(path.clone()));
+        assert!(!app.selected_note_paths.contains(&path));
+        let _ = update(&mut app, Message::ToggleSelectNote(path.clone()));
+        let _ = update(&mut app, Message::ClearSelection);
+        assert!(app.selected_note_paths.is_empty());
+    }
+
+    #[test]
+    fn delete_selected_deplace_vers_corbeille() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        dir.push(format!("obsidian-rs-sel-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "a").unwrap();
+        std::fs::write(dir.join("b.md"), "b").unwrap();
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let (mut app, _task) = boot();
+        app.vault_root = dir.clone();
+        app.notes = notes;
+        let a = PathBuf::from("a.md");
+        let b = PathBuf::from("b.md");
+        let _ = update(&mut app, Message::ToggleSelectNote(a.clone()));
+        let _ = update(&mut app, Message::ToggleSelectNote(b.clone()));
+        let _ = update(&mut app, Message::DeleteSelected);
+        assert!(!dir.join("a.md").exists());
+        assert!(!dir.join("b.md").exists());
+        assert!(dir.join(".trash").is_dir());
+        assert!(app.selected_note_paths.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
