@@ -6,7 +6,7 @@ description = "Client Obsidian-like en Rust + iced (clean-room)"
 license = "MIT"
 
 [dependencies]
-iced = { version = "0.14", features = ["canvas", "svg"] }
+iced = { version = "0.14", default-features = false, features = ["tiny-skia", "canvas", "svg", "crisp", "web-colors", "thread-pool", "linux-theme-detection", "x11", "wayland"] }
 thiserror = "2"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
@@ -19,6 +19,11 @@ proptest = "1"
 
 # Binaire release compact (même recette que les clients natifs de référence) :
 # LTO + un seul codegen unit + symboles retirés + pas de déroulage de pile.
+# Debug : debuginfo réduite (1 au lieu de 2). Le binaire ne sert qu'à lancer
+# l'app et aux tests ; la trace complète faisait 28 Go de target/debug.
+[profile.dev]
+debug = 1
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
