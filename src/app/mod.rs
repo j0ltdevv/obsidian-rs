@@ -126,6 +126,8 @@ pub enum Message {
     NextSidebarTab,
     /// Onglet de sidebar précédent (Ctrl+PageUp).
     PrevSidebarTab,
+    /// Affiche/masque l'aide des raccourcis clavier.
+    ToggleShortcuts,
     /// Ouvre la palette de commandes.
     OpenCommandPalette,
     /// Ferme l'onglet d'une note ouverte (active le voisin si besoin).
@@ -483,6 +485,8 @@ pub struct App {
     pub command_palette: Option<CommandPaletteState>,
     /// Affiche la vue Plan à la place de l'éditeur/prévisualisation.
     pub show_outline: bool,
+    /// Affiche l'aide des raccourcis clavier (overlay).
+    pub show_shortcuts: bool,
     /// Affiche le panneau de recherche full-text à la place de l'éditeur.
     pub show_search: bool,
     /// Affiche la vue Tâches à la place de l'éditeur/prévisualisation.
@@ -760,6 +764,7 @@ pub fn boot() -> (App, Task<Message>) {
         commands: default_commands(),
         command_palette: None,
         show_outline: false,
+        show_shortcuts: false,
         show_search: false,
         show_tasks: false,
         search_panel: None,
@@ -1189,7 +1194,12 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.folder_dialog = false;
             } else if app.show_settings {
                 app.show_settings = false;
+            } else if app.show_shortcuts {
+                app.show_shortcuts = false;
             }
+        }
+        Message::ToggleShortcuts => {
+            app.show_shortcuts = !app.show_shortcuts;
         }
         Message::CommandPaletteQuery(query) => {
             if let Some(state) = &mut app.command_palette {
@@ -2408,6 +2418,10 @@ pub fn subscription(_app: &App) -> iced::Subscription<Message> {
             }
         }
 
+        if key.as_ref() == Key::Named(key::Named::F1) {
+            return Some(Message::ToggleShortcuts);
+        }
+
         if key.as_ref() == Key::Named(key::Named::Escape) {
             return Some(Message::Escape);
         }
@@ -3399,6 +3413,21 @@ mod tests {
         assert_eq!(app.open.as_ref().unwrap().content.text(), "édité a");
         assert!(app.open_dirty);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn aide_raccourcis_s_ouvre_et_se_ferme() {
+        let (mut app, _task) = boot();
+        assert!(!app.show_shortcuts);
+        let _ = update(&mut app, Message::ToggleShortcuts);
+        assert!(app.show_shortcuts);
+        let _ = update(&mut app, Message::ToggleShortcuts);
+        assert!(!app.show_shortcuts);
+
+        // Échap referme l'aide.
+        let _ = update(&mut app, Message::ToggleShortcuts);
+        let _ = update(&mut app, Message::Escape);
+        assert!(!app.show_shortcuts);
     }
 
     #[test]

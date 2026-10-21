@@ -101,6 +101,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
+    } else if app.show_shortcuts {
+        stack([root, shortcuts_overlay()])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     } else if app.show_settings {
         stack([root, settings_overlay(app)])
             .width(Length::Fill)
@@ -182,6 +187,61 @@ fn new_note_overlay<'a>(app: &'a App) -> Element<'a, Message> {
 }
 
 /// Overlay de réglages : toggles vim/spellcheck et liste des raccourcis.
+/// Raccourcis clavier affichés par l'aide (F1).
+///
+/// Source unique de vérité : la subscription de `app` doit câbler chacun de ces
+/// raccourcis, et un test vérifie que la liste reste alignée sur le code.
+const SHORTCUTS: &[(&str, &str)] = &[
+    ("Ctrl + K", "Recherche rapide de note"),
+    ("Ctrl + P", "Palette de commandes"),
+    ("Ctrl + S", "Enregistrer la note"),
+    ("Ctrl + F", "Rechercher dans la note"),
+    ("Ctrl + Maj + F", "Recherche globale"),
+    ("Ctrl + G", "Graphe"),
+    ("Ctrl + Z / Y", "Annuler / rétablir"),
+    ("Ctrl + W", "Fermer l'onglet"),
+    ("Ctrl + Tab", "Onglet suivant"),
+    ("Ctrl + Maj + Tab", "Onglet précédent"),
+    ("Ctrl + B", "Sidebar gauche"),
+    ("Ctrl + Maj + B", "Sidebar droite"),
+    ("Ctrl + Page ↓ / ↑", "Onglet de sidebar suivant / précédent"),
+    ("F1", "Cette aide"),
+    ("Échap", "Fermer la fenêtre active"),
+];
+
+/// Overlay d'aide des raccourcis clavier.
+fn shortcuts_overlay<'a>() -> Element<'a, Message> {
+    use iced::widget::stack;
+    let mut content = column![text("Raccourcis clavier").size(16).font(bold_font())].spacing(6);
+
+    for (keys, action) in SHORTCUTS {
+        content = content.push(
+            row![
+                text(*keys).size(13).width(Length::Fixed(190.0)),
+                text(*action).size(13),
+            ]
+            .spacing(12),
+        );
+    }
+
+    content = content.push(
+        button(text("Fermer (Échap)"))
+            .on_press(Message::ToggleShortcuts)
+            .style(primary_button_style),
+    );
+
+    let panel = container(content)
+        .style(panel_style)
+        .width(Length::FillPortion(3))
+        .max_width(520);
+
+    container(stack([panel.into()]))
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(overlay_style)
+        .into()
+}
+
 fn settings_overlay<'a>(app: &'a App) -> Element<'a, Message> {
     use iced::widget::stack;
     let vim_label = if app.settings.vim_mode {

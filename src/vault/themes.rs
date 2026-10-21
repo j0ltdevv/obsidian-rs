@@ -13,6 +13,8 @@ pub struct Theme {
     pub name: &'static str,
     /// Couleur d'accent (actions, liens, sélections).
     pub accent: (u8, u8, u8),
+    /// Variante de l'accent lisible **en texte** sur `bg` (WCAG AA ≥ 4.5).
+    pub accent_text: (u8, u8, u8),
     /// Couleur de fond principal.
     pub bg: (u8, u8, u8),
     /// Couleur du texte principal.
@@ -30,6 +32,7 @@ pub struct Theme {
 pub const DEFAULT_DARK: Theme = Theme {
     name: "dark",
     accent: (138, 92, 245),
+    accent_text: (169, 139, 255),
     bg: (28, 28, 28),
     fg: (218, 218, 218),
     surface: (40, 40, 40),
@@ -40,6 +43,7 @@ pub const DEFAULT_DARK: Theme = Theme {
 pub const DEFAULT_LIGHT: Theme = Theme {
     name: "light",
     accent: (138, 92, 245),
+    accent_text: (120, 82, 238),
     bg: (255, 255, 255),
     fg: (34, 34, 34),
     surface: (246, 246, 246),
@@ -137,11 +141,38 @@ mod tests {
         );
     }
 
+    /// Le texte accentué doit rester lisible : AA exige ≥ 4.5 sur le fond.
+    #[test]
+    fn contraste_aa_texte_accent() {
+        for theme in [DEFAULT_DARK, DEFAULT_LIGHT] {
+            let ratio = contrast(theme.accent_text, theme.bg);
+            assert!(
+                ratio >= 4.5,
+                "{} : accent_text/bg = {ratio:.2}, attendu ≥ 4.5",
+                theme.name
+            );
+        }
+    }
+
+    /// L'accent brut sert de fond/aplat : WCAG 1.4.11 demande ≥ 3 sur le fond.
+    #[test]
+    fn contraste_accent_brut_sur_fond() {
+        for theme in [DEFAULT_DARK, DEFAULT_LIGHT] {
+            let ratio = contrast(theme.accent, theme.bg);
+            assert!(
+                ratio >= 3.0,
+                "{} : accent/bg = {ratio:.2}, attendu ≥ 3.0",
+                theme.name
+            );
+        }
+    }
+
     #[test]
     fn toutes_composantes_rgb_dans_l_intervalle() {
         for theme in [DEFAULT_DARK, DEFAULT_LIGHT] {
             for &(r, g, b) in [
                 &theme.accent,
+                &theme.accent_text,
                 &theme.bg,
                 &theme.fg,
                 &theme.surface,

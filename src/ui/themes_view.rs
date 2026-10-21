@@ -61,6 +61,7 @@ fn theme_button<'a>(
 ) -> Element<'a, Message> {
     let active = theme.name.eq_ignore_ascii_case(current);
     let accent = accent_color(theme.accent);
+    let accent_text = accent_color(theme.accent_text);
 
     let row = Row::new()
         .spacing(8)
@@ -71,7 +72,7 @@ fn theme_button<'a>(
     button(row)
         .width(Length::Fill)
         .on_press(on_select(theme.name.to_string()))
-        .style(move |_, status| theme_button_style(status, accent, active))
+        .style(move |_, status| theme_button_style(status, accent, accent_text, active))
         .into()
 }
 
@@ -93,7 +94,12 @@ fn accent_dot<'a>(accent: Color) -> Element<'a, Message> {
 }
 
 /// Style d'un bouton thème.
-fn theme_button_style(status: button::Status, accent: Color, active: bool) -> button::Style {
+fn theme_button_style(
+    status: button::Status,
+    accent: Color,
+    accent_text: Color,
+    active: bool,
+) -> button::Style {
     if active {
         // Thème courant : fond très léger de la couleur d'accent, cadre accentué
         // et texte coloré.
@@ -106,7 +112,7 @@ fn theme_button_style(status: button::Status, accent: Color, active: bool) -> bu
                 width: 1.0,
                 radius: Radius::from(4.0),
             },
-            text_color: accent,
+            text_color: accent_text,
             ..button::Style::default()
         }
     } else if matches!(status, button::Status::Hovered) {
@@ -141,7 +147,10 @@ mod tests {
     #[test]
     fn theme_courant_surligne() {
         let style_dark = button_style_pour(&DEFAULT_DARK, "dark");
-        assert_eq!(style_dark.text_color, accent_color(DEFAULT_DARK.accent));
+        assert_eq!(
+            style_dark.text_color,
+            accent_color(DEFAULT_DARK.accent_text)
+        );
         assert!(style_dark.background.is_some());
 
         let style_light = button_style_pour(&DEFAULT_LIGHT, "dark");
@@ -161,6 +170,7 @@ mod tests {
         let style = theme_button_style(
             button::Status::Hovered,
             accent_color(DEFAULT_DARK.accent),
+            accent_color(DEFAULT_DARK.accent_text),
             false,
         );
         assert!(style.background.is_some());
@@ -182,6 +192,7 @@ mod tests {
         theme_button_style(
             button::Status::Active,
             accent_color(theme.accent),
+            accent_color(theme.accent_text),
             theme.name.eq_ignore_ascii_case(current),
         )
     }
