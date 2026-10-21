@@ -3,6 +3,41 @@
 Format : [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) —
 semver.
 
+## [Non publié] — 2026-10-21
+
+### Ajouté
+- **Moteur Rust en service HTTP** : binaire `obsidian-engine` exposant les
+  endpoints `/health`, `/files`, `/file`, `/metadata`, `/backlinks`,
+  `/search`, `/graph` et `POST /sync` (23 opérations fs/path/crypto/ipc,
+  confinement des chemins) ; 21 tests d'intégration.
+- **Comportements Obsidian clean-room** : wikilinks, frontmatter et tags
+  déduits de l'analyse REA et couverts par des tests de comportement,
+  fixtures sous `tests/fixtures/comportements/`.
+- **Thème du vault** : 21 variables CSS d'Obsidian parsées et traduites en
+  palette iced (`palette_from_vars`, `iced_theme`, `theme_css_path`) ; 17
+  tests.
+- **Raccourcis clavier** : 19 raccourcis Obsidian, remap via `hotkeys.json`
+  et palette de commandes ; 12 tests.
+- **Fidélité de l'éditeur** : coloration de la source en 18 types de
+  fragments, 15 constantes de typographie Obsidian (interligne 1,6,
+  tailles de titres, rayons, retraits) ; 11 tests.
+- **Interface enrichie** : module `src/ui/markdown.rs` affichant la source
+  Markdown avec sa syntaxe colorée (style Live Preview) dans le panneau
+  central, bascule Lecture/Édition, ouverture automatique d'une note au
+  démarrage (note persistée en priorité, sinon la première du vault), état
+  persisté dans `<vault>/.obsidian/obsidian-rs-state.json` (écriture
+  atomique).
+
+### Corrigé
+- Icônes du ribbon visibles (teinte `currentColor` des SVG Lucide).
+- Onglets de sidebar sur une seule ligne (scroll horizontal).
+- États vides harmonisés : un seul « Aucune note ouverte » par panneau.
+- Fenêtre par défaut 1400×900.
+- **Rendu logiciel** : bascule d'iced vers `tiny-skia`
+  (`default-features = false`) ; feature exclusive avec wgpu. RAM mesurée
+  39,6 Mo (RSS stable, build debug, box instabox) contre 75,6 Mo avec
+  wgpu (voir `docs/BENCHMARKS.md`).
+
 ## [0.2.0] — 2026-10-21
 
 ### Ajouté
