@@ -473,6 +473,7 @@ pub struct App {
     pub show_left_sidebar: bool,
     /// Affiche la sidebar droite (Backlinks/Plan).
     pub show_right_sidebar: bool,
+    /// Affiche le mini-calendrier dans la sidebar.
     pub show_calendar: bool,
     /// Affiche le panneau Backlinks de la note ouverte.
     pub show_backlinks: bool,
@@ -725,6 +726,8 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             if let Ok(notes) = &app.notes {
                 let present: HashSet<PathBuf> = notes.iter().map(|n| n.path.clone()).collect();
                 app.selected_note_paths.retain(|p| present.contains(p));
+                app.open_tabs.retain(|p| present.contains(p));
+                app.open_buffers.retain(|p, _| present.contains(p));
             }
             app.error = None;
             if let Some(query) = app.search_panel.as_ref().map(|s| s.query.clone()) {
@@ -896,6 +899,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                         app.error = None;
                         app.open_dirty = false;
                         app.edits_since_save = 0;
+                        app.open_buffers.remove(&open.path);
                         let note_count = app.notes.as_ref().map(|n| n.len()).unwrap_or(0);
                         let ctx = PluginContext {
                             vault_name: DEMO_VAULT,
@@ -1082,7 +1086,8 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             if let Some(i) = app.open_tabs.iter().position(|p| *p == path) {
                 let was_active = app.open.as_ref().is_some_and(|o| o.path == path);
                 app.open_tabs.remove(i);
-                app.open_buffers.remove(&path);
+                // On conserve un éventuel tampon non sauvegardé (open_buffers) :
+                // rouvrir la note restaurera ces éditions plutôt que de les perdre.
                 if i < app.open_tabs_active {
                     app.open_tabs_active = app.open_tabs_active.saturating_sub(1);
                 }
@@ -1258,18 +1263,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     find.current = (find.current + 1) % find.occurrences;
                 }
             }
-            if let Some(find) = &app.find {
-                if let Some(open) = &mut app.open {
-                    if let Some((line, column)) =
-                        occurrence_line_col(&open.content.text(), &find.query, find.current)
-                    {
-                        open.content.move_to(text_editor::Cursor {
-                            position: text_editor::Position { line, column },
-                            selection: None,
-                        });
-                    }
-                }
-            }
+            focus_current_occurrence(app);
         }
         Message::FindPrev => {
             if let Some(find) = &mut app.find {
@@ -1277,18 +1271,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     find.current = (find.current + find.occurrences - 1) % find.occurrences;
                 }
             }
-            if let Some(find) = &app.find {
-                if let Some(open) = &mut app.open {
-                    if let Some((line, column)) =
-                        occurrence_line_col(&open.content.text(), &find.query, find.current)
-                    {
-                        open.content.move_to(text_editor::Cursor {
-                            position: text_editor::Position { line, column },
-                            selection: None,
-                        });
-                    }
-                }
-            }
+            focus_current_occurrence(app);
         }
         Message::CanvasSelect(id) => {
             app.canvas_selected = Some(id);
@@ -1542,6 +1525,13 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     if app.open.as_ref().is_some_and(|o| o.path == from) {
                         app.open = None;
                     }
+                    // L'onglet et le tampon caché suivent le renommage.
+                    if let Some(i) = app.open_tabs.iter().position(|p| *p == from) {
+                        app.open_tabs[i] = to.clone();
+                    }
+                    if let Some(content) = app.open_buffers.remove(&from) {
+                        app.open_buffers.insert(to.clone(), content);
+                    }
                     // Met à jour les wikilinks référents (formes `[[x]]`,
                     // `[[x|alias]]`, `[[x#titre]]`, `![[x]]`).
                     if let Ok(notes) = &app.notes {
@@ -1610,6 +1600,8 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     if app.open.as_ref().is_some_and(|o| o.path == path) {
                         app.open = None;
                     }
+                    app.open_tabs.retain(|p| p != &path);
+                    app.open_buffers.remove(&path);
                     return update(app, Message::Refresh);
                 }
                 Err(error) => {
@@ -1657,6 +1649,8 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                         if app.open.as_ref().is_some_and(|o| o.path == *path) {
                             app.open = None;
                         }
+                        app.open_tabs.retain(|p| p != path);
+                        app.open_buffers.remove(path);
                         remaining.remove(path);
                     }
                     Err(error) => {
@@ -2241,6 +2235,21 @@ fn occurrence_line_col(content: &str, query: &str, nth: usize) -> Option<(usize,
     Some((line, column))
 }
 
+// Déplace le curseur de l'éditeur sur l'occurrence courante de la recherche
+// in-note (utilisé par Suivant/Précédent).
+fn focus_current_occurrence(app: &mut App) {
+    let Some(find) = &app.find else { return };
+    let Some(open) = &mut app.open else { return };
+    if let Some((line, column)) =
+        occurrence_line_col(&open.content.text(), &find.query, find.current)
+    {
+        open.content.move_to(text_editor::Cursor {
+            position: text_editor::Position { line, column },
+            selection: None,
+        });
+    }
+}
+
 /// Résout une cible de lien (`[[cible]]` ou alias) vers les notes
 /// correspondantes. Combine l'index des wikilinks puis l'index des alias,
 /// en dédupliquant par chemin (l'ordre de l'index prime).
@@ -2797,6 +2806,88 @@ mod tests {
         let _ = update(&mut app, Message::CloseTab(a.clone()));
         assert!(app.open_tabs.is_empty());
         assert!(app.open.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn renommage_met_a_jour_onglet_et_tampon() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        dir.push(format!("obsidian-rs-tabs-rename-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "a").unwrap();
+        std::fs::write(dir.join("b.md"), "b").unwrap();
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let (mut app, _task) = boot();
+        app.vault_root = dir.clone();
+        app.notes = notes;
+        let a = PathBuf::from("a.md");
+        let b = PathBuf::from("b.md");
+        let _ = update(&mut app, Message::OpenNote(a.clone()));
+        app.open.as_mut().unwrap().content = text_editor::Content::with_text("édité");
+        let _ = update(&mut app, Message::MarkDirty);
+        let _ = update(&mut app, Message::OpenNote(b.clone()));
+        app.rename_dialog = Some((a.clone(), "a2".to_string()));
+        let _ = update(&mut app, Message::RenameCommit);
+        let a2 = PathBuf::from("a2.md");
+        assert!(app.open_tabs.contains(&a2));
+        assert!(!app.open_tabs.contains(&a));
+        assert!(app.open_buffers.contains_key(&a2));
+        assert!(!app.open_buffers.contains_key(&a));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn suppression_retire_longlet_et_le_tampon() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        dir.push(format!("obsidian-rs-tabs-del-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "a").unwrap();
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let (mut app, _task) = boot();
+        app.vault_root = dir.clone();
+        app.notes = notes;
+        let a = PathBuf::from("a.md");
+        let _ = update(&mut app, Message::OpenNote(a.clone()));
+        let _ = update(&mut app, Message::ToggleDelete(a.clone()));
+        let _ = update(&mut app, Message::DeleteConfirm);
+        assert!(app.open_tabs.is_empty());
+        assert!(app.open.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sauvegarde_vide_le_tampon_cache() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        dir.push(format!("obsidian-rs-tabs-save-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "a").unwrap();
+        std::fs::write(dir.join("b.md"), "b").unwrap();
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let (mut app, _task) = boot();
+        app.vault_root = dir.clone();
+        app.notes = notes;
+        let a = PathBuf::from("a.md");
+        let b = PathBuf::from("b.md");
+        let _ = update(&mut app, Message::OpenNote(a.clone()));
+        app.open.as_mut().unwrap().content = text_editor::Content::with_text("édité a");
+        let _ = update(&mut app, Message::MarkDirty);
+        let _ = update(&mut app, Message::OpenNote(b.clone()));
+        assert!(app.open_buffers.contains_key(&a));
+        let _ = update(&mut app, Message::OpenNote(a.clone()));
+        let _ = update(&mut app, Message::SaveNote);
+        assert!(!app.open_buffers.contains_key(&a));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
