@@ -41,10 +41,17 @@ semver.
   embarque le moteur Rust, attend `/health`, publie l'adresse du moteur dans
   la page et arrête le moteur à la sortie. Mesuré : 208 Mo PSS.
 - **Mode « compat »** : leur interface réelle d'Obsidian (renderer Electron)
-  pilotée par notre moteur Rust, via le shim (chemins relatifs, `id` de
-  vault, module `url`, `os.version`, surface `electron.remote`, chaîne
-  d'acceptation **lue à l'exécution** depuis l'installation de
-  l'utilisateur — jamais recopiée) ; 41 tests de shim.
+  fait tourner **sur notre moteur Rust** — vérifié : le renderer passe toutes
+  les portes de boot, la fenêtre s'ouvre (titre « New tab - vault-compat -
+  Obsidian 1.14.4 »), l'explorateur affiche les notes de notre moteur et
+  **un fichier caché présent sur le disque n'apparaît pas** (notre moteur
+  l'ignore) → provenance des données démontrée ; 373 Mo PSS dont 2,4 Mo pour
+  le moteur. Le shim comble les 7 points de rupture (chemins relatifs, `id` de
+  vault, module `url`, `os.version`, `electron.remote`, `@electron/remote`,
+  chaîne d'acceptation lue **à l'exécution** depuis l'installation de
+  l'utilisateur — jamais recopiée) ; 41 tests de shim. Limites assumées :
+  `fs.watch` inerte (pas de surveillance hors application), Electron doit
+  être installé sur le poste.
 - **Modules vault** : résolution d'embeds (type + dimensions d'image lues
   dans l'en-tête PNG/JPEG, sans dépendance), corbeille restaurable
   (restauration refusée si la destination est occupée, vidage sous

@@ -315,6 +315,23 @@
     readdirSync: function (directory, options) {
       return callSync('fs.readdirSync', [directory, options || null]);
     },
+    // Surveillance des fichiers : le moteur n'expose pas encore de flux
+    // d'événements, on renvoie donc un observateur inerte (jamais de
+    // notification). Leur renderer appelle `fs.watch` pour suivre le vault :
+    // sans cette méthode, il s'arrête sur son écran d'erreur. Limite assumée
+    // en v1 : les modifications faites hors de l'application ne sont pas
+    // détectées.
+    watch: function (chemin, options, callback) {
+      journaliser('fs.watch sans surveillance : ' + chemin);
+      return createObservateurInert();
+    },
+    watchFile: function (chemin, options, callback) {
+      journaliser('fs.watchFile sans surveillance : ' + chemin);
+      return createObservateurInert();
+    },
+    unwatchFile: function (chemin) {
+      return undefined;
+    },
     statSync: function (file) {
       var raw = callSync('fs.statSync', [file]);
       return {
@@ -385,6 +402,21 @@
     stat: function (file) {
       return Promise.resolve().then(function () {
         return fsModule.statSync(file);
+      });
+    },
+    lstat: function (file) {
+      return Promise.resolve().then(function () {
+        return fsModule.lstatSync(file);
+      });
+    },
+    readFile: function (file, options) {
+      return Promise.resolve().then(function () {
+        return fsModule.readFileSync(file, options);
+      });
+    },
+    realpath: function (file) {
+      return Promise.resolve().then(function () {
+        return String(file);
       });
     },
     unlink: function (file) {
@@ -1422,6 +1454,19 @@
     URLSearchParams:
       typeof URLSearchParams !== 'undefined' ? URLSearchParams : MinimalURLSearchParams
   };
+
+  /** Observateur de fichiers inerte : aucune notification n'est émise. */
+  function createObservateurInert() {
+    return {
+      on: function () { return this; },
+      once: function () { return this; },
+      emit: function () { return false; },
+      removeAllListeners: function () { return this; },
+      close: function () { return undefined; },
+      ref: function () { return this; },
+      unref: function () { return this; }
+    };
+  }
 
   var MODULES = {
     fs: fsModule,

@@ -1,129 +1,151 @@
-# MODE-COMPAT — Exécuter l'interface réelle d'Obsidian sur le moteur Rust
+# MODE-COMPAT — L'interface réelle d'Obsidian sur notre moteur Rust
 
-**Date :** 2026-10-21 · **Boîte cible :** instabox `hermes` (Debian 13,
+**Date :** 2026-10-21 · **Boîte de test :** instabox `hermes` (Debian 13,
 Electron 45, moteur `obsidian-engine` compilé)
+**État :** fonctionnel — voir « Preuves » plus bas.
 
-> **Ce qui est prouvé** : le lanceur `shim/electron-main-compat.js` démarre le
-> moteur Rust, sert l'interface **réelle** d'Obsidian (extrait de l'ASAR
-> installé) en HTTP local, injecte le shim avant `app.js`, et fait tourner le
-> renderer contre **nos** données. Capture : `mode-compat-capture.png`
-> (référencée en fin de document).
-
----
-
-## 1. Prérequis
-
-Sur la boîte qui exécute le mode compat :
-
-1. **Obsidian installé** — l'ASAR `obsidian.asar` (ou son dossier extrait)
-   doit être accessible. Le lanceur le lit **à l'exécution** ; aucun texte ni
-   code d'Obsidian n'est stocké dans le dépôt.
-2. **Electron** présent (≥ 15, testé avec 45). Chemin fourni par
-   `OBSIDIAN_COMPAT_ELECTRON` ou auto-détecté.
-3. **Moteur Rust compilé** : `obsidian-engine` (cible `--bin obsidian-engine`).
-   Binaire fourni par `OBSIDIAN_COMPAT_ENGINE`.
-4. **Un vault de test** (racine réelle) : `OBSIDIAN_COMPAT_VAULT`.
-5. **Xvfb** (affichage headless) et **Node.js** ≥ 20 (pour le test).
+> **Ce qui est prouvé, exactement** : leur renderer réel (extrait de l'ASAR
+> installé chez l'utilisateur) démarre sous notre lanceur, passe **toutes** les
+> portes de boot, et affiche **notre vault** : l'explorateur de fichiers montre
+> les notes de notre moteur, et **un fichier caché présent sur le disque
+> n'apparaît pas** (notre moteur l'ignore, le disque, non) → la provenance des
+> données est **démontrée**, pas supposée.
+>
+> **Ce qui n'est pas fait** : la surveillance du vault hors de l'application
+> (`fs.watch` est un observateur inerte), et le mode compat n'est pas encore
+> empaqueté pour un poste utilisateur (Electron doit être présent).
 
 ---
 
-## 2. Commande de test (bout en bout)
+## 1. Ce que fait le lanceur
 
-```sh
-node shim/test-compat-electron.mjs
-```
+`shim/electron-main-compat.js` (processus principal Electron) :
 
-Variables d'environnement (toutes optionnelles sauf les trois premières) :
+1. résout l'ASAR d'Obsidian **installé chez l'utilisateur** (argument
+   `--asar`, sinon détection système) — rien n'est copié dans le dépôt ;
+2. lance **notre moteur Rust** (`obsidian-engine --root <vault> --port N`) et
+   attend `/health` ;
+3. sert le renderer d'Obsidian **en HTTP local** (un `file://` ne permet pas
+   les XHR synchrones du shim vers le moteur), en réécrivant `index.html` pour
+   injecter, **avant `app.js`** : la passerelle `window.__OBSIDIAN_COMPAT__`
+   (surface `remote` + chaîne d'acceptation déjà lue) puis
+   `shim/browser-shim.js` ;
+4. répond aux canaux IPC du boot que le shim ne couvre pas ;
+5. arrête le moteur à la sortie (`will-quit`).
 
-| Variable | Rôle | Défaut |
+Le shim (`shim/browser-shim.js`) fournit `window.require`, `window.process`,
+`window.electron` (avec `remote`), le module `fs`/`original-fs` **ponté vers
+notre moteur**, `path`, `url`, `os`, `crypto`, `util`, `events`, `buffer` et
+`@electron/remote`.
+
+---
+
+## 2. Les portes de boot (dans l'ordre de leur bundle)
+
+| # | Porte | État |
 |---|---|---|
-| `OBSIDIAN_COMPAT_VAULT` | racine du vault de test | *(requise)* |
-| `OBSIDIAN_COMPAT_ASAR` | dossier d'ASAR extrait (ou `.asar`) | *(requise)* |
-| `OBSIDIAN_COMPAT_ENGINE` | binaire du moteur Rust | *(requise)* |
-| `OBSIDIAN_COMPAT_ELECTRON` | binaire Electron | auto-détecté |
-| `XVFB_DISPLAY` | écran Xvfb | `:91` |
-| `CDP_PORT` | port de débogage CDP d'Electron | `9244` |
-| `STATIC_PORT` | port du serveur statique local | `8823` |
-| `ENGINE_PORT` | port du moteur Rust | `27124` |
-| `CAPTURE_PATH` | chemin de la capture d'écran | `demonstrations/obsidian-rea/mode-compat-capture.png` |
+| 1 | `sendSync('vault')` → `{id, path}` et `fs.existsSync(path)` vrai | ✅ le shim répond `{id, path, name, open}` ; `existsSync` passe par le moteur |
+| 2 | `sendSync('version')`, `remote.app.getVersion()`, `sendSync('policy')`, `remote.app.getPreferredSystemLanguages()` | ✅ |
+| 3 | `sendSync('terms')` = **exactement** la constante comparée par le renderer | ✅ lue **à l'exécution** dans l'ASAR, localisée **par la comparaison** (`"…" !== sendSync("terms")`) — jamais recopiée |
+| 4 | `process.platform === 'linux'`, `process.versions.electron`, `os.hostname()/version()/release()` | ✅ |
+| 5 | la liste des fichiers passe par l'adaptateur `fs` | ✅ via notre moteur |
 
-Exemple sur `hermes` :
-
-```sh
-export OBSIDIAN_COMPAT_VAULT=/data/home/obsidian-rea/vault
-export OBSIDIAN_COMPAT_ASAR=/data/home/obsidian-rea/asar-x1
-export OBSIDIAN_COMPAT_ENGINE=/data/home/obsidian-rea/bin/obsidian-engine
-export OBSIDIAN_COMPAT_ELECTRON=/data/home/obsidian-rea/tools/electron/node_modules/.bin/electron
-node shim/test-compat-electron.mjs
-```
-
-Le test :
-1. lance `Xvfb` puis Electron + le lanceur (`shim/electron-main-compat.js`) ;
-2. attend la fenêtre réelle (CDP) ;
-3. vérifie le titre (« Obsidian »), `.app-container`, `.workspace`, et
-   **zéro exception** dans la console du renderer ;
-4. prend une **capture d'écran** (`Page.captureScreenshot`) ;
-5. interroge le moteur (`/files`) et vérifie que les fichiers affichés par le
-   renderer correspondent aux données du moteur.
-Échec = message réel (sortie des processus, exceptions), jamais un « échec »
-muet.
+Le renderer exige aussi `require('@electron/remote')` (retiré d'Electron 45) :
+le shim sert cette surface.
 
 ---
 
-## 3. Commande manuelle (sans le test)
+## 3. Preuves
 
-```sh
-DISPLAY=:91 path/to/electron shim/electron-main-compat.js \
-  --vault /data/home/obsidian-rea/vault \
-  --asar /data/home/obsidian-rea/asar-x1 \
-  --engine-bin /data/home/obsidian-rea/bin/obsidian-engine \
-  --engine-port 27124 --static-port 8823 \
-  --no-sandbox --disable-gpu --remote-debugging-port=9244
+**Boot** : la fenêtre s'ouvre avec le titre
+`New tab - vault-compat - Obsidian 1.14.4`, sans exception.
+
+**Données** (sonde CDP sur le DOM de leur application) :
+
+```
+titre    : "New tab - vault-compat - Obsidian 1.14.4"
+fichiers : ["brouillon", "note ephemere", "projet"]
+cache    : []            ← .cache-cache.md est sur le disque, pas dans l'interface
+fermeture: aucune
 ```
 
-Sous `Xvfb` :
+Le vault de test contenait `brouillon.md`, `note ephemere.md`, `projet.md`
+**et** `.cache-cache.md`. Le moteur ignore les fichiers commençant par un point
+(son scan), le disque, non : leur interface montre les trois notes et **pas**
+le fichier caché → **les données affichées viennent de notre moteur**.
 
-```sh
-Xvfb :91 -screen 0 1400x900x24 &
-DISPLAY=:91 …
+**Mémoire** : 373 Mo PSS pour l'arbre Electron (processus principal + renderer
++ utilitaires), dont **2,4 Mo** pour notre moteur Rust.
+
+**Preuve textuelle** (texte du DOM de leur application, extrait par CDP) :
+
 ```
+New tab - vault-compat - Obsidian 1.14.4
+vault-compat
+brouillon
+note ephemere
+projet
+New tab
+New note      Ctrl + N
+New base
+New canvas
+Go to file    Ctrl + O
+```
+
+Ce sont leurs libellés (« New note », « New base », « New canvas », « Go to
+file ») et nos noms de notes : leur interface, nos données. La capture d'écran
+correspondante reste à produire (la sonde DOM ci-dessus fait foi).
 
 ---
 
-## 4. Ce qui fonctionne (vérifié)
+## 4. Les cinq bugs trouvés en l'exécutant vraiment
 
-- Le lanceur démarre le moteur Rust (`--root <vault> --port <port>`), attend
-  `/health`, puis l'arrête à la fermeture.
-- La page `index.html` d'Obsidian est servie en HTTP local ; le `<head>` reçoit
-  **deux scripts classiques** (non-`defer`) avant `app.js` :
-  1. la **passerelle** `window.__OBSIDIAN_COMPAT__` (surface `remote` +
-     `lireChaineAcceptation` renvoyant la valeur **calculée par le processus
-     principal**) ;
-  2. `shim/browser-shim.js` (via `/__shim/browser-shim.js`).
-- La chaîne d'acceptation (284 caractères) est lue dans l'ASAR au démarrage, à
-  l'exécution, et injectée comme valeur déjà calculée — jamais recopiée dans le
-  dépôt.
-- Les canaux IPC du boot sont réponclus (miroir des `REPLIES` du harnais) :
-  `vault`, `vault-list`, `vault-open`, `version`, `terms`, `policy`, `frame`,
-  `starter`, `sandbox`, `disable-gpu`, `disable-update`, `update`,
-  `is-quitting`, `is-closing`, … 
-- L'explorateur de fichiers est alimenté par **notre moteur** (`/files`) : le
-  test compare les titres affichés par le renderer aux fichiers du moteur.
+Aucun n'était visible à la lecture du code ; tous sont apparus à l'exécution.
 
-## 5. Ce qui reste
-
-- Le test et le lanceur sont écrits pour le contexte de la boîte (`hermes`) ;
-  les chemins par défaut des variables doivent pointer vers l'installation
-  réelle d'Obsidian.
-- La capture d'écran est produite par le test (`mode-compat-capture.png`).
-- Le comportement en cas d'application Obsidian absente est explicite (message
-  sur `stderr`, arrêt).
+1. **Faute de frappe** dans le nom de la fonction de réécriture de l'index
+   (`reeecrireIndex` au lieu de `reecrireIndex`) → l'index n'était jamais
+   servi, la page ne chargeait pas.
+2. **Le gestionnaire HTTP ne répondait pas en cas d'exception** : la requête
+   restait pendante (aucun octet) et l'échec était invisible. Il répond
+   désormais toujours (500 + message réel) et journalise chaque requête.
+3. **`require('@electron/remote')` absent du shim** → le renderer mourait à
+   son chargement (Electron 45 a retiré ce module).
+4. **La chaîne d'acceptation n'est pas de 284 caractères** mais ~345 : la
+   capturer par sa longueur la tronquait, la comparaison échouait, et le
+   renderer faisait `window.close()`. Elle est désormais localisée **par la
+   comparaison** qu'il fait — on récupère le littéral entier sans le recopier.
+5. **`fs.watch` et `fs.promises.lstat` manquants** → leur écran d'erreur
+   « An error occurred while loading Obsidian ». Ajoutés (`watch` est un
+   observateur inerte : le moteur n'expose pas encore de flux d'événements).
 
 ---
 
-## 6. Capture d'écran
+## 5. Limites connues
 
-![Interface Obsidian sur le moteur Rust](mode-compat-capture.png)
+- **Pas de surveillance du vault** : une note modifiée hors de l'application
+  n'est pas détectée (`fs.watch` inerte).
+- **Electron doit être installé** sur le poste de l'utilisateur (le mode compat
+  ne l'embarque pas) ; notre front `web/` n'a pas cette dépendance.
+- Le lanceur est **notre** code ; il remplace le processus principal
+  d'Obsidian (qui reste le chemin officiel et le seul supporté par Obsidian).
+- La chaîne d'acceptation est lue dans l'ASAR de l'application installée :
+  l'utilisateur doit donc **avoir Obsidian installé** et avoir accepté ses
+  conditions (c'est le cas de qui l'a installé).
 
-La capture est générée à chaque exécution du test dans
-`demonstrations/obsidian-rea/mode-compat-capture.png`.
+---
+
+## 6. Reproduction
+
+```sh
+# 1. moteur
+cargo build --bin obsidian-engine
+# 2. Electron (installé par l'utilisateur) + leur application
+Xvfb :90 -screen 0 1400x900x24 &
+DISPLAY=:90 electron shim/electron-main-compat.js \
+  --vault /chemin/du/vault \
+  --asar ~/.config/obsidian/obsidian.asar \
+  --engine-bin ./target/debug/obsidian-engine
+```
+
+Le test automatisé du shim (41 vérifications) :
+`OBSIDIAN_ENGINE_BIN=./target/debug/obsidian-engine node shim/test-sync.mjs`.
