@@ -48,8 +48,6 @@ use self::search_view::search_view;
 use self::tasks_view::tasks_view;
 use self::themes_view::themes_view;
 
-/// Couleur du titre de la barre supérieure.
-const TITLE_COLOR: Color = Color::from_rgb(0.25, 0.45, 0.75);
 /// Couleur du texte d'erreur.
 const ERROR_COLOR: Color = Color::from_rgb(0.85, 0.2, 0.2);
 /// Couleur de fond de la bannière d'erreur.
@@ -68,11 +66,14 @@ pub fn view(app: &App) -> Element<'_, Message> {
         Err(error) => error_view(error),
     };
 
-    let mut root = Column::new().push(title_bar());
+    let mut root = Column::new();
     if let Some(error) = &app.error {
         root = root.push(error_banner(error));
     }
-    root = root.push(body);
+    let main = row![ribbon(app), body]
+        .width(Length::Fill)
+        .height(Length::Fill);
+    root = root.push(main).push(status_bar(app));
     let root_el: Element<'_, Message> = root.height(Length::Fill).into();
     let background = root_background(app);
     let root: Element<'_, Message> = container(root_el)
@@ -401,58 +402,60 @@ fn folder_overlay<'a>(app: &'a App) -> Element<'a, Message> {
         .into()
 }
 
-/// Barre de titre stable de l'application.
-fn title_bar() -> Element<'static, Message> {
-    let title = text("obsidian-rs")
-        .size(24)
-        .font(bold_font())
-        .color(TITLE_COLOR);
+// Barre d'icônes verticale gauche (façon Obsidian) : actions principales
+// compactes, groupe haut et bas séparés.
+fn ribbon<'a>(app: &'a App) -> Element<'a, Message> {
+    use iced::widget::button as btn;
+    let icon = |sym: String, msg| {
+        btn(text(sym).size(16))
+            .width(Length::Fill)
+            .on_press(msg)
+            .style(ghost_button_style)
+    };
+    let haut = column![
+        icon("⛁".to_string(), Message::Refresh),
+        icon("🕸".to_string(), Message::ToggleGraph),
+        icon("⌘".to_string(), Message::OpenCommandPalette),
+        icon("🔍".to_string(), Message::OpenSwitcher),
+        icon("📄".to_string(), Message::NewNoteOpen),
+    ]
+    .spacing(4)
+    .padding(4);
+    let bas = column![
+        icon(
+            if app.show_left_sidebar {
+                "◀".to_string()
+            } else {
+                "▶".to_string()
+            },
+            Message::ToggleLeftSidebar,
+        ),
+        icon("⚙".to_string(), Message::ToggleSettings),
+    ];
+    container(column![haut, text("").height(Length::Fill), bas])
+        .width(48)
+        .height(Length::Fill)
+        .style(panel_style)
+        .into()
+}
+
+// Barre d'état basse : compteur de mots de la note ouverte + thème courant.
+fn status_bar<'a>(app: &'a App) -> Element<'a, Message> {
+    let info = match &app.open {
+        Some(open) => {
+            let words = open.content.text().split_whitespace().count();
+            format!("{} mots · {} lignes", words, open.content.line_count())
+        }
+        None => "Aucune note ouverte".to_string(),
+    };
     row![
-        title,
+        text(info).size(12),
         text("").width(Length::Fill),
-        button(text("Recherche"))
-            .on_press(Message::OpenSwitcher)
-            .style(primary_button_style),
-        button(text("Graphe"))
-            .on_press(Message::ToggleGraph)
-            .style(primary_button_style),
-        button(text("Thème"))
-            .on_press(Message::ToggleThemes)
-            .style(primary_button_style),
-        button(text("Historique"))
-            .on_press(Message::ToggleHistory)
-            .style(primary_button_style),
-        button(text("Dataview"))
-            .on_press(Message::ToggleDataview)
-            .style(primary_button_style),
-        button(text("Plugins"))
-            .on_press(Message::TogglePlugins)
-            .style(primary_button_style),
-        button(text("Canvas"))
-            .on_press(Message::ToggleCanvas)
-            .style(primary_button_style),
-        button(text("Plan"))
-            .on_press(Message::ToggleOutline)
-            .style(primary_button_style),
-        button(text("Chercher"))
-            .on_press(Message::ToggleSearch)
-            .style(primary_button_style),
-        button(text("Tâches"))
-            .on_press(Message::ToggleTasks)
-            .style(primary_button_style),
-        button(text("Note"))
-            .on_press(Message::NewNoteOpen)
-            .style(primary_button_style),
-        button(text("Réglages"))
-            .on_press(Message::ToggleSettings)
-            .style(primary_button_style),
-        button(text("Actualiser"))
-            .on_press(Message::Refresh)
-            .style(primary_button_style),
+        text(format!("thème : {}", app.current_theme)).size(12),
     ]
     .align_y(Alignment::Center)
     .spacing(8)
-    .padding([10, 16])
+    .padding([2, 10])
     .into()
 }
 
@@ -586,10 +589,22 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         return responsive(move |size| graph_view(app, notes, size)).into();
     }
 
-    let sidebar = container(sidebar(app, notes))
-        .style(panel_style)
-        .width(Length::FillPortion(3))
-        .height(Length::Fill);
+    let sidebar: Element<'a, Message> = if app.show_left_sidebar {
+        container(sidebar(app, notes))
+            .style(panel_style)
+            .width(Length::FillPortion(3))
+            .height(Length::Fill)
+            .into()
+    } else {
+        container(
+            iced::widget::Space::new()
+                .width(Length::Fixed(0.0))
+                .height(Length::Fill),
+        )
+        .width(Length::Fixed(0.0))
+        .height(Length::Fill)
+        .into()
+    };
 
     if app.show_canvas {
         let report: Vec<(u64, std::path::PathBuf)> = notes

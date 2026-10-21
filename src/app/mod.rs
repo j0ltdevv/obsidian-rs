@@ -104,6 +104,8 @@ pub enum Message {
     TakeVaultSnapshot,
     /// Déplace le curseur de l'éditeur sur la ligne du titre cliqué (Plan).
     OutlineScroll(usize),
+    /// Bascule l'affichage de la sidebar gauche.
+    ToggleLeftSidebar,
     /// Ouvre la palette de commandes.
     OpenCommandPalette,
     /// Ferme la palette de commandes.
@@ -443,6 +445,8 @@ pub struct App {
     pub show_calendar: bool,
     /// Affiche le panneau Backlinks de la note ouverte.
     pub show_backlinks: bool,
+    /// Affiche la sidebar gauche (Explorer) à la façon Obsidian.
+    pub show_left_sidebar: bool,
     /// Notes sélectionnées dans l'explorateur (sélection multiple).
     pub selected_note_paths: HashSet<PathBuf>,
 }
@@ -591,6 +595,7 @@ pub fn boot() -> (App, Task<Message>) {
         show_calendar: false,
         show_backlinks: false,
         selected_note_paths: HashSet::new(),
+        show_left_sidebar: true,
     };
     (app, Task::none())
 }
@@ -1026,6 +1031,9 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     selection: None,
                 });
             }
+        }
+        Message::ToggleLeftSidebar => {
+            app.show_left_sidebar = !app.show_left_sidebar;
         }
         Message::ToggleSearch => {
             app.show_search = !app.show_search;
