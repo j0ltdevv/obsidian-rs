@@ -317,12 +317,12 @@ fn delete_confirm_overlay<'a>(app: &'a App) -> Element<'a, Message> {
     };
     let panel = container(
         column![
-            text("Supprimer définitivement ?")
+            text("Déplacer vers la corbeille (.trash) ?")
                 .size(15)
                 .font(bold_font()),
             text(path.display().to_string()).size(13),
             row![
-                btn(text("Supprimer"))
+                btn(text("Corbeille"))
                     .on_press(Message::DeleteConfirm)
                     .style(primary_button_style),
                 btn(text("Annuler"))

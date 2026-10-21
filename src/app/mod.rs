@@ -1225,7 +1225,15 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 return Task::none();
             };
             let target = app.vault_root.join(&path);
-            match fs::remove_file(&target) {
+            // Corbeille du vault : `.trash/` (préserve le chemin relatif).
+            let trash = app.vault_root.join(".trash").join(&path);
+            if let Some(parent) = trash.parent() {
+                if fs::create_dir_all(parent).is_err() {
+                    app.error = Some("Création de la corbeille impossible.".to_string());
+                    return Task::none();
+                }
+            }
+            match fs::rename(&target, &trash) {
                 Ok(()) => {
                     if app.open.as_ref().is_some_and(|o| o.path == path) {
                         app.open = None;
@@ -1233,7 +1241,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     return update(app, Message::Refresh);
                 }
                 Err(error) => {
-                    app.error = Some(format!("Suppression impossible : {error}"));
+                    app.error = Some(format!("Mise à la corbeille impossible : {error}"));
                 }
             }
         }
