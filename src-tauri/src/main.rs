@@ -22,6 +22,10 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
+// Trait `Manager` de Tauri : fournit `get_webview_window` (et les autres
+// accès aux fenêtres/webviews).
+use tauri::Manager;
+
 /// Port d'écoute par défaut du moteur (voir `src/engine/mod.rs`).
 const PORT_PAR_DEFAUT: u16 = 27123;
 

@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>obsidian-rs</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="theme-dark">
+
+<!-- Jeu d'icônes dessiné pour ce projet : SVG 16x16, trait currentColor, 2 px. -->
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="6.8" cy="6.8" r="4.4"/><path d="M10.2 10.2 13.6 13.6"/></symbol>
+  <symbol id="i-graph" viewBox="0 0 16 16"><circle cx="3.4" cy="4" r="1.9"/><circle cx="12.4" cy="3.4" r="1.9"/><circle cx="8" cy="12.2" r="1.9"/><path d="M5.1 4.9 10.7 3.9M4.4 5.7 7.1 10.6M11.4 5 8.9 10.6"/></symbol>
+  <symbol id="i-canvas" viewBox="0 0 16 16"><rect x="2" y="2.6" width="12" height="10.8" rx="1.6"/><path d="M8 5.6v4.8M5.6 8h4.8"/></symbol>
+  <symbol id="i-daily" viewBox="0 0 16 16"><rect x="2.2" y="3" width="11.6" height="10.8" rx="1.6"/><path d="M2.2 6.2h11.6M5.4 1.8v2.6M10.6 1.8v2.6"/></symbol>
+  <symbol id="i-template" viewBox="0 0 16 16"><rect x="2.2" y="2.2" width="8" height="8" rx="1.4"/><path d="M5.8 13.8h8v-8"/></symbol>
+  <symbol id="i-command" viewBox="0 0 16 16"><path d="M5.6 2.2a1.7 1.7 0 1 0 1.7 1.7v8.2a1.7 1.7 0 1 0 1.7-1.7H3.9a1.7 1.7 0 1 0 1.7 1.7V3.9a1.7 1.7 0 1 0-1.7 1.7h8.2"/></symbol>
+  <symbol id="i-database" viewBox="0 0 16 16"><ellipse cx="8" cy="3.6" rx="5.4" ry="2.1"/><path d="M2.6 3.6v8.8c0 1.2 2.4 2.1 5.4 2.1s5.4-.9 5.4-2.1V3.6M2.6 8c0 1.2 2.4 2.1 5.4 2.1s5.4-.9 5.4-2.1"/></symbol>
+  <symbol id="i-files" viewBox="0 0 16 16"><path d="M3 2.6h5.6l1.6 1.9H13v8.9H3z"/><path d="M3 6.4h10"/></symbol>
+  <symbol id="i-file" viewBox="0 0 16 16"><path d="M3.4 1.8h5.4l3.2 3.3v9.1H3.4z"/><path d="M8.8 1.8v3.4h3.2M5.4 8.4h5.2M5.4 10.8h5.2"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 16 16"><path d="M2.2 7.2V2.6h4.6l6.6 6.6-4.6 4.6z"/><circle cx="5" cy="5" r="1"/></symbol>
+  <symbol id="i-link" viewBox="0 0 16 16"><path d="M6.6 9.4a2.8 2.8 0 0 0 4 0l2.2-2.2a2.8 2.8 0 0 0-4-4l-1 1"/><path d="M9.4 6.6a2.8 2.8 0 0 0-4 0L3.2 8.8a2.8 2.8 0 0 0 4 4l1-1"/></symbol>
+  <symbol id="i-paperclip" viewBox="0 0 16 16"><path d="M11.8 7.2 7.3 11.7a2.6 2.6 0 0 1-3.7-3.7l5-5a1.9 1.9 0 0 1 2.7 2.7l-5 5a1.2 1.2 0 0 1-1.7-1.7l4.4-4.4"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 16 16"><path d="M2.8 4.2h10.4M6.4 4.2V2.8h3.2v1.4M4.2 4.2l.7 9h6.2l.7-9M6.6 6.6v4.4M9.4 6.6v4.4"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 16 16"><rect x="2.2" y="3" width="11.6" height="10.8" rx="1.6"/><path d="M2.2 6.2h11.6M5.4 1.8v2.6M10.6 1.8v2.6"/></symbol>
+  <symbol id="i-folder-plus" viewBox="0 0 16 16"><path d="M1.8 4.4a1.4 1.4 0 0 1 1.4-1.4h2.6l1.4 1.8h5.6a1.4 1.4 0 0 1 1.4 1.4v6.4a1.4 1.4 0 0 1-1.4 1.4H3.2a1.4 1.4 0 0 1-1.4-1.4z"/><path d="M8 8.2v3.4M6.3 9.9h3.4"/></symbol>
+  <symbol id="i-file-plus" viewBox="0 0 16 16"><path d="M3.4 1.8h5.4l3.2 3.3v9.1H3.4z"/><path d="M8.8 1.8v3.4h3.2M8 8v4.4M5.8 10.2h4.4"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 16 16"><path d="M4 2.6v10.8M4 13.4 1.8 11.2M4 13.4l2.2-2.2M12 13.4V2.6M12 2.6 9.8 4.8M12 2.6l2.2 2.2"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 16 16"><path d="M5.6 3.4 10.4 8l-4.8 4.6"/></symbol>
+  <symbol id="i-close" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></symbol>
+  <symbol id="i-back" viewBox="0 0 16 16"><path d="M12.8 8H3.4M7 3.8 3.2 8 7 12.2"/></symbol>
+  <symbol id="i-forward" viewBox="0 0 16 16"><path d="M3.2 8h9.4M9 3.8 12.8 8 9 12.2"/></symbol>
+  <symbol id="i-bookmark" viewBox="0 0 16 16"><path d="M4 2.4h8v11.2L8 10.4l-4 3.2z"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 16 16"><path d="M11 2.6 13.4 5 5.6 12.8 2.4 13.6l.8-3.2z"/></symbol>
+  <symbol id="i-more" viewBox="0 0 16 16"><circle cx="3.4" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.6" cy="8" r="1.1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-list" viewBox="0 0 16 16"><path d="M2.6 4.2h2M2.6 8h2M2.6 11.8h2M7.4 4.2h6M7.4 8h6M7.4 11.8h6"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 16 16"><rect x="1.8" y="2.6" width="12.4" height="10.8" rx="1.6"/><path d="M6.2 2.6v10.8"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3.4 8.4 6.4 11.4 12.6 4.8"/></symbol>
+</svg>
+
+<div class="app" data-testid="app">
+
+  <!-- Bandeau supérieur : hauteur 40 px, pleine largeur. -->
+  <div class="titlebar" data-testid="titlebar">
+    <button class="icon-btn titlebar-toggle" data-testid="toggle-left-dock" title="Basculer le dock gauche" aria-label="Basculer le dock gauche">
+      <svg class="icon"><use href="#i-panel"/></svg>
+    </button>
+  </div>
+
+  <!-- Onglets du dock gauche (icônes seules, 40 px). -->
+  <div class="dock-tabs dock-tabs-left" data-testid="left-dock-tabs" role="tablist">
+    <button class="dock-tab is-active" data-view="files" data-testid="left-tab-files" title="Fichiers" aria-label="Fichiers"><svg class="icon"><use href="#i-files"/></svg></button>
+    <button class="dock-tab" data-view="search" data-testid="left-tab-search" title="Recherche" aria-label="Recherche"><svg class="icon"><use href="#i-search"/></svg></button>
+    <button class="dock-tab" data-view="tags" data-testid="left-tab-tags" title="Tags" aria-label="Tags"><svg class="icon"><use href="#i-tag"/></svg></button>
+    <button class="dock-tab" data-view="backlinks" data-testid="left-tab-backlinks" title="Rétroliens" aria-label="Rétroliens"><svg class="icon"><use href="#i-link"/></svg></button>
+    <button class="dock-tab" data-view="calendar" data-testid="left-tab-calendar" title="Calendrier" aria-label="Calendrier"><svg class="icon"><use href="#i-calendar"/></svg></button>
+    <button class="dock-tab" data-view="attachments" data-testid="left-tab-attachments" title="Pièces jointes" aria-label="Pièces jointes"><svg class="icon"><use href="#i-paperclip"/></svg></button>
+    <button class="dock-tab" data-view="trash" data-testid="left-tab-trash" title="Corbeille" aria-label="Corbeille"><svg class="icon"><use href="#i-trash"/></svg></button>
+  </div>
+
+  <!-- Bandeau d'onglets de notes. -->
+  <div class="tab-bar" data-testid="tab-bar" role="tablist">
+    <span class="titlebar-title" data-testid="vault-name">obsidian-rs</span>
+  </div>
+
+  <!-- Onglets du dock droit (icônes seules). -->
+  <div class="dock-tabs dock-tabs-right" data-testid="right-dock-tabs" role="tablist">
+    <button class="dock-tab is-active" data-testid="right-tab-backlinks" title="Rétroliens" aria-label="Rétroliens"><svg class="icon"><use href="#i-link"/></svg></button>
+    <button class="dock-tab" data-testid="right-tab-outline" title="Plan de la note" aria-label="Plan de la note"><svg class="icon"><use href="#i-list"/></svg></button>
+  </div>
+
+  <!-- Ruban vertical d'icônes (44 px). -->
+  <nav class="ribbon" data-testid="ribbon" aria-label="Ruban">
+    <button class="icon-btn ribbon-item" data-testid="ribbon-quick" title="Sélecteur rapide" aria-label="Sélecteur rapide"><svg class="icon"><use href="#i-search"/></svg></button>
+    <button class="icon-btn ribbon-item" data-testid="ribbon-graph" title="Vue graphique" aria-label="Vue graphique"><svg class="icon"><use href="#i-graph"/></svg></button>
+    <button class="icon-btn ribbon-item" data-testid="ribbon-canvas" title="Nouveau canvas" aria-label="Nouveau canvas"><svg class="icon"><use href="#i-canvas"/></svg></button>
+    <button class="icon-btn ribbon-item" data-testid="ribbon-daily" title="Note quotidienne" aria-label="Note quotidienne"><svg class="icon"><use href="#i-daily"/></svg></button>
+    <button class="icon-btn ribbon-item" data-testid="ribbon-template" title="Insérer un modèle" aria-label="Insérer un modèle"><svg class="icon"><use href="#i-template"/></svg></button>
+    <button class="icon-btn ribbon-item" data-testid="ribbon-command" title="Palette de commandes" aria-label="Palette de commandes"><svg class="icon"><use href="#i-command"/></svg></button>
+    <button class="icon-btn ribbon-item" data-testid="ribbon-base" title="Nouvelle base" aria-label="Nouvelle base"><svg class="icon"><use href="#i-database"/></svg></button>
+    <div class="ribbon-spacer"></div>
+  </nav>
+
+  <!-- Dock gauche : contenu de la vue active. -->
+  <aside class="left-dock" data-testid="left-dock">
+
+    <section class="view view-files is-active" data-view="files">
+      <header class="view-header" data-testid="files-header">
+        <span class="view-title">Fichiers</span>
+        <button class="text-btn" data-testid="sort-toggle" title="Changer l'ordre de tri">Tri A→Z</button>
+        <button class="text-btn" data-testid="new-folder">+ Dossier</button>
+        <button class="icon-btn" data-testid="new-note" title="Nouvelle note" aria-label="Nouvelle note"><svg class="icon"><use href="#i-file-plus"/></svg></button>
+      </header>
+      <div class="view-body">
+        <ul class="tree" data-testid="file-tree"></ul>
+      </div>
+    </section>
+
+    <section class="view view-search" data-view="search">
+      <header class="view-header">
+        <span class="view-title">Recherche</span>
+      </header>
+      <div class="view-body">
+        <div class="search-box">
+          <input type="search" class="search-input" data-testid="search-input" placeholder="Rechercher" aria-label="Rechercher dans le coffre">
+        </div>
+        <ul class="result-list" data-testid="search-results"></ul>
+      </div>
+    </section>
+
+    <section class="view view-tags" data-view="tags">
+      <header class="view-header">
+        <span class="view-title">Tags</span>
+      </header>
+      <div class="view-body">
+        <ul class="result-list" data-testid="tag-list"></ul>
+      </div>
+    </section>
+
+    <section class="view view-backlinks" data-view="backlinks">
+      <header class="view-header">
+        <span class="view-title">Rétroliens</span>
+      </header>
+      <div class="view-body">
+        <ul class="result-list" data-testid="left-backlinks"></ul>
+      </div>
+    </section>
+
+    <section class="view view-calendar" data-view="calendar">
+      <header class="view-header">
+        <span class="view-title">Calendrier</span>
+      </header>
+      <div class="view-body">
+        <p class="empty-state" data-testid="calendar-empty">Aucun article à afficher.</p>
+      </div>
+    </section>
+
+    <section class="view view-attachments" data-view="attachments">
+      <header class="view-header">
+        <span class="view-title">Pièces jointes</span>
+      </header>
+      <div class="view-body">
+        <ul class="result-list" data-testid="attachment-list"></ul>
+      </div>
+    </section>
+
+    <section class="view view-trash" data-view="trash">
+      <header class="view-header">
+        <span class="view-title">Corbeille</span>
+      </header>
+      <div class="view-body">
+        <p class="empty-state" data-testid="trash-empty">La corbeille est vide.</p>
+      </div>
+    </section>
+
+  </aside>
+
+  <!-- Zone centrale : en-tête de vue, éditeur + aperçu. -->
+  <main class="main" data-testid="main">
+    <header class="view-header view-header-main" data-testid="view-header">
+      <span class="view-title" data-testid="view-title">Aucune note</span>
+      <div class="view-actions">
+        <button class="icon-btn" data-testid="nav-back" title="Note précédente" aria-label="Note précédente"><svg class="icon"><use href="#i-back"/></svg></button>
+        <button class="icon-btn" data-testid="nav-forward" title="Note suivante" aria-label="Note suivante"><svg class="icon"><use href="#i-forward"/></svg></button>
+        <button class="icon-btn" data-testid="bookmark-note" title="Signet" aria-label="Signet"><svg class="icon"><use href="#i-bookmark"/></svg></button>
+        <button class="icon-btn" data-testid="toggle-preview" title="Basculer lecture / édition" aria-label="Basculer lecture / édition"><svg class="icon"><use href="#i-edit"/></svg></button>
+        <button class="icon-btn" data-testid="delete-note" title="Supprimer la note" aria-label="Supprimer la note"><svg class="icon"><use href="#i-trash"/></svg></button>
+        <button class="icon-btn" data-testid="save-note" title="Enregistrer (Ctrl+S)" aria-label="Enregistrer"><svg class="icon"><use href="#i-check"/></svg></button>
+        <button class="icon-btn" data-testid="more-actions" title="Plus d'options" aria-label="Plus d'options"><svg class="icon"><use href="#i-more"/></svg></button>
+      </div>
+    </header>
+
+    <div class="workspace" data-testid="workspace">
+      <section class="pane editor-pane" data-testid="editor" aria-label="Éditeur">
+        <div class="pane-scroll" data-testid="editor-scroll">
+          <div class="editor-layer">
+            <pre class="editor-source" data-testid="editor-source" aria-hidden="true"></pre>
+            <textarea class="editor-input" data-testid="editor-input" spellcheck="false" wrap="soft" aria-label="Source Markdown"></textarea>
+          </div>
+        </div>
+      </section>
+
+      <div class="splitter" data-testid="splitter" role="separator" aria-orientation="vertical" title="Redimensionner"></div>
+
+      <section class="pane preview-pane" data-testid="preview" aria-label="Aperçu">
+        <div class="pane-scroll" data-testid="preview-scroll">
+          <article class="preview-content" data-testid="preview-content"></article>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Dock droit : rétroliens + plan de la note. -->
+  <aside class="right-dock" data-testid="right-dock">
+    <section class="side-panel" data-testid="backlinks-panel">
+      <header class="side-header">Rétroliens <span class="side-count" data-testid="backlinks-count">0</span></header>
+      <ul class="result-list" data-testid="backlinks-list"></ul>
+    </section>
+    <section class="side-panel" data-testid="outline-panel">
+      <header class="side-header">Plan de la note</header>
+      <ul class="result-list outline-list" data-testid="outline-list"></ul>
+    </section>
+  </aside>
+
+  <!-- Barre d'état : ancrée à droite, 27 px. -->
+  <footer class="status-bar" data-testid="status-bar">
+    <span class="status-error" data-testid="status-error" hidden></span>
+    <span class="status-item" data-testid="status-path">—</span>
+    <span class="status-item" data-testid="status-words">0 mots</span>
+    <span class="status-item" data-testid="status-lines">0 lignes</span>
+    <span class="status-item" data-testid="status-theme">Sombre</span>
+  </footer>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
