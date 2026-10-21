@@ -212,6 +212,10 @@ pub enum Message {
     GraphCycleDepth,
     /// Fait cycler le filtre « modifiées depuis » (aucun→7j→30j→90j→aucun).
     GraphCyclePeriod,
+    /// Bascule le mini-calendrier dans la sidebar.
+    ToggleCalendar,
+    /// Ouvre la note journalière de la date ISO `AAAA-MM-JJ` (créée si absente).
+    OpenDailyDate(String),
 }
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
@@ -415,6 +419,8 @@ pub struct App {
     pub file_mtimes: std::collections::HashMap<PathBuf, std::time::SystemTime>,
     /// Tri alphabétique de l'Explorer (false = ordre du vault).
     pub sort_alpha: bool,
+    /// Affiche le mini-calendrier dans la sidebar.
+    pub show_calendar: bool,
 }
 impl App {
     /// Scanne le vault donné et reconstitue notes + index.
@@ -532,6 +538,7 @@ pub fn boot() -> (App, Task<Message>) {
         text_cache: HashMap::new(),
         file_mtimes: HashMap::new(),
         sort_alpha: false,
+        show_calendar: false,
     };
     (app, Task::none())
 }
@@ -757,6 +764,24 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 }
                 Some(_) => now.checked_sub(std::time::Duration::from_secs(30 * DAY)),
             };
+        }
+        Message::ToggleCalendar => {
+            app.show_calendar = !app.show_calendar;
+        }
+        Message::OpenDailyDate(date) => {
+            match crate::vault::daily_notes::create_daily_note(&app.vault_root, &date, None) {
+                Ok(rel) => {
+                    app.error = None;
+                    open_note(app, &rel);
+                }
+                Err(crate::vault::daily_notes::DailyNotesError::Exists(_)) => {
+                    let rel = PathBuf::from(format!("{date}.md"));
+                    open_note(app, &rel);
+                }
+                Err(error) => {
+                    app.error = Some(format!("Note du jour impossible : {error}"));
+                }
+            }
         }
         Message::SaveNote => {
             if !acquire_write_lock(&app.vault_root) {

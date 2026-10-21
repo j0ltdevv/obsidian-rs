@@ -20,7 +20,7 @@ use iced::font::Style as FontStyle;
 use iced::font::Weight;
 use iced::widget::{
     button, column, container, responsive, row, scrollable, stack, text, text_editor, text_input,
-    Column,
+    Column, Row,
 };
 use iced::{Alignment, Background, Border, Color, Element, Font, Length};
 
@@ -833,16 +833,145 @@ fn sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         })
         .on_press(Message::ToggleSort)
         .style(crate::ui::ghost_button_style),
+        button(if app.show_calendar {
+            "Calendrier ✓"
+        } else {
+            "Calendrier"
+        })
+        .on_press(Message::ToggleCalendar)
+        .style(crate::ui::ghost_button_style),
         button(text("+ Dossier"))
             .on_press(Message::FolderDialogOpen)
             .style(crate::ui::ghost_button_style),
     ]
     .spacing(8)
     .padding([4, 8]);
-    column![header, scrollable(tree_node(app, notes, Path::new(""), 0))]
+    let explorer = column![header, scrollable(tree_node(app, notes, Path::new(""), 0))]
+        .width(Length::Fill)
+        .height(Length::FillPortion(if app.show_calendar { 6 } else { 10 }));
+    if !app.show_calendar {
+        return explorer.into();
+    }
+    let calendar = calendar_widget(app);
+    column![explorer, calendar]
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
+}
+
+/// Mini-calendrier mensuel : cliquez sur un jour pour ouvrir/créer sa note
+/// journalière (`AAAA-MM-JJ.md`).
+fn calendar_widget<'a>(_app: &'a App) -> Element<'a, Message> {
+    use iced::widget::stack;
+    let now = std::time::SystemTime::now();
+    let (year, month, today) = civil_today(now);
+    let _ = today;
+
+    // 1er du mois et nombre de jours.
+    let first_weekday = weekday_of(year, month, 1);
+    let days_in_month = days_in_month(year, month);
+    let mut grid = Column::new().spacing(2).padding([4, 8]);
+    grid = grid.push(
+        row![
+            text(format!("{year:04}-{month:02}"))
+                .size(13)
+                .font(bold_font()),
+            text("").width(Length::Fill),
+            button(text("Fermer"))
+                .on_press(Message::ToggleCalendar)
+                .style(ghost_button_style),
+        ]
+        .spacing(8),
+    );
+    let weekdays = ["L", "M", "M", "J", "V", "S", "D"];
+    grid = grid.push(weekdays.iter().fold(Row::new().spacing(2), |row, d| {
+        row.push(text(*d).size(11).width(Length::FillPortion(1)))
+    }));
+    let mut week = Row::new().spacing(2);
+    let mut week_len = first_weekday;
+    for _ in 0..first_weekday {
+        week = week.push(text("").width(Length::FillPortion(1)));
+    }
+    for day in 1..=days_in_month {
+        let date = format!("{year:04}-{month:02}-{day:02}");
+        let mut cell = button(text(day.to_string()).size(12))
+            .on_press(Message::OpenDailyDate(date))
+            .style(ghost_button_style)
+            .width(Length::FillPortion(1));
+        if day == today {
+            cell = cell.style(primary_button_style);
+        }
+        week = week.push(cell);
+        week_len += 1;
+        if week_len.is_multiple_of(7) {
+            grid = grid.push(week);
+            week = Row::new().spacing(2);
+            week_len = 0;
+        }
+    }
+    if week_len > 0 {
+        grid = grid.push(week);
+    }
+    container(stack([grid.into()]))
+        .style(panel_style)
+        .width(Length::Fill)
+        .into()
+}
+
+/// Calendrier civil : (année, mois 1..=12, jour) depuis l'epoch.
+fn civil_today(now: std::time::SystemTime) -> (i64, u32, u32) {
+    let secs = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let days = (secs / 86_400) as i64;
+    let z = days + 719_468;
+    let era = (if z >= 0 { z } else { z - 146_096 }) / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let mut y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    if m <= 2 {
+        y += 1;
+    }
+    (y, m, d)
+}
+
+fn is_leap(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+fn days_in_month(year: i64, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if is_leap(year) {
+                29
+            } else {
+                28
+            }
+        }
+        _ => 30,
+    }
+}
+
+/// Jour de la semaine (0 = lundi … 6 = dimanche) pour une date.
+fn weekday_of(year: i64, month: u32, day: u32) -> usize {
+    let (y, m) = if month <= 2 {
+        (year - 1, month + 12)
+    } else {
+        (year, month)
+    };
+    // Algorithme de Zeller (résultat 0 = dimanche … 6 = samedi).
+    let q = day as i64;
+    let k = y % 100;
+    let j = y / 100;
+    let h = (q + (13 * (m as i64 + 1)) / 5 + k + k / 4 + j / 4 + 5 * j) % 7;
+    ((h + 6) % 7) as usize // décalage vers lundi=0
 }
 
 /// Rendu récursif d'un niveau d'arborescence (dossiers puis notes).
