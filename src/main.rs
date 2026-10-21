@@ -6,5 +6,12 @@ fn main() -> iced::Result {
         .window_size((720, 480))
         .centered()
         .subscription(app::subscription)
+        .theme(|app: &obsidian_rs::app::App| {
+            if app.current_theme.eq_ignore_ascii_case("light") {
+                iced::Theme::Light
+            } else {
+                iced::Theme::Dark
+            }
+        })
         .run()
 }

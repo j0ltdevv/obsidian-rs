@@ -53,8 +53,6 @@ use self::themes_view::themes_view;
 const ERROR_COLOR: Color = Color::from_rgb(0.85, 0.2, 0.2);
 /// Couleur de fond de la bannière d'erreur.
 const ERROR_BG: Color = Color::from_rgb(0.98, 0.9, 0.9);
-/// Couleur de fond des panneaux.
-const PANEL_BG: Color = Color::from_rgb(0.96, 0.97, 0.98);
 /// Couleur du cadre des panneaux.
 const PANEL_BORDER: Color = Color::from_rgb(0.83, 0.86, 0.89);
 /// Couleur d'un lien non résolu.
@@ -1248,7 +1246,7 @@ fn tree_node<'a>(
         )
         .width(Length::Fill)
         .on_press(Message::OpenNote(note.path.clone()))
-        .style(move |_theme, status| tree_button_style(status, active));
+        .style(move |theme, status| tree_button_style(theme, status, active));
         let row = row![check, open_button]
             .spacing(2)
             .padding([0_u16, (4 + depth * 12) as u16])
@@ -1812,21 +1810,22 @@ fn tree_button<'a>(
     button(inner)
         .width(Length::Fill)
         .on_press(message)
-        .style(move |_theme, status| tree_button_style(status, active))
+        .style(move |theme, status| tree_button_style(theme, status, active))
         .into()
 }
 
 /// Style d'un bouton d'arborescence.
-fn tree_button_style(status: button::Status, active: bool) -> button::Style {
+fn tree_button_style(theme: &iced::Theme, status: button::Status, active: bool) -> button::Style {
+    let pal = theme.extended_palette();
     if active {
         button::Style {
-            background: Some(Background::Color(Color::from_rgb(0.82, 0.88, 0.96))),
-            text_color: Color::from_rgb(0.12, 0.28, 0.52),
+            background: Some(Background::Color(pal.primary.strong.color)),
+            text_color: pal.primary.strong.text,
             ..button::Style::default()
         }
     } else if matches!(status, button::Status::Hovered) {
         button::Style {
-            background: Some(Background::Color(Color::from_rgb(0.92, 0.94, 0.96))),
+            background: Some(Background::Color(pal.background.weak.color)),
             ..button::Style::default()
         }
     } else {
@@ -1834,40 +1833,43 @@ fn tree_button_style(status: button::Status, active: bool) -> button::Style {
     }
 }
 
-/// Style du bouton principal (sauvegarde, fermer).
-fn primary_button_style(_theme: &iced::Theme, status: button::Status) -> button::Style {
+// Style du bouton principal (sauvegarde, fermer).
+fn primary_button_style(theme: &iced::Theme, status: button::Status) -> button::Style {
+    let pal = theme.extended_palette();
     let background = if matches!(status, button::Status::Hovered) {
-        Color::from_rgb(0.3, 0.52, 0.85)
+        pal.primary.strong.color
     } else {
-        Color::from_rgb(0.25, 0.45, 0.75)
+        pal.primary.base.color
     };
     button::Style {
         background: Some(Background::Color(background)),
-        text_color: Color::WHITE,
+        text_color: pal.primary.strong.text,
         ..button::Style::default()
     }
 }
 
-/// Style discret des petits boutons d'icônes (✓, ×, +).
-pub(crate) fn ghost_button_style(_theme: &iced::Theme, status: button::Status) -> button::Style {
+// Style discret des petits boutons d'icônes (✓, ×, +).
+pub(crate) fn ghost_button_style(theme: &iced::Theme, status: button::Status) -> button::Style {
+    let pal = theme.extended_palette();
     let background = if matches!(status, button::Status::Hovered) {
-        Some(Background::Color(Color::from_rgb(0.88, 0.91, 0.94)))
+        Some(Background::Color(pal.background.weak.color))
     } else {
         None
     };
     button::Style {
         background,
-        text_color: Color::from_rgb(0.2, 0.3, 0.4),
+        text_color: pal.background.base.text,
         ..button::Style::default()
     }
 }
 
-/// Style commun des panneaux (fond et cadre).
-pub(crate) fn panel_style(_theme: &iced::Theme) -> container::Style {
+// Style commun des panneaux (fond et cadre).
+pub(crate) fn panel_style(theme: &iced::Theme) -> container::Style {
+    let pal = theme.extended_palette();
     container::Style {
-        background: Some(Background::Color(PANEL_BG)),
+        background: Some(Background::Color(pal.background.base.color)),
         border: Border {
-            color: PANEL_BORDER,
+            color: pal.background.weak.color,
             width: 1.0,
             radius: Radius::from(6.0),
         },
