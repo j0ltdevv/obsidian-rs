@@ -506,11 +506,14 @@ pub fn boot() -> (App, Task<Message>) {
     };
     let plugin_error = plugins.load_all(&ctx).err();
     let settings = load_app_settings(Path::new(DEMO_VAULT)).unwrap_or_default();
-    let (fulltext, tasks, search_line_counts) = {
-        let mut cache = std::collections::HashMap::new();
-        let mut mtimes = std::collections::HashMap::new();
-        build_search_data(Path::new(DEMO_VAULT), &notes, &mut cache, &mut mtimes)
-    };
+    let mut text_cache = std::collections::HashMap::new();
+    let mut file_mtimes = std::collections::HashMap::new();
+    let (fulltext, tasks, search_line_counts) = build_search_data(
+        Path::new(DEMO_VAULT),
+        &notes,
+        &mut text_cache,
+        &mut file_mtimes,
+    );
     let aliases = notes.as_ref().ok().map(|notes| AliasIndex::build(notes));
     let app = App {
         notes,
@@ -562,8 +565,8 @@ pub fn boot() -> (App, Task<Message>) {
         editor_undo: Vec::new(),
         editor_redo: Vec::new(),
         edits_since_save: 0,
-        text_cache: HashMap::new(),
-        file_mtimes: HashMap::new(),
+        text_cache,
+        file_mtimes,
         sort_alpha: false,
         show_calendar: false,
         show_backlinks: false,
@@ -1344,6 +1347,12 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 .unwrap_or_default()
                 .to_string();
             let new_stem = new_name.clone();
+            if !acquire_write_lock(&app.vault_root) {
+                app.error = Some(
+                    "Vault verrouillé par une autre instance (fichier .obsidian/lock).".to_string(),
+                );
+                return Task::none();
+            }
             match crate::vault::ops::move_note(&app.vault_root, &from, &to) {
                 Ok(()) => {
                     if app.open.as_ref().is_some_and(|o| o.path == from) {
@@ -1365,15 +1374,19 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                                 if let Err(error) =
                                     write_note(&app.vault_root, &note.path, &replaced)
                                 {
+                                    release_write_lock(&app.vault_root, true);
                                     app.error =
                                         Some(format!("Mise à jour des liens impossible : {error}"));
+                                    return Task::none();
                                 }
                             }
                         }
                     }
+                    release_write_lock(&app.vault_root, true);
                     return update(app, Message::Refresh);
                 }
                 Err(error) => {
+                    release_write_lock(&app.vault_root, true);
                     app.error = Some(format!("Renommage impossible : {error}"));
                 }
             }
@@ -1385,6 +1398,12 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             let Some(path) = app.delete_confirm.take() else {
                 return Task::none();
             };
+            if !acquire_write_lock(&app.vault_root) {
+                app.error = Some(
+                    "Vault verrouillé par une autre instance (fichier .obsidian/lock).".to_string(),
+                );
+                return Task::none();
+            }
             let target = app.vault_root.join(&path);
             // Corbeille du vault : `.trash/<horodatage>/<chemin>` — préserve
             // le chemin relatif et évite l'écrasement de versions précédentes.
@@ -1396,18 +1415,21 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             let trash = app.vault_root.join(".trash").join(&stamp).join(&path);
             if let Some(parent) = trash.parent() {
                 if fs::create_dir_all(parent).is_err() {
+                    release_write_lock(&app.vault_root, true);
                     app.error = Some("Création de la corbeille impossible.".to_string());
                     return Task::none();
                 }
             }
             match fs::rename(&target, &trash) {
                 Ok(()) => {
+                    release_write_lock(&app.vault_root, true);
                     if app.open.as_ref().is_some_and(|o| o.path == path) {
                         app.open = None;
                     }
                     return update(app, Message::Refresh);
                 }
                 Err(error) => {
+                    release_write_lock(&app.vault_root, true);
                     app.error = Some(format!("Mise à la corbeille impossible : {error}"));
                 }
             }

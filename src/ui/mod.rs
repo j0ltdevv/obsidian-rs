@@ -1021,7 +1021,7 @@ fn weekday_of(year: i64, month: u32, day: u32) -> usize {
     let k = y % 100;
     let j = y / 100;
     let h = (q + (13 * (m as i64 + 1)) / 5 + k + k / 4 + j / 4 + 5 * j) % 7;
-    ((h + 6) % 7) as usize // décalage vers lundi=0
+    ((h + 5) % 7) as usize // Zeller 0=samedi → lundi=0
 }
 
 /// Rendu récursif d'un niveau d'arborescence (dossiers puis notes).
@@ -1674,5 +1674,26 @@ fn bold_font() -> Font {
     Font {
         weight: Weight::Bold,
         ..Font::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::weekday_of;
+
+    #[test]
+    fn weekday_of_2026_10_21_est_mercredi() {
+        // 2026-10-21 est un mercredi → index lundi=0 → 2.
+        assert_eq!(weekday_of(2026, 10, 21), 2);
+    }
+
+    #[test]
+    fn weekday_of_2026_10_19_est_lundi() {
+        assert_eq!(weekday_of(2026, 10, 19), 0);
+    }
+
+    #[test]
+    fn weekday_of_2026_10_25_est_dimanche() {
+        assert_eq!(weekday_of(2026, 10, 25), 6);
     }
 }
