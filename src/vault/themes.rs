@@ -26,21 +26,21 @@ pub struct Theme {
 /// Thème sombre par défaut.
 pub const DEFAULT_DARK: Theme = Theme {
     name: "dark",
-    accent: (124, 204, 255),
-    bg: (20, 20, 25),
-    fg: (220, 220, 225),
-    surface: (30, 30, 38),
-    border: (45, 45, 55),
+    accent: (127, 156, 245),
+    bg: (30, 30, 30),
+    fg: (204, 204, 204),
+    surface: (37, 37, 38),
+    border: (58, 58, 64),
 };
 
-/// Thème clair par défaut.
+// Thème clair par défaut (parité Obsidian).
 pub const DEFAULT_LIGHT: Theme = Theme {
     name: "light",
-    accent: (3, 86, 188),
+    accent: (59, 111, 212),
     bg: (255, 255, 255),
-    fg: (30, 30, 35),
-    surface: (245, 245, 247),
-    border: (210, 210, 215),
+    fg: (34, 34, 34),
+    surface: (242, 243, 245),
+    border: (224, 224, 224),
 };
 
 /// Liste des thèmes connus, dans l'ordre de préférence d'affichage.
