@@ -121,6 +121,19 @@ mod tests {
         assert!(contrast(DEFAULT_LIGHT.fg, DEFAULT_LIGHT.bg) > 3.0);
     }
 
+    /// WCAG AA pour texte normal exige un ratio ≥ 4.5.
+    #[test]
+    fn contraste_aa_texte_normal() {
+        assert!(
+            contrast(DEFAULT_DARK.fg, DEFAULT_DARK.bg) >= 4.5,
+            "dark fg/bg doit respecter AA (≥ 4.5)"
+        );
+        assert!(
+            contrast(DEFAULT_LIGHT.fg, DEFAULT_LIGHT.bg) >= 4.5,
+            "light fg/bg doit respecter AA (≥ 4.5)"
+        );
+    }
+
     #[test]
     fn toutes_composantes_rgb_dans_l_intervalle() {
         for theme in [DEFAULT_DARK, DEFAULT_LIGHT] {
