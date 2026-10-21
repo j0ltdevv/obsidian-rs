@@ -33,6 +33,7 @@ mod canvas_view;
 mod dataview_view;
 pub(crate) mod graph;
 mod history_view;
+pub mod markdown;
 pub mod outline_view;
 mod plugins_view;
 pub mod search_view;
@@ -462,11 +463,65 @@ fn folder_overlay<'a>(app: &'a App) -> Element<'a, Message> {
         .into()
 }
 
+// État vide d'un panneau : message discret, centré, dans la couleur de texte
+// atténuée. Remplace les bandeaux « Aucune note ouverte » répétés dans les
+// trois panneaux, qui donnaient l'impression d'un doublon.
+fn empty_hint<'a>(message: &'a str) -> Element<'a, Message> {
+    container(
+        text(message)
+            .size(12)
+            .color(Color::from_rgb8(140, 140, 140)),
+    )
+    .padding(12)
+    .center_x(Length::Fill)
+    .center_y(Length::Fill)
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
+}
+
+// Même chose pour un panneau qui garde son fond (panneau stylé).
+fn empty_hint_panel<'a>(message: &'a str) -> Element<'a, Message> {
+    container(
+        text(message)
+            .size(12)
+            .color(Color::from_rgb8(140, 140, 140)),
+    )
+    .padding(12)
+    .center_x(Length::Fill)
+    .center_y(Length::Fill)
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .style(panel_style)
+    .into()
+}
+
+// Icône SVG Lucide teintée à la couleur du thème.
+//
+// Les SVG de `assets/icons/` sont au format Lucide : `stroke="currentColor"`.
+// En iced 0.14, le widget `svg` n'a pas d'API de couleur directe, mais son
+// `Style` expose un filtre `color` qui teinte les icônes symboliques : on
+// l'utilise au lieu de réécrire les SVG.
+fn themed_svg<'a>(app: &'a App, bytes: &'static [u8]) -> iced::widget::svg::Svg<'a> {
+    use iced::widget::svg;
+    let fg = crate::vault::themes::by_name(&app.current_theme)
+        .map(|t| t.fg)
+        .unwrap_or((220, 220, 220));
+    let color = Color::from_rgb(
+        fg.0 as f32 / 255.0,
+        fg.1 as f32 / 255.0,
+        fg.2 as f32 / 255.0,
+    );
+    svg(svg::Handle::from_memory(bytes))
+        .width(Length::Fixed(18.0))
+        .height(Length::Fixed(18.0))
+        .style(move |_, _| svg::Style { color: Some(color) })
+}
+
 // Barre d'icônes verticale gauche (façon Obsidian) : actions principales
 // compactes, groupe haut et bas séparés.
 fn ribbon<'a>(app: &'a App) -> Element<'a, Message> {
     use iced::widget::button as btn;
-    use iced::widget::svg;
     let icon_text = |sym: &'static str, msg| {
         btn(text(sym).size(16))
             .width(Length::Fill)
@@ -474,12 +529,10 @@ fn ribbon<'a>(app: &'a App) -> Element<'a, Message> {
             .style(ghost_button_style)
     };
     let icon_svg = |bytes: &'static [u8], msg| {
-        btn(svg(svg::Handle::from_memory(bytes))
-            .width(Length::Fixed(18.0))
-            .height(Length::Fixed(18.0)))
-        .width(Length::Fill)
-        .on_press(msg)
-        .style(ghost_button_style)
+        btn(themed_svg(app, bytes))
+            .width(Length::Fill)
+            .on_press(msg)
+            .style(ghost_button_style)
     };
     let haut = column![
         icon_svg(
@@ -953,40 +1006,50 @@ fn sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
             ghost_button_style
         })
     };
-    let tabs = row![
-        tab_btn(
-            "Fichiers",
-            app.sidebar_tab == SidebarTab::Explorer,
-            Message::SetSidebarTab(SidebarTab::Explorer),
-        ),
-        tab_btn(
-            "Recherche",
-            app.sidebar_tab == SidebarTab::Recherche,
-            Message::SetSidebarTab(SidebarTab::Recherche),
-        ),
-        tab_btn(
-            "Tags",
-            app.sidebar_tab == SidebarTab::Tags,
-            Message::SetSidebarTab(SidebarTab::Tags),
-        ),
-        tab_btn(
-            "Backlinks",
-            app.sidebar_tab == SidebarTab::Backlinks,
-            Message::SetSidebarTab(SidebarTab::Backlinks),
-        ),
-        tab_btn(
-            "Calendrier",
-            app.sidebar_tab == SidebarTab::Calendrier,
-            Message::SetSidebarTab(SidebarTab::Calendrier),
-        ),
-        tab_btn(
-            "Pièces jointes",
-            app.sidebar_tab == SidebarTab::Attachments,
-            Message::SetSidebarTab(SidebarTab::Attachments),
-        ),
-    ]
-    .spacing(4)
-    .padding([4, 8]);
+    // Les six onglets ne tiennent pas dans la largeur de la sidebar : la
+    // rangée déborde et le dernier libellé chevauche le panneau voisin. On la
+    // rend donc défilable horizontalement (une seule ligne, aucun retour).
+    let tabs = scrollable(
+        row![
+            tab_btn(
+                "Fichiers",
+                app.sidebar_tab == SidebarTab::Explorer,
+                Message::SetSidebarTab(SidebarTab::Explorer),
+            ),
+            tab_btn(
+                "Recherche",
+                app.sidebar_tab == SidebarTab::Recherche,
+                Message::SetSidebarTab(SidebarTab::Recherche),
+            ),
+            tab_btn(
+                "Tags",
+                app.sidebar_tab == SidebarTab::Tags,
+                Message::SetSidebarTab(SidebarTab::Tags),
+            ),
+            tab_btn(
+                "Backlinks",
+                app.sidebar_tab == SidebarTab::Backlinks,
+                Message::SetSidebarTab(SidebarTab::Backlinks),
+            ),
+            tab_btn(
+                "Calendrier",
+                app.sidebar_tab == SidebarTab::Calendrier,
+                Message::SetSidebarTab(SidebarTab::Calendrier),
+            ),
+            tab_btn(
+                "Pièces jointes",
+                app.sidebar_tab == SidebarTab::Attachments,
+                Message::SetSidebarTab(SidebarTab::Attachments),
+            ),
+        ]
+        .spacing(4)
+        .padding([4, 8]),
+    )
+    .direction(iced::widget::scrollable::Direction::Horizontal(
+        iced::widget::scrollable::Scrollbar::default(),
+    ))
+    .width(Length::Fill)
+    .height(Length::Shrink);
 
     let content: Element<'a, Message> = match app.sidebar_tab {
         SidebarTab::Explorer => explorer_panel(app, notes),
@@ -1167,9 +1230,7 @@ fn backlinks_panel<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> 
     let open_path = match &app.open {
         Some(open) => &open.path,
         None => {
-            return container(text("Aucune note ouverte").size(12))
-                .padding(8)
-                .into();
+            return empty_hint("Ouvrez une note pour voir ses backlinks");
         }
     };
     let Some(index) = &app.index else {
@@ -1465,11 +1526,7 @@ fn tab_bar<'a>(app: &'a App) -> Element<'a, Message> {
 /// Panneau éditeur : en-tête (nom + bouton de sauvegarde) et zone d'édition.
 fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
     let Some(open) = &app.open else {
-        return container(text("Aucune note ouverte"))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .style(panel_style)
-            .into();
+        return empty_hint_panel("Aucune note ouverte");
     };
 
     let title = if app.open_dirty {
@@ -1480,6 +1537,9 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
     let header = row![
         text(title).size(16).font(bold_font()),
         text("").width(Length::Fill),
+        button(if app.editing { "Lecture" } else { "Éditer" })
+            .on_press(Message::ToggleEdit)
+            .style(ghost_button_style),
         button(if app.show_backlinks {
             "Backlinks ✓"
         } else {
@@ -1493,25 +1553,37 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
         button(text("Supprimer"))
             .on_press(Message::ToggleDelete(open.path.clone()))
             .style(ghost_button_style),
-        button(text("Annuler"))
+        button(text("↶"))
             .on_press(Message::EditorUndo)
             .style(ghost_button_style),
-        button(text("Rétablir"))
+        button(text("↷"))
             .on_press(Message::EditorRedo)
             .style(ghost_button_style),
         button(text("Sauvegarder"))
             .on_press(Message::SaveNote)
             .style(primary_button_style),
     ]
-    .align_y(Alignment::Center)
-    .spacing(8)
+    .spacing(6)
     .padding([0, 8]);
 
-    let editor = text_editor(&open.content)
-        .placeholder("Écrivez…")
-        .on_action(Message::EditorAction)
-        .padding([8, 10])
-        .height(Length::Fill);
+    let editor: Element<'a, Message> = if app.editing {
+        // Mode édition : édition du texte brut.
+        text_editor(&open.content)
+            .placeholder("Écrivez…")
+            .on_action(Message::EditorAction)
+            .padding([8, 10])
+            .height(Length::Fill)
+            .into()
+    } else {
+        // Mode lecture : source Markdown colorée, défilable.
+        scrollable(
+            container(markdown::render_source(&open.content.text()))
+                .width(Length::Fill)
+                .padding([8, 10]),
+        )
+        .height(Length::Fill)
+        .into()
+    };
 
     let mut children: Vec<Element<'a, Message>> = vec![tab_bar(app), header.into()];
     if let Some(find) = &app.find {
@@ -1549,7 +1621,7 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
         .padding([0, 8]);
         children.push(bar.into());
     }
-    children.push(editor.into());
+    children.push(editor);
 
     column(children)
         .spacing(8)
@@ -1561,11 +1633,7 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
 /// Panneau prévisualisation : texte brut, métadonnées, wikilinks et backlinks.
 fn preview_panel<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
     let Some(open) = &app.open else {
-        return container(text("Aucune note ouverte"))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .style(panel_style)
-            .into();
+        return empty_hint_panel("Aucune note ouverte");
     };
 
     let open_note = notes.iter().find(|note| note.path == open.path);

@@ -23,6 +23,7 @@ use crate::vault::commands::{default_commands, search_commands, Command};
 use crate::vault::graph::GraphFilters;
 use crate::vault::history::{list_snapshots, restore_snapshot};
 use crate::vault::index::NoteIndex;
+use crate::vault::keymap::{self as keymap, KeyAction, KeyMap};
 use crate::vault::meta::{remove_frontmatter_property, set_frontmatter_property};
 use crate::vault::ops::{create_note, write_note};
 use crate::vault::search::{build_text_index, FullTextIndex};
@@ -62,6 +63,8 @@ pub enum Message {
     EditorAction(text_editor::Action),
     /// Sauvegarde la note ouverte (`vault::ops::write_note`, atomique).
     SaveNote,
+    /// Enregistre la note ouverte sous un autre nom (copie), puis l'ouvre.
+    SaveNoteAs,
     /// Résout un wikilink `[[cible]]` et ouvre la première correspondance.
     OpenWikilink(String),
     /// Ferme la bannière d'erreur.
@@ -122,6 +125,15 @@ pub enum Message {
     PrevTab,
     /// Ferme l'onglet de note actif (Ctrl+W).
     CloseActiveTab,
+    /// Bascule entre lecture et édition (Ctrl+E) : masque ou réaffiche le
+    /// panneau de prévisualisation.
+    ToggleEditorMode,
+    /// Bascule le mode d'édition de la note ouverte (lecture seule ↔ édition).
+    ToggleEdit,
+    /// Revient en arrière dans l'historique de navigation (Ctrl+Alt+←).
+    NavigateBack,
+    /// Avance dans l'historique de navigation (Ctrl+Alt+→).
+    NavigateForward,
     /// Onglet de sidebar suivant (Ctrl+PageDown).
     NextSidebarTab,
     /// Onglet de sidebar précédent (Ctrl+PageUp).
@@ -284,6 +296,9 @@ pub enum Message {
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
     pub name: String,
+    /// Note source à copier (« enregistrer sous ») : `None` pour une note
+    /// vide.
+    pub copy_from: Option<PathBuf>,
 }
 /// Recherche/remplacement dans la note ouverte.
 #[derive(Debug)]
@@ -532,10 +547,20 @@ pub struct App {
     pub folder_name: String,
     /// Raccourcis persistés (hotkeys.json), chargés au boot.
     pub hotkeys: Vec<crate::vault::settings::Hotkey>,
+    /// Table de raccourcis résolue : défauts du catalogue + personnalisations
+    /// du vault (`hotkeys.json`).
+    pub keymap: KeyMap,
+    /// Historique de navigation (chemins relatifs), du plus ancien au plus
+    /// récent.
+    pub nav_history: Vec<PathBuf>,
+    /// Position de la note courante dans `nav_history`.
+    pub nav_index: usize,
     /// Dernières notes ouvertes (chemins), plus récente en tête.
     pub recent: Vec<PathBuf>,
     /// La note ouverte contient des modifications non enregistrées.
     pub open_dirty: bool,
+    /// Mode d'édition actif pour la note ouverte (false = lecture seule).
+    pub editing: bool,
     /// Carte du canvas en attente de confirmation de suppression.
     pub canvas_remove_confirm: Option<CardId>,
     /// Pile d'annulation (contenus précédents), bornée.
@@ -705,6 +730,76 @@ fn save_pane_ratios(root: &Path, ratios: &[f32]) {
     }
 }
 
+/// Chemin du fichier d'état du vault (note ouverte persistée). Suit la même
+/// convention que `window_size_path` / `pane_layout_path` : sous `.obsidian/`.
+fn open_note_state_path(root: &Path) -> PathBuf {
+    root.join(".obsidian").join("obsidian-rs-state.json")
+}
+
+/// État persisté du vault : chemin relatif de la note ouverte.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct VaultState {
+    open_note: Option<String>,
+}
+
+/// Charge le chemin de la note ouverte persistée (`None` si absent/invalide).
+/// Une erreur de lecture ne fait jamais paniquer.
+fn load_open_note(root: &Path) -> Option<PathBuf> {
+    let raw = fs::read_to_string(open_note_state_path(root)).ok()?;
+    serde_json::from_str::<VaultState>(&raw)
+        .ok()
+        .and_then(|s| s.open_note)
+        .map(PathBuf::from)
+}
+
+/// Sauvegarde atomiquement (fichier temporaire + `rename`) le chemin de la
+/// note ouverte. Une erreur d'écriture est ignorée silencieusement.
+fn save_open_note(root: &Path, note: Option<&Path>) {
+    let path = open_note_state_path(root);
+    let parent = match path.parent() {
+        Some(parent) => parent,
+        None => return,
+    };
+    if fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let state = VaultState {
+        open_note: note.map(|p| p.to_string_lossy().into_owned()),
+    };
+    let json = match serde_json::to_string(&state) {
+        Ok(json) => json,
+        Err(_) => return,
+    };
+    let tmp = parent.join(format!("obsidian-rs-state.{}.tmp", std::process::id()));
+    if fs::write(&tmp, json).is_err() {
+        let _ = fs::remove_file(&tmp);
+        return;
+    }
+    if fs::rename(&tmp, &path).is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+}
+
+/// Ouvre une note à la fin d'un scan si aucune n'est ouverte : la note
+/// enregistrée dans l'état si elle figure toujours dans la liste, sinon la
+/// première note de la liste. Ne fait rien si le vault est vide.
+fn ensure_open_note(app: &mut App) {
+    if app.open.is_some() {
+        return;
+    }
+    let notes = match app.notes.as_ref() {
+        Ok(notes) => notes,
+        Err(_) => return,
+    };
+    if notes.is_empty() {
+        return;
+    }
+    let target = load_open_note(&app.vault_root)
+        .filter(|p| notes.iter().any(|n| n.path == *p))
+        .unwrap_or_else(|| notes[0].path.clone());
+    open_note_silent(app, &target);
+}
+
 // Point d'entrée iced : construit l'état initial en scannant le vault.
 pub fn boot() -> (App, Task<Message>) {
     let settings = load_app_settings(Path::new(DEMO_VAULT)).unwrap_or_default();
@@ -734,6 +829,10 @@ pub fn boot() -> (App, Task<Message>) {
         &mut file_mtimes,
     );
     let aliases = notes.as_ref().ok().map(|notes| AliasIndex::build(notes));
+    // Raccourcis : les personnalisations du vault remplacent les liaisons
+    // par défaut. Un fichier illisible est ignoré (table par défaut).
+    let hotkeys = crate::vault::settings::load_hotkeys(Path::new(DEMO_VAULT)).unwrap_or_default();
+    let keymap = KeyMap::from_hotkeys(&hotkeys);
     let (mut pane_state, pane_splits) = default_pane_state();
     if let Some(ratios) = load_pane_ratios(Path::new(DEMO_VAULT)) {
         for (i, ratio) in ratios.into_iter().enumerate() {
@@ -742,7 +841,7 @@ pub fn boot() -> (App, Task<Message>) {
             }
         }
     }
-    let app = App {
+    let mut app = App {
         notes,
         index,
         aliases,
@@ -761,7 +860,7 @@ pub fn boot() -> (App, Task<Message>) {
         canvas,
         plugins,
         show_plugins: false,
-        commands: default_commands(),
+        commands: palette_commands(&keymap),
         command_palette: None,
         show_outline: false,
         show_shortcuts: false,
@@ -786,9 +885,13 @@ pub fn boot() -> (App, Task<Message>) {
         delete_confirm: None,
         folder_dialog: false,
         folder_name: String::new(),
-        hotkeys: crate::vault::settings::load_hotkeys(Path::new(DEMO_VAULT)).unwrap_or_default(),
+        hotkeys,
+        keymap,
+        nav_history: Vec::new(),
+        nav_index: 0,
         recent: Vec::new(),
         open_dirty: false,
+        editing: false,
         canvas_remove_confirm: None,
         editor_undo: Vec::new(),
         editor_redo: Vec::new(),
@@ -814,6 +917,7 @@ pub fn boot() -> (App, Task<Message>) {
         open_buffers: HashMap::new(),
         show_right_sidebar: false,
     };
+    ensure_open_note(&mut app);
     (app, Task::none())
 }
 
@@ -917,6 +1021,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     app.open_tabs_active.min(n - 1)
                 };
             }
+            ensure_open_note(app);
             app.error = None;
             if let Some(query) = app.search_panel.as_ref().map(|s| s.query.clone()) {
                 let hits = search_results(app, &query);
@@ -952,7 +1057,13 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.expanded.insert(dir);
             }
         }
-        Message::OpenNote(path) => open_note(app, &path),
+        Message::OpenNote(path) => {
+            push_nav_history(app, &path);
+            open_note(app, &path);
+        }
+        Message::ToggleEdit => {
+            app.editing = !app.editing;
+        }
         Message::EditorAction(action) => {
             if let Some(open) = &mut app.open {
                 if action.is_edit() {
@@ -1138,13 +1249,36 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 release_write_lock(&app.vault_root, true);
             }
         }
+        Message::SaveNoteAs => {
+            let Some(open) = &app.open else {
+                app.error = Some("Aucune note ouverte à enregistrer.".to_string());
+                return Task::none();
+            };
+            let path = open.path.clone();
+            let stem = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .filter(|stem| !stem.is_empty())
+                .unwrap_or("note")
+                .to_string();
+            // « Enregistrer sous » : le dialogue de nouvelle note est ouvert,
+            // pré-rempli, et la note courante sera copiée à la validation.
+            app.new_note = Some(NewNoteState {
+                name: format!("{stem}-copie"),
+                copy_from: Some(path),
+            });
+            app.error = None;
+        }
         Message::OpenWikilink(target) => {
             // Résolution combinée : index des wikilinks puis alias de notes.
             let resolved = resolve_link(&app.index, &app.aliases, &target)
                 .first()
                 .map(|note| note.path.clone());
             match resolved {
-                Some(path) => open_note(app, &path),
+                Some(path) => {
+                    push_nav_history(app, &path);
+                    open_note(app, &path);
+                }
                 None => {
                     app.error = Some(format!("Wikilink non résolu : [[{target}]]"));
                 }
@@ -1168,6 +1302,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             if let Some(note) = app.notes.as_ref().ok().and_then(|notes| notes.get(index)) {
                 let path = note.path.clone();
                 app.switcher = None;
+                push_nav_history(app, &path);
                 open_note(app, &path);
             }
         }
@@ -1211,22 +1346,16 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             if let Some(state) = &app.command_palette {
                 if let Some(&command_index) = state.results.get(index) {
                     if let Some(command) = app.commands.get(command_index) {
+                        let id = command.id;
                         app.command_palette = None;
-                        match command.id {
-                            "open-switcher" => {
-                                let results = switcher_results(&app.notes, &app.index, "");
-                                app.switcher = Some(SwitcherState {
-                                    query: String::new(),
-                                    results,
-                                });
-                            }
-                            "save-note" => {
-                                return update(app, Message::SaveNote);
-                            }
-                            "toggle-graph" => {
-                                return update(app, Message::ToggleGraph);
-                            }
-                            "toggle-themes" => {
+                        // Commandes du catalogue : l'action du raccourci est
+                        // exécutée (la palette liste les mêmes actions que
+                        // les raccourcis).
+                        if let Some(action) = keymap::action_by_id(id) {
+                            return update(app, action_message(action));
+                        }
+                        match id {
+                            "toggle-theme" => {
                                 return update(app, Message::ToggleThemes);
                             }
                             "toggle-history" => {
@@ -1244,14 +1373,8 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                             "toggle-outline" => {
                                 return update(app, Message::ToggleOutline);
                             }
-                            "toggle-search" => {
-                                return update(app, Message::ToggleSearch);
-                            }
                             "toggle-tasks" => {
                                 return update(app, Message::ToggleTasks);
-                            }
-                            "new-note" => {
-                                return update(app, Message::NewNoteOpen);
                             }
                             "create-daily-note" => {
                                 return create_daily_note_from_command(app);
@@ -1304,6 +1427,37 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::ToggleRightSidebar => {
             app.show_right_sidebar = !app.show_right_sidebar;
+        }
+        Message::ToggleEditorMode => {
+            use iced::widget::pane_grid::Axis;
+            if let Some(pane) = find_pane(&app.pane_state, PaneKind::Preview) {
+                // Mode lecture : le panneau de prévisualisation est retiré
+                // de la grille, l'éditeur occupe toute la place.
+                let _ = app.pane_state.close(pane);
+            } else if let Some(editor) = find_pane(&app.pane_state, PaneKind::Editor) {
+                // Mode édition : la prévisualisation revient à côté de
+                // l'éditeur.
+                if let Some((_pane, split)) =
+                    app.pane_state
+                        .split(Axis::Vertical, editor, PaneKind::Preview)
+                {
+                    app.pane_state.resize(split, 0.5);
+                }
+            }
+        }
+        Message::NavigateBack => {
+            if app.nav_index > 0 {
+                app.nav_index -= 1;
+                let path = app.nav_history[app.nav_index].clone();
+                open_note(app, &path);
+            }
+        }
+        Message::NavigateForward => {
+            if app.nav_index + 1 < app.nav_history.len() {
+                app.nav_index += 1;
+                let path = app.nav_history[app.nav_index].clone();
+                open_note(app, &path);
+            }
         }
         Message::PaneResized(event) => {
             app.pane_state.resize(event.split, event.ratio);
@@ -1407,6 +1561,8 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                             }
                         }
                         app.open = None;
+                        app.editing = false;
+                        save_open_note(&app.vault_root, None);
                         app.open_dirty = false;
                         app.editor_undo.clear();
                         app.editor_redo.clear();
@@ -1638,6 +1794,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::NewNoteOpen => {
             app.new_note = Some(NewNoteState {
                 name: String::new(),
+                copy_from: None,
             });
         }
         Message::NewNoteClose => {
@@ -1657,10 +1814,35 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.error = Some("Nom de note vide.".to_string());
                 return Task::none();
             }
+            let copy_from = state.copy_from.clone();
             let rel = PathBuf::from(format!("{name}.md"));
-            match create_note(&app.vault_root, &rel, "") {
+            // « Enregistrer sous » : le contenu de la note source est
+            // recopié dans la nouvelle note.
+            let content = match &copy_from {
+                Some(source) => {
+                    let source_content = app
+                        .open
+                        .as_ref()
+                        .filter(|open| open.path == *source)
+                        .map(|open| open.content.text())
+                        .or_else(|| app.open_buffers.get(source).cloned())
+                        .or_else(|| fs::read_to_string(app.vault_root.join(source)).ok());
+                    match source_content {
+                        Some(content) => content,
+                        None => {
+                            app.error = Some("Note source introuvable.".to_string());
+                            return Task::none();
+                        }
+                    }
+                }
+                None => String::new(),
+            };
+            match create_note(&app.vault_root, &rel, &content) {
                 Ok(_note) => {
                     app.new_note = None;
+                    if copy_from.is_some() {
+                        open_note(app, &rel);
+                    }
                     return update(app, Message::Refresh);
                 }
                 Err(error) => {
@@ -1833,7 +2015,10 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::ToggleSettings => {
             app.show_settings = !app.show_settings;
+            // Les raccourcis du vault sont relus : une personnalisation
+            // devient effective sans redémarrer l'application.
             app.hotkeys = crate::vault::settings::load_hotkeys(&app.vault_root).unwrap_or_default();
+            app.keymap = KeyMap::from_hotkeys(&app.hotkeys);
         }
         Message::SetVimMode(enabled) => {
             app.settings.vim_mode = enabled;
@@ -2189,6 +2374,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             }
         }
         Message::RestoreSnapshot(index) => {
+            app.editing = false;
             if let Some(open) = &app.open {
                 if let Some(snap) = app.history_snapshots.get(index) {
                     match restore_snapshot(&app.vault_root, &open.path, snap) {
@@ -2247,9 +2433,49 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
     Task::none()
 }
 
+/// Enregistre une note dans l'historique de navigation.
+///
+/// L'historique est borné (50 entrées) ; naviguer depuis une position
+/// intermédiaire abandonne la suite de l'historique.
+fn push_nav_history(app: &mut App, path: &Path) {
+    app.nav_history.truncate(app.nav_index + 1);
+    if app.nav_history.last().map(|last| last.as_path()) != Some(path) {
+        app.nav_history.push(path.to_path_buf());
+    }
+    if app.nav_history.len() > 50 {
+        app.nav_history.remove(0);
+    }
+    app.nav_index = app.nav_history.len().saturating_sub(1);
+}
+
+/// Panneau de la grille correspondant au contenu donné.
+fn find_pane(
+    state: &iced::widget::pane_grid::State<PaneKind>,
+    kind: PaneKind,
+) -> Option<iced::widget::pane_grid::Pane> {
+    state
+        .iter()
+        .find(|(_, pane_kind)| **pane_kind == kind)
+        .map(|(pane, _)| *pane)
+}
+
 /// Ouvre la note au chemin relatif donné : lecture du contenu depuis le disque
 /// (I/O dans `update`), mémorisation des métadonnées du dernier scan.
 fn open_note(app: &mut App, path: &Path) {
+    open_note_impl(app, path, true);
+}
+
+/// Variante sans persistance de l'état (utilisée lors de l'ouverture
+/// automatique au démarrage : l'état n'enregistre que les actions utilisateur).
+fn open_note_silent(app: &mut App, path: &Path) {
+    open_note_impl(app, path, false);
+}
+
+/// Implémentation commune de l'ouverture d'une note. `persist` contrôle
+/// l'écriture de l'état (note ouverte) dans le fichier d'état du vault.
+/// Ouvrir une note quitte le mode édition.
+fn open_note_impl(app: &mut App, path: &Path, persist: bool) {
+    app.editing = false;
     // Rouvrir la note déjà active : ne rien écraser (ré-éditions en cours).
     if app.open.as_ref().is_some_and(|open| open.path == *path) {
         app.open_tabs_active = app
@@ -2318,6 +2544,9 @@ fn open_note(app: &mut App, path: &Path) {
         app.open_dirty = true;
         app.editor_undo.clear();
         app.editor_redo.clear();
+        if persist {
+            save_open_note(&app.vault_root, Some(path));
+        }
         return;
     }
 
@@ -2334,6 +2563,9 @@ fn open_note(app: &mut App, path: &Path) {
             app.open_dirty = false;
             app.editor_undo.clear();
             app.editor_redo.clear();
+            if persist {
+                save_open_note(&app.vault_root, Some(path));
+            }
         }
         Err(error) => {
             app.error = Some(format!(
@@ -2349,14 +2581,23 @@ fn open_note(app: &mut App, path: &Path) {
 pub fn view(app: &App) -> Element<'_, Message> {
     crate::ui::view(app)
 }
-/// Raccourcis clavier globaux : Ctrl+K (recherche rapide), Ctrl+S
-/// (sauvegarde), Ctrl+G (graphe) et Échap (fermer la recherche rapide).
+/// Raccourcis clavier globaux.
+///
+/// Les combinaisons configurables sont résolues via la table
+/// `App::keymap`, construite à partir des valeurs par défaut du catalogue
+/// et des personnalisations du vault (`.obsidian/hotkeys.json`). Les
+/// quelques raccourcis propres à l'éditeur (annulation, recherche dans la
+/// note, onglets de sidebar) restent fixes : ils ne font pas partie du
+/// catalogue affiché dans la palette.
 ///
 /// La vue `ui` expose des boutons équivalents ; cette subscription est
 /// branchée par `main` via `.subscription(app::subscription)`.
-pub fn subscription(_app: &App) -> iced::Subscription<Message> {
+pub fn subscription(app: &App) -> iced::Subscription<Message> {
     use iced::event::{self, Event};
-    use iced::keyboard::{key, Key};
+
+    // La subscription n'accepte qu'un pointeur de fonction : la table
+    // résolue est donc publiée dans le magasin partagé.
+    publish_keymap(&app.keymap);
 
     let keys = event::listen_raw(|event, _status, _window| {
         let Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) = event
@@ -2364,69 +2605,17 @@ pub fn subscription(_app: &App) -> iced::Subscription<Message> {
             return None;
         };
 
-        if modifiers.control() {
-            match key.as_ref() {
-                Key::Character(character) if character.eq_ignore_ascii_case("k") => {
-                    return Some(Message::OpenSwitcher);
-                }
-                Key::Character(character) if character.eq_ignore_ascii_case("w") => {
-                    return Some(Message::CloseActiveTab);
-                }
-                Key::Character(character) if character.eq_ignore_ascii_case("b") => {
-                    if modifiers.shift() {
-                        return Some(Message::ToggleRightSidebar);
-                    }
-                    return Some(Message::ToggleLeftSidebar);
-                }
-                Key::Named(key::Named::Tab) => {
-                    if modifiers.shift() {
-                        return Some(Message::PrevTab);
-                    }
-                    return Some(Message::NextTab);
-                }
-                Key::Named(key::Named::PageDown) => {
-                    return Some(Message::NextSidebarTab);
-                }
-                Key::Named(key::Named::PageUp) => {
-                    return Some(Message::PrevSidebarTab);
-                }
-                Key::Character(character) if character.eq_ignore_ascii_case("s") => {
-                    return Some(Message::SaveNote);
-                }
-                Key::Character(character) if character.eq_ignore_ascii_case("g") => {
-                    return Some(Message::ToggleGraph);
-                }
-                Key::Character(character) if character.eq_ignore_ascii_case("p") => {
-                    return Some(Message::OpenCommandPalette);
-                }
-                Key::Character(character) if character.eq_ignore_ascii_case("f") => {
-                    if modifiers.shift() {
-                        return Some(Message::ToggleSearch);
-                    }
-                    return Some(Message::FindOpen);
-                }
-                Key::Character(character) if character.eq_ignore_ascii_case("z") => {
-                    if modifiers.shift() {
-                        return Some(Message::EditorRedo);
-                    }
-                    return Some(Message::EditorUndo);
-                }
-                Key::Character(character) if character.eq_ignore_ascii_case("y") => {
-                    return Some(Message::EditorRedo);
-                }
-                _ => {}
+        // Combinaisons du catalogue : la table résolue fait foi.
+        let key_ref = key.as_ref();
+        if let Some(key_name) = canonical_key_name(&key_ref) {
+            let modifier_names = canonical_modifiers(modifiers);
+            if let Some(action) = action_for_key(&modifier_names, &key_name) {
+                return Some(action_message(action));
             }
         }
 
-        if key.as_ref() == Key::Named(key::Named::F1) {
-            return Some(Message::ToggleShortcuts);
-        }
-
-        if key.as_ref() == Key::Named(key::Named::Escape) {
-            return Some(Message::Escape);
-        }
-
-        None
+        // Raccourcis propres à l'éditeur (hors catalogue).
+        editor_key_message(&key_ref, modifiers)
     });
 
     let windows = event::listen_raw(|event, _status, _window| {
@@ -2440,6 +2629,195 @@ pub fn subscription(_app: &App) -> iced::Subscription<Message> {
     });
 
     iced::Subscription::batch([keys, windows])
+}
+
+/// Table de raccourcis partagée avec la subscription clavier.
+///
+/// `iced::event::listen_raw` n'accepte qu'un pointeur de fonction (aucune
+/// capture) : la table résolue est donc publiée dans un magasin partagé,
+/// resynchronisé à chaque appel de [`subscription`].
+static KEYMAP: std::sync::LazyLock<std::sync::RwLock<KeyMap>> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(KeyMap::defaults()));
+
+/// Accès au magasin de raccourcis partagé.
+fn keymap_store() -> &'static std::sync::RwLock<KeyMap> {
+    &KEYMAP
+}
+
+/// Publie la table de raccourcis résolue auprès de la subscription clavier.
+fn publish_keymap(resolved: &KeyMap) {
+    if let Ok(mut guard) = keymap_store().write() {
+        if *guard != *resolved {
+            *guard = resolved.clone();
+        }
+    }
+}
+
+/// Action déclenchée par la combinaison pressée, selon la table publiée.
+fn action_for_key(modifiers: &[String], key: &str) -> Option<KeyAction> {
+    let guard = keymap_store().read().ok()?;
+    guard.action_for(modifiers, key)
+}
+
+/// Nom canonique d'une touche (`"P"`, `"Tab"`, `"Escape"`, …).
+///
+/// Renvoie `None` pour les touches que le catalogue ne connaît pas.
+fn canonical_key_name(key: &iced::keyboard::Key<&str>) -> Option<String> {
+    match key {
+        iced::keyboard::Key::Character(character) => {
+            let mut chars = character.chars();
+            let first = chars.next()?;
+            if chars.next().is_some() {
+                return None;
+            }
+            Some(match first {
+                ',' => "Comma".to_string(),
+                '.' => "Period".to_string(),
+                '/' => "Slash".to_string(),
+                other => other.to_ascii_uppercase().to_string(),
+            })
+        }
+        iced::keyboard::Key::Named(named) => {
+            let canonical = match named {
+                iced::keyboard::key::Named::Escape => "Escape".to_string(),
+                iced::keyboard::key::Named::Tab => "Tab".to_string(),
+                iced::keyboard::key::Named::Enter => "Enter".to_string(),
+                iced::keyboard::key::Named::Space => "Space".to_string(),
+                iced::keyboard::key::Named::Backspace => "Backspace".to_string(),
+                iced::keyboard::key::Named::Delete => "Delete".to_string(),
+                iced::keyboard::key::Named::ArrowLeft => "Left".to_string(),
+                iced::keyboard::key::Named::ArrowRight => "Right".to_string(),
+                iced::keyboard::key::Named::ArrowUp => "Up".to_string(),
+                iced::keyboard::key::Named::ArrowDown => "Down".to_string(),
+                iced::keyboard::key::Named::Home => "Home".to_string(),
+                iced::keyboard::key::Named::End => "End".to_string(),
+                iced::keyboard::key::Named::PageUp => "PageUp".to_string(),
+                iced::keyboard::key::Named::PageDown => "PageDown".to_string(),
+                // Touches de fonction F1..F12 : le nom `Debug` est déjà
+                // canonique.
+                other => {
+                    let name = format!("{other:?}");
+                    if is_function_key(&name) {
+                        name
+                    } else {
+                        return None;
+                    }
+                }
+            };
+            Some(canonical)
+        }
+        iced::keyboard::Key::Unidentified => None,
+    }
+}
+
+/// Vrai si le nom désigne une touche de fonction (F1..F12).
+fn is_function_key(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix('F') else {
+        return false;
+    };
+    rest.parse::<u8>()
+        .is_ok_and(|number| (1..=12).contains(&number))
+}
+
+/// Modificateurs pressés, sous forme canonique (triée).
+fn canonical_modifiers(modifiers: iced::keyboard::Modifiers) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if modifiers.control() {
+        out.push("Ctrl".to_string());
+    }
+    if modifiers.alt() {
+        out.push("Alt".to_string());
+    }
+    if modifiers.shift() {
+        out.push("Shift".to_string());
+    }
+    if modifiers.logo() {
+        out.push("Super".to_string());
+    }
+    out.sort();
+    out
+}
+
+/// Message déclenché par une action du catalogue.
+fn action_message(action: KeyAction) -> Message {
+    match action {
+        KeyAction::OpenCommandPalette => Message::OpenCommandPalette,
+        KeyAction::OpenSwitcher => Message::OpenSwitcher,
+        KeyAction::NewNote => Message::NewNoteOpen,
+        KeyAction::SaveNote => Message::SaveNote,
+        KeyAction::SaveAs => Message::SaveNoteAs,
+        KeyAction::SearchInAllFiles => Message::ToggleSearch,
+        KeyAction::ToggleEditPreview => Message::ToggleEditorMode,
+        KeyAction::NextTab => Message::NextTab,
+        KeyAction::PrevTab => Message::PrevTab,
+        KeyAction::CloseTab => Message::CloseActiveTab,
+        KeyAction::OpenSettings => Message::ToggleSettings,
+        KeyAction::NavigateBack => Message::NavigateBack,
+        KeyAction::NavigateForward => Message::NavigateForward,
+        KeyAction::ToggleLeftSidebar | KeyAction::ToggleSidebar => Message::ToggleLeftSidebar,
+        KeyAction::ToggleRightSidebar => Message::ToggleRightSidebar,
+        KeyAction::ShortcutHelp => Message::ToggleShortcuts,
+        KeyAction::Escape => Message::Escape,
+        KeyAction::ToggleGraph => Message::ToggleGraph,
+    }
+}
+
+/// Raccourcis propres à l'éditeur, hors catalogue : annulation, rétablissement,
+/// recherche dans la note et onglets de la barre latérale.
+fn editor_key_message(
+    key: &iced::keyboard::Key<&str>,
+    modifiers: iced::keyboard::Modifiers,
+) -> Option<Message> {
+    if !modifiers.control() {
+        return None;
+    }
+    match key {
+        iced::keyboard::Key::Character(character) if character.eq_ignore_ascii_case("f") => {
+            Some(Message::FindOpen)
+        }
+        iced::keyboard::Key::Character(character) if character.eq_ignore_ascii_case("z") => {
+            if modifiers.shift() {
+                Some(Message::EditorRedo)
+            } else {
+                Some(Message::EditorUndo)
+            }
+        }
+        iced::keyboard::Key::Character(character) if character.eq_ignore_ascii_case("y") => {
+            Some(Message::EditorRedo)
+        }
+        iced::keyboard::Key::Named(iced::keyboard::key::Named::PageDown) => {
+            Some(Message::NextSidebarTab)
+        }
+        iced::keyboard::Key::Named(iced::keyboard::key::Named::PageUp) => {
+            Some(Message::PrevSidebarTab)
+        }
+        _ => None,
+    }
+}
+
+/// Commandes de la palette : le registre applicatif complété par les actions
+/// du catalogue de raccourcis.
+///
+/// Les commandes dont l'identifiant est repris par le catalogue ne sont pas
+/// dupliquées : chaque action apparaît une seule fois, avec son raccourci.
+pub fn palette_commands(resolved: &KeyMap) -> Vec<Command> {
+    let mut commands: Vec<Command> = default_commands()
+        .into_iter()
+        .filter(|command| keymap::action_by_id(command.id).is_none())
+        .collect();
+    for action in keymap::all_actions() {
+        // Une action sans liaison résolue n'a pas de raccourci à afficher.
+        if resolved.shortcut_for(*action).is_none() {
+            continue;
+        }
+        commands.push(Command {
+            id: keymap::action_id(*action),
+            label: keymap::action_label(*action),
+            shortcut: Some(*action),
+            category: keymap::action_category(*action),
+        });
+    }
+    commands
 }
 
 /// Calcule les indices des notes correspondant à `query` (recherche floue
@@ -3186,6 +3564,9 @@ mod tests {
         let (mut app, _task) = boot();
         app.vault_root = dir.clone();
         app.notes = notes;
+        app.open = None;
+        app.open_tabs.clear();
+        app.open_tabs_active = 0;
         let a = PathBuf::from("a.md");
         let b = PathBuf::from("b.md");
         let _ = update(&mut app, Message::OpenNote(a.clone()));
@@ -3241,6 +3622,9 @@ mod tests {
         let (mut app, _task) = boot();
         app.vault_root = dir.clone();
         app.notes = notes;
+        app.open = None;
+        app.open_tabs.clear();
+        app.open_tabs_active = 0;
         let a = PathBuf::from("a.md");
         let b = PathBuf::from("b.md");
         let _ = update(&mut app, Message::OpenNote(a.clone()));
@@ -3299,6 +3683,9 @@ mod tests {
         let (mut app, _task) = boot();
         app.vault_root = dir.clone();
         app.notes = notes;
+        app.open = None;
+        app.open_tabs.clear();
+        app.open_tabs_active = 0;
         let a = PathBuf::from("a.md");
         let _ = update(&mut app, Message::OpenNote(a.clone()));
         let _ = update(&mut app, Message::ToggleDelete(a.clone()));
@@ -3462,6 +3849,9 @@ mod tests {
         let (mut app, _task) = boot();
         app.vault_root = dir.clone();
         app.notes = notes;
+        app.open = None;
+        app.open_tabs.clear();
+        app.open_tabs_active = 0;
         let a = PathBuf::from("a.md");
         let b = PathBuf::from("b.md");
         let _ = update(&mut app, Message::OpenNote(a.clone()));
@@ -3479,6 +3869,111 @@ mod tests {
         assert_eq!(app.open_tabs, vec![a.clone()]);
         assert_eq!(app.open.as_ref().unwrap().path, a);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Vérifie que « revenir en arrière » et « avancer » suivent
+    /// l'historique de navigation.
+    #[test]
+    fn la_navigation_arriere_et_avant_suivent_l_historique() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        dir.push(format!("obsidian-rs-nav-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "a").unwrap();
+        std::fs::write(dir.join("b.md"), "b").unwrap();
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let (mut app, _task) = boot();
+        app.vault_root = dir.clone();
+        app.notes = notes;
+        let a = PathBuf::from("a.md");
+        let b = PathBuf::from("b.md");
+        let _ = update(&mut app, Message::OpenNote(a.clone()));
+        let _ = update(&mut app, Message::OpenNote(b.clone()));
+        assert_eq!(app.open.as_ref().unwrap().path, b);
+
+        // Retour : la note précédente est rouverte.
+        let _ = update(&mut app, Message::NavigateBack);
+        assert_eq!(app.open.as_ref().unwrap().path, a);
+        // Avance : on revient à la note courante.
+        let _ = update(&mut app, Message::NavigateForward);
+        assert_eq!(app.open.as_ref().unwrap().path, b);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Vérifie que « enregistrer sous » duplique la note ouverte.
+    #[test]
+    fn enregistrer_sous_cree_une_copie_de_la_note() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        dir.push(format!("obsidian-rs-saveas-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "contenu").unwrap();
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let (mut app, _task) = boot();
+        app.vault_root = dir.clone();
+        app.notes = notes;
+        let _ = update(&mut app, Message::OpenNote(PathBuf::from("a.md")));
+
+        // Le dialogue de nouvelle note s'ouvre, pré-rempli.
+        let _ = update(&mut app, Message::SaveNoteAs);
+        let state = app.new_note.as_ref().expect("dialogue ouvert");
+        assert_eq!(state.name, "a-copie");
+        assert_eq!(state.copy_from, Some(PathBuf::from("a.md")));
+
+        // La validation crée la copie avec le contenu de la note source.
+        let _ = update(&mut app, Message::NewNoteCreate);
+        let copie = dir.join("a-copie.md");
+        assert!(copie.exists());
+        assert_eq!(std::fs::read_to_string(&copie).unwrap(), "contenu");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Vérifie que le mode lecture retire le panneau de prévisualisation.
+    #[test]
+    fn le_mode_lecture_retire_le_panneau_de_previsualisation() {
+        let (mut app, _task) = boot();
+        assert!(find_pane(&app.pane_state, PaneKind::Preview).is_some());
+        let _ = update(&mut app, Message::ToggleEditorMode);
+        assert!(find_pane(&app.pane_state, PaneKind::Preview).is_none());
+        // Le mode édition le réaffiche.
+        let _ = update(&mut app, Message::ToggleEditorMode);
+        assert!(find_pane(&app.pane_state, PaneKind::Preview).is_some());
+    }
+
+    /// Vérifie que la palette exécute l'action de la commande choisie.
+    #[test]
+    fn la_palette_execute_l_action_de_la_commande() {
+        let (mut app, _task) = boot();
+        let _ = update(&mut app, Message::OpenCommandPalette);
+        assert!(app.command_palette.is_some());
+        let index = app
+            .commands
+            .iter()
+            .position(|command| command.id == "toggle-graph")
+            .expect("commande « toggle-graph »");
+        let _ = update(&mut app, Message::CommandPaletteSelect(index));
+        assert!(app.show_graph);
+        assert!(app.command_palette.is_none());
+    }
+
+    /// Vérifie que la palette liste chaque action du catalogue une fois.
+    #[test]
+    fn la_palette_liste_chaque_action_du_catalogue() {
+        let (app, _task) = boot();
+        for action in crate::vault::keymap::all_actions() {
+            let count = app
+                .commands
+                .iter()
+                .filter(|command| command.shortcut == Some(*action))
+                .count();
+            assert_eq!(count, 1, "l'action {action:?} apparaît {count} fois");
+        }
     }
 
     #[test]
@@ -3518,6 +4013,98 @@ mod tests {
         times.sort();
         let p95 = times[(times.len() as f64 * 0.95) as usize];
         eprintln!("recherche full-text : p95 = {:?}", p95);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Construit une app isolée dont le vault pointe vers un répertoire
+    // temporaire contenant les notes `noms` (fichiers `.md` créés). N'écrit
+    // jamais dans le `demo-vault` du dépôt.
+    fn app_temp_vault(noms: &[&str]) -> (App, std::path::PathBuf) {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        dir.push(format!("obsidian-rs-test-{}-{unique}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for nom in noms {
+            std::fs::write(dir.join(format!("{nom}.md")), format!("# {nom}\n")).unwrap();
+        }
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let (mut app, _task) = boot();
+        app.vault_root = dir.clone();
+        app.notes = notes;
+        app.open = None;
+        app.open_tabs.clear();
+        app.open_tabs_active = 0;
+        (app, dir)
+    }
+
+    #[test]
+    fn scan_termine_ouvre_la_premiere_note_sans_etat() {
+        let (mut app, dir) = app_temp_vault(&["a", "b"]);
+        let premiere = app.notes.as_ref().unwrap()[0].path.clone();
+        ensure_open_note(&mut app);
+        assert_eq!(
+            app.open.as_ref().map(|o| o.path.clone()),
+            Some(premiere),
+            "une note est ouverte à la fin du scan"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scan_termine_rouvre_la_note_enregistree() {
+        let (mut app, dir) = app_temp_vault(&["a", "b"]);
+        save_open_note(&app.vault_root, Some(std::path::Path::new("b.md")));
+        ensure_open_note(&mut app);
+        assert_eq!(
+            app.open.as_ref().map(|o| o.path.clone()),
+            Some(PathBuf::from("b.md")),
+            "la note enregistrée prime sur la première"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn etat_corrompu_ou_illisible_ne_panique_pas() {
+        // État corrompu (JSON invalide) : on retombe sur la première note.
+        let (mut app, dir) = app_temp_vault(&["a", "b"]);
+        let premiere = app.notes.as_ref().unwrap()[0].path.clone();
+        let state_path = open_note_state_path(&app.vault_root);
+        std::fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+        std::fs::write(&state_path, "pas du json {{{").unwrap();
+        ensure_open_note(&mut app);
+        assert_eq!(
+            app.open.as_ref().unwrap().path,
+            premiere,
+            "état corrompu : retombe sur la première note"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // État illisible (le chemin de l'état est un dossier) : idem, sans
+        // provoquer de panique.
+        let (mut app, dir) = app_temp_vault(&["a"]);
+        let premiere = app.notes.as_ref().unwrap()[0].path.clone();
+        let state_path = open_note_state_path(&app.vault_root);
+        std::fs::create_dir_all(&state_path).unwrap();
+        ensure_open_note(&mut app);
+        assert_eq!(app.open.as_ref().unwrap().path, premiere);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn toggle_edit_bascule_et_open_note_reinitialise() {
+        let (mut app, dir) = app_temp_vault(&["a"]);
+        assert!(!app.editing, "lecture seule au démarrage");
+        let _ = update(&mut app, Message::ToggleEdit);
+        assert!(app.editing);
+        let _ = update(&mut app, Message::ToggleEdit);
+        assert!(!app.editing);
+        let _ = update(&mut app, Message::ToggleEdit);
+        assert!(app.editing);
+        let _ = update(&mut app, Message::OpenNote(PathBuf::from("a.md")));
+        assert!(!app.editing, "OpenNote remet editing à false");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

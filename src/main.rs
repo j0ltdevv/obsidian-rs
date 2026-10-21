@@ -1,12 +1,12 @@
 use obsidian_rs::app;
 
-/// Recharge la taille de fenêtre persistée (sinon 720×480).
+/// Recharge la taille de fenêtre persistée (sinon 1400×900, comme Obsidian).
 fn saved_window_size() -> (u32, u32) {
     let path = app::window_size_path(std::path::Path::new(app::DEMO_VAULT_DIR));
     std::fs::read_to_string(path)
         .ok()
         .and_then(|s| serde_json::from_str::<(u32, u32)>(&s).ok())
-        .unwrap_or((720, 480))
+        .unwrap_or((1400, 900))
 }
 
 fn main() -> iced::Result {
