@@ -37,6 +37,7 @@ pub mod outline_view;
 mod plugins_view;
 pub mod search_view;
 pub mod tasks_view;
+mod theme;
 mod themes_view;
 
 use self::canvas_view::canvas_board_view;
@@ -405,31 +406,58 @@ fn folder_overlay<'a>(app: &'a App) -> Element<'a, Message> {
 // compactes, groupe haut et bas séparés.
 fn ribbon<'a>(app: &'a App) -> Element<'a, Message> {
     use iced::widget::button as btn;
-    let icon = |sym: &'static str, msg| {
+    use iced::widget::svg;
+    let icon_text = |sym: &'static str, msg| {
         btn(text(sym).size(16))
             .width(Length::Fill)
             .on_press(msg)
             .style(ghost_button_style)
     };
+    let icon_svg = |bytes: &'static [u8], msg| {
+        btn(svg(svg::Handle::from_memory(bytes))
+            .width(Length::Fixed(18.0))
+            .height(Length::Fixed(18.0)))
+        .width(Length::Fill)
+        .on_press(msg)
+        .style(ghost_button_style)
+    };
     let haut = column![
-        icon("⛁", Message::Refresh),
-        icon("🕸", Message::ToggleGraph),
-        icon("⌘", Message::OpenCommandPalette),
-        icon("🔍", Message::OpenSwitcher),
-        icon("📄", Message::NewNoteOpen),
+        icon_svg(
+            include_bytes!("../../assets/icons/rotate-cw.svg"),
+            Message::Refresh
+        ),
+        icon_svg(
+            include_bytes!("../../assets/icons/share-2.svg"),
+            Message::ToggleGraph
+        ),
+        icon_svg(
+            include_bytes!("../../assets/icons/command.svg"),
+            Message::OpenCommandPalette
+        ),
+        icon_svg(
+            include_bytes!("../../assets/icons/search.svg"),
+            Message::OpenSwitcher
+        ),
+        icon_svg(
+            include_bytes!("../../assets/icons/file-plus.svg"),
+            Message::NewNoteOpen
+        ),
     ]
     .spacing(4)
     .padding(4);
     let bas = column![
-        icon(
+        icon_text(
             if app.show_left_sidebar { "◀" } else { "▶" },
             Message::ToggleLeftSidebar,
         ),
-        icon(
+        icon_text(
             if app.show_right_sidebar { "◂" } else { "▸" },
             Message::ToggleRightSidebar,
         ),
-        icon("⚙", Message::ToggleSettings),
+        icon_svg(
+            include_bytes!("../../assets/icons/settings.svg"),
+            Message::ToggleSettings
+        ),
     ];
     container(column![haut, text("").height(Length::Fill), bas])
         .width(48)
@@ -1871,7 +1899,7 @@ pub(crate) fn panel_style(theme: &iced::Theme) -> container::Style {
         border: Border {
             color: pal.background.weak.color,
             width: 1.0,
-            radius: Radius::from(6.0),
+            radius: Radius::from(theme::PANEL_RADIUS),
         },
         ..container::Style::default()
     }
@@ -1905,10 +1933,9 @@ fn section_title<'a>(title: &'a str) -> Element<'a, Message> {
 
 /// Police en gras.
 fn bold_font() -> Font {
-    Font {
-        weight: Weight::Bold,
-        ..Font::default()
-    }
+    let mut font = theme::font();
+    font.weight = Weight::Bold;
+    font
 }
 
 #[cfg(test)]
