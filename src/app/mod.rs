@@ -1671,8 +1671,7 @@ fn rewrite_wikilink_target(source: &str, old: &str, new: &str) -> String {
             continue;
         };
         let link_tail = &after[prefix..];
-        if link_tail.starts_with(old) {
-            let after_old = &link_tail[old.len()..];
+        if let Some(after_old) = link_tail.strip_prefix(old) {
             if matches!(after_old.chars().next(), Some(']' | '|' | '#')) {
                 out.push_str(&after[..prefix]);
                 out.push_str(new);
