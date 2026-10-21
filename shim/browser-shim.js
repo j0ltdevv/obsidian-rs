@@ -1431,6 +1431,11 @@
     os: osModule,
     url: urlModule,
     electron: electronShim,
+    // Electron 45 a retiré le module `remote` : leur renderer le réclame
+    // explicitement (`require('@electron/remote')`). On sert la même surface
+    // que `electron.remote`.
+    '@electron/remote': electronShim.remote,
+    'electron/remote': electronShim.remote,
     util: utilModule,
     events: EventEmitter,
     buffer: BufferClass

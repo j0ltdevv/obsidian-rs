@@ -300,9 +300,13 @@ writeFileSync(join(vault, 'dossier', 'Autre.md'), '# Autre\n');
 
 // Faux ASAR pour la lecture à l'exécution de la chaîne d'acceptation : on
 // n'utilise jamais le vrai fichier d'Obsidian, et aucune de ses chaînes
-// n'apparaît ici (littéral synthétique de 284 caractères).
+// n'apparaît ici (littéral synthétique).
+// Le contenu reproduit la **forme** que le renderer emploie : le littéral est
+// comparé au canal « terms » — c'est cette comparaison qui permet de le
+// retrouver sans le recopier.
 const acceptationFake = 'a'.repeat(284);
-const contenuAppFake = 'var ACCEPTE="' + acceptationFake + '";';
+const contenuAppFake =
+  'if("' + acceptationFake + '"!==e.ipcRenderer.sendSync("terms"))return window.close();';
 const fauxAsarPath = join(tmpdir(), 'obsidian-compat-faux-' + process.pid + '.asar');
 writeFileSync(fauxAsarPath, construireFauxAsar(contenuAppFake));
 

@@ -283,12 +283,20 @@ export function lireChaineAcceptation(cheminApp, lecteurFichier) {
   }
   const texte =
     typeof contenu === 'string' ? contenu : decodeUtf8(contenu);
-  // On localise la constante par sa seule longueur (284 caractères) : aucun
-  // texte d'Obsidian n'est recopié dans ce dépôt.
-  const match = /"((?:[^"\\]|\\.){284})"/.exec(texte);
+  // La constante est localisée **par la comparaison qu'en fait le renderer**
+  // (`"…" !== ipcRenderer.sendSync("terms")`) : on récupère ainsi exactement
+  // le littéral comparé, quelle que soit sa longueur, sans recopier le texte
+  // d'Obsidian dans ce dépôt.
+  const match = /"((?:[^"\\]|\\.){40,})"!==[^;]{0,160}?sendSync\(\s*["']terms["']\s*\)/.exec(texte);
   if (!match) {
-    journaliser('chaîne d\'acceptation (284 caractères) introuvable dans app.js');
+    journaliser('chaîne d\'acceptation introuvable dans app.js');
     return null;
   }
-  return match[1];
+  try {
+    // Le littéral est échappé dans la source : on le décode pour obtenir la
+    // valeur d'exécution.
+    return JSON.parse('"' + match[1] + '"');
+  } catch (e) {
+    return match[1];
+  }
 }
