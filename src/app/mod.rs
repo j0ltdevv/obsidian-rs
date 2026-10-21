@@ -1196,6 +1196,12 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 }
                 if was_active {
                     if app.open_tabs.is_empty() {
+                        if app.open_dirty {
+                            if let Some(open) = &app.open {
+                                app.open_buffers
+                                    .insert(open.path.clone(), open.content.text());
+                            }
+                        }
                         app.open = None;
                         app.open_dirty = false;
                         app.editor_undo.clear();
@@ -1348,7 +1354,16 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 };
                 if !find.query.is_empty() {
                     let replaced = current.replace(&find.query, &find.replace);
-                    open.content = text_editor::Content::with_text(&replaced);
+                    if replaced != current {
+                        app.editor_undo.push(current);
+                        if app.editor_undo.len() > 100 {
+                            app.editor_undo.remove(0);
+                        }
+                        app.editor_redo.clear();
+                        open.content = text_editor::Content::with_text(&replaced);
+                        app.open_dirty = true;
+                        app.edits_since_save = app.edits_since_save.saturating_add(1);
+                    }
                 }
             }
             if let Some(find) = &mut app.find {
@@ -1506,22 +1521,27 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 );
                 return Task::none();
             }
-            // Sauvegarde de sécurité avant toute écriture (snapshots).
+            // Un remplacement global ne doit pas écraser des éditions non
+            // sauvegardées de la note ouverte.
+            if app.open_dirty {
+                release_write_lock(&app.vault_root, true);
+                app.error =
+                    Some("Sauvegardez la note ouverte avant un remplacement global.".to_string());
+                return Task::none();
+            }
+            // Sauvegarde de sécurité avant toute écriture (snapshots), en
+            // préservant l'arborescence pour éviter les collisions de noms.
             let backup_dir = app
                 .vault_root
                 .join(".obsidian")
                 .join("snapshots")
                 .join("backup-global");
-            if fs::create_dir_all(&backup_dir).is_err() {
-                release_write_lock(&app.vault_root, true);
-                app.error = Some("Backup global impossible.".to_string());
-                return Task::none();
-            }
             let stamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0)
                 .to_string();
+            let mut open_rewritten = false;
             for note in notes {
                 let Ok(source) = fs::read_to_string(app.vault_root.join(&note.path)) else {
                     continue;
@@ -1529,19 +1549,14 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 if !source.contains(&find.query) {
                     continue;
                 }
-                let sanitized: String = note
-                    .path
-                    .to_string_lossy()
-                    .chars()
-                    .map(|c| {
-                        if c.is_alphanumeric() || c == '-' || c == '_' {
-                            c
-                        } else {
-                            '_'
-                        }
-                    })
-                    .collect();
-                let backup_path = backup_dir.join(format!("{stamp}-{sanitized}.md"));
+                let backup_path = backup_dir.join(&stamp).join(&note.path);
+                if let Some(parent) = backup_path.parent() {
+                    if fs::create_dir_all(parent).is_err() {
+                        release_write_lock(&app.vault_root, true);
+                        app.error = Some("Backup global impossible.".to_string());
+                        return Task::none();
+                    }
+                }
                 if fs::copy(app.vault_root.join(&note.path), &backup_path).is_err() {
                     release_write_lock(&app.vault_root, true);
                     app.error = Some(format!("Backup impossible pour {}", note.path.display()));
@@ -1552,6 +1567,19 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     release_write_lock(&app.vault_root, true);
                     app.error = Some(format!("Remplacement global impossible : {error}"));
                     return Task::none();
+                }
+                if app.open.as_ref().is_some_and(|o| o.path == note.path) {
+                    open_rewritten = true;
+                }
+            }
+            // Recharge la note ouverte si elle a été réécrite.
+            if open_rewritten {
+                if let Some(open) = &mut app.open {
+                    if let Ok(new_content) = fs::read_to_string(app.vault_root.join(&open.path)) {
+                        open.content = text_editor::Content::with_text(&new_content);
+                        open.property_drafts =
+                            PropertyDrafts::from_frontmatter(&open.metadata.frontmatter);
+                    }
                 }
             }
             release_write_lock(&app.vault_root, true);
@@ -1622,6 +1650,15 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     "Vault verrouillé par une autre instance (fichier .obsidian/lock).".to_string(),
                 );
                 return Task::none();
+            }
+            // Préserve les éditions non sauvegardées de la note ouverte avant
+            // de la déplacer et de fermer le tampon.
+            if app.open_dirty {
+                if let Some(open) = &app.open {
+                    if open.path == from {
+                        app.open_buffers.insert(from.clone(), open.content.text());
+                    }
+                }
             }
             match crate::vault::ops::move_note(&app.vault_root, &from, &to) {
                 Ok(()) => {
@@ -1929,6 +1966,8 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                                 open.content = text_editor::Content::with_text(&source);
                                 open.property_drafts =
                                     PropertyDrafts::from_frontmatter(&open.metadata.frontmatter);
+                                app.open_dirty = true;
+                                app.edits_since_save = app.edits_since_save.saturating_add(1);
                             }
                             app.error = None;
                         }
@@ -1980,6 +2019,15 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
 /// Ouvre la note au chemin relatif donné : lecture du contenu depuis le disque
 /// (I/O dans `update`), mémorisation des métadonnées du dernier scan.
 fn open_note(app: &mut App, path: &Path) {
+    // Rouvrir la note déjà active : ne rien écraser (ré-éditions en cours).
+    if app.open.as_ref().is_some_and(|open| open.path == *path) {
+        app.open_tabs_active = app
+            .open_tabs
+            .iter()
+            .position(|p| p == path)
+            .unwrap_or(app.open_tabs_active);
+        return;
+    }
     app.recent.retain(|p| p != path);
     app.recent.insert(0, path.to_path_buf());
     app.recent.truncate(20);
@@ -2027,7 +2075,7 @@ fn open_note(app: &mut App, path: &Path) {
 
     // Restaure le tampon en cache (éditions non sauvegardées) s'il existe,
     // sinon relit le contenu depuis le disque.
-    if let Some(cached) = app.open_buffers.get(path).cloned() {
+    if let Some(cached) = app.open_buffers.remove(path) {
         app.open = Some(OpenNote {
             path: path.to_path_buf(),
             name,
@@ -2290,6 +2338,8 @@ fn insert_template_in_open_note(app: &mut App) -> Task<Message> {
         }
         combined.push_str(&template);
         open.content = text_editor::Content::with_text(&combined);
+        app.open_dirty = true;
+        app.edits_since_save = app.edits_since_save.saturating_add(1);
     } else {
         app.error = Some("Ouvrez d'abord une note pour insérer un modèle.".to_string());
     }
@@ -2445,8 +2495,15 @@ fn set_property(app: &mut App, key: &str, value: &str) {
         return;
     };
     let rel_path = open.path.clone();
+    if !acquire_write_lock(&app.vault_root) {
+        app.error =
+            Some("Vault verrouillé par une autre instance (fichier .obsidian/lock).".to_string());
+        return;
+    }
     let yaml_value = parse_property_value(value);
-    match set_frontmatter_property(&app.vault_root, &rel_path, key, &yaml_value) {
+    let result = set_frontmatter_property(&app.vault_root, &rel_path, key, &yaml_value);
+    release_write_lock(&app.vault_root, true);
+    match result {
         Ok(note) => {
             apply_reparsed_note(app, note);
             if let Some(open) = &mut app.open {
@@ -2463,14 +2520,21 @@ fn set_property(app: &mut App, key: &str, value: &str) {
     }
 }
 
-/// Supprime une propriété du frontmatter de la note ouverte, puis re-parse
-/// localement la note (métadonnées + index).
+// Supprime une propriété du frontmatter de la note ouverte, puis re-parse
+// localement la note (métadonnées + index).
 fn remove_property(app: &mut App, key: &str) {
     let Some(open) = &app.open else {
         return;
     };
     let rel_path = open.path.clone();
-    match remove_frontmatter_property(&app.vault_root, &rel_path, key) {
+    if !acquire_write_lock(&app.vault_root) {
+        app.error =
+            Some("Vault verrouillé par une autre instance (fichier .obsidian/lock).".to_string());
+        return;
+    }
+    let result = remove_frontmatter_property(&app.vault_root, &rel_path, key);
+    release_write_lock(&app.vault_root, true);
+    match result {
         Ok(note) => {
             apply_reparsed_note(app, note);
             if let Some(open) = &mut app.open {
@@ -3057,6 +3121,31 @@ mod tests {
         let elapsed = t0.elapsed();
         assert!(notes.is_ok());
         eprintln!("scan 10k notes : {:?}", elapsed);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rouvrir_meme_note_preserve_les_editions() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        dir.push(format!("obsidian-rs-reopen-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "a").unwrap();
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let (mut app, _task) = boot();
+        app.vault_root = dir.clone();
+        app.notes = notes;
+        let a = PathBuf::from("a.md");
+        let _ = update(&mut app, Message::OpenNote(a.clone()));
+        app.open.as_mut().unwrap().content = text_editor::Content::with_text("édité a");
+        let _ = update(&mut app, Message::MarkDirty);
+        // Recliquer l'onglet actif ne doit pas écraser les éditions.
+        let _ = update(&mut app, Message::OpenNote(a.clone()));
+        assert_eq!(app.open.as_ref().unwrap().content.text(), "édité a");
+        assert!(app.open_dirty);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
