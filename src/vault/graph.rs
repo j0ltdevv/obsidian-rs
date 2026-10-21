@@ -27,6 +27,7 @@ pub struct GraphFilters {
     /// Si défini, n'affiche que la note cible et ses voisins directs
     /// (graphe local autour de cette note).
     pub local_note: Option<PathBuf>,
+    pub local_depth: usize,
     /// Si défini, n'affiche que les notes portant ce tag.
     pub tag: Option<String>,
     /// Si défini, n'affiche que les notes de ce dossier (ou
@@ -44,7 +45,8 @@ impl GraphFilters {
             let Some(target) = notes.iter().position(|n| n.path == *local) else {
                 return true;
             };
-            if idx != target && !graph.neighbors(target).contains(&idx) {
+            let depth = self.local_depth.max(1);
+            if idx != target && graph_distance(graph, target, idx) > depth {
                 return false;
             }
         }
@@ -65,6 +67,29 @@ impl GraphFilters {
     pub fn is_empty(&self) -> bool {
         self.local_note.is_none() && self.tag.is_none() && self.folder.is_none()
     }
+}
+
+/// Distance (BFS) entre deux nœuds ; `usize::MAX` si non connexes.
+fn graph_distance(graph: &Graph, from: usize, to: usize) -> usize {
+    if from == to {
+        return 0;
+    }
+    let mut visited = vec![false; graph.nodes.len()];
+    let mut queue = std::collections::VecDeque::new();
+    visited[from] = true;
+    queue.push_back((from, 0usize));
+    while let Some((node, depth)) = queue.pop_front() {
+        for neighbor in graph.neighbors(node) {
+            if neighbor == to {
+                return depth + 1;
+            }
+            if !visited[neighbor] {
+                visited[neighbor] = true;
+                queue.push_back((neighbor, depth + 1));
+            }
+        }
+    }
+    usize::MAX
 }
 
 impl Graph {

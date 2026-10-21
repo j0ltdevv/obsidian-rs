@@ -208,6 +208,8 @@ pub enum Message {
     VaultExportZip(String),
     /// Importe une archive ZIP dans le vault.
     VaultImportZip(String),
+    /// Fait cycler la profondeur du graphe local (1→2→3→1).
+    GraphCycleDepth,
 }
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
@@ -718,6 +720,13 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     app.error = Some(format!("Import zip impossible : {error}"));
                 }
             }
+        }
+        Message::GraphCycleDepth => {
+            app.graph_filters.local_depth = match app.graph_filters.local_depth {
+                1 => 2,
+                2 => 3,
+                _ => 1,
+            };
         }
         Message::SaveNote => {
             if !acquire_write_lock(&app.vault_root) {
@@ -1655,10 +1664,15 @@ fn create_daily_note_from_command(app: &mut App) -> Task<Message> {
 /// Insère le premier gabarit trouvé dans `Templates` ou `templates` dans la
 /// note ouverte (contenu ajouté, non sauvegardé).
 fn insert_template_in_open_note(app: &mut App) -> Task<Message> {
-    let dirs = [
-        app.vault_root.join("Templates"),
-        app.vault_root.join("templates"),
-    ];
+    let configured = app.settings.templates_dir.trim().to_string();
+    let dirs = if configured.is_empty() {
+        vec![
+            app.vault_root.join("Templates"),
+            app.vault_root.join("templates"),
+        ]
+    } else {
+        vec![app.vault_root.join(&configured)]
+    };
     let mut template: Option<String> = None;
     for dir in &dirs {
         let Ok(entries) = fs::read_dir(dir) else {

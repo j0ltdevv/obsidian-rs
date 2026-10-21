@@ -26,6 +26,9 @@ pub struct AppSettings {
     /// Correcteur orthographique.
     #[serde(default)]
     pub spellcheck: bool,
+    /// Dossier des gabarits (relatif au vault).
+    #[serde(default)]
+    pub templates_dir: String,
 }
 
 impl Default for AppSettings {
@@ -34,6 +37,7 @@ impl Default for AppSettings {
             theme: "dark".to_string(),
             vim_mode: false,
             spellcheck: false,
+            templates_dir: "Templates".to_string(),
         }
     }
 }
@@ -181,6 +185,7 @@ mod tests {
             theme: "light".to_string(),
             vim_mode: true,
             spellcheck: true,
+            templates_dir: "Gabarits".to_string(),
         };
         save_app_settings(&sb.dir, &settings).unwrap();
         assert_eq!(load_app_settings(&sb.dir).unwrap(), settings);

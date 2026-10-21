@@ -472,10 +472,16 @@ pub fn graph_view<'a>(app: &'a App, notes: &'a [Note], size: Size) -> Element<'a
     } else {
         "Local"
     };
+    let depth = app.graph_filters.local_depth.max(1);
     let mut toolbar = Row::new().spacing(8).padding([4, 8]);
     toolbar = toolbar.push(
         button(text(local_label))
             .on_press(Message::GraphToggleLocal)
+            .style(super::ghost_button_style),
+    );
+    toolbar = toolbar.push(
+        button(text(format!("Profondeur {depth}")))
+            .on_press(Message::GraphCycleDepth)
             .style(super::ghost_button_style),
     );
     toolbar = toolbar.push(
@@ -485,7 +491,7 @@ pub fn graph_view<'a>(app: &'a App, notes: &'a [Note], size: Size) -> Element<'a
     );
     let filter_desc;
     if let Some(path) = &app.graph_filters.local_note {
-        filter_desc = format!("local : {}", path.display());
+        filter_desc = format!("local : {} (profondeur {depth})", path.display());
     } else if let Some(tag) = &app.graph_filters.tag {
         filter_desc = format!("tag : #{tag}");
     } else if let Some(folder) = &app.graph_filters.folder {
