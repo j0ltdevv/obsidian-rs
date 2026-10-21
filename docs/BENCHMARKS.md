@@ -63,20 +63,22 @@ code de l'application. D'où l'option `default-features = false` avec la feature
 | Runtime | Charge | PSS | RSS | Détail |
 |---|---|---|---|---|
 | **notre UI native** (iced + tiny-skia, release) | page Markdown réelle | **22,0 Mo** | 22,5 Mo | 1 processus, 10 threads — `pour-omp` |
-| **Tauri 2 + WebKitGTK** | page HTML **vide** | **286 Mo** | 467 Mo | 87,6 Mo (Tauri) + 176 Mo (WebKitWebProcess) + 29 Mo (réseau) — `pour-omp` |
-| Tauri 2 + WebKitGTK + **CodeMirror 6** | page éditeur réelle | **395 Mo** | 576 Mo | mesuré plus tôt sur le même banc |
+| **notre UI native** (debug) | vault de 5 000 notes | **70,7 Mo** | 72,4 Mo | VmHWM = VmRSS : aucun pic — `hermes` |
+| **Tauri 2 + WebKitGTK** | page HTML **vide** | **286 Mo** | 467 Mo | 87,6 Mo (Tauri) + 176 Mo (WebKit) + 29 Mo (réseau) — `pour-omp` |
+| Tauri 2 + WebKitGTK + **CodeMirror 6** | un document ouvert | **395 Mo** | 576 Mo | banc `/data/home/tauri-probe` |
+| Tauri 2 + WebKitGTK + CodeMirror 6 | vault de 5 000 notes **sur disque** | **387 Mo** | 559 Mo | 96,4 Mo (Tauri) + 270,7 Mo (renderer) + 29,8 Mo (réseau) |
 | **Chromium** | page HTML **vide** | — | 843 Mo cumulé | RSS cumulé sur 7 processus (la mémoire partagée y est comptée plusieurs fois) — `ssss` |
 | Electron (Obsidian) | application réelle | — | 180-250 Mo | **rapport tiers**, non mesuré ici |
 
-**Conséquence** : une UI web (webview du système ou Chromium) coûte **plus cher
-qu'Electron lui-même** — WebKitGTK alone vaut 286 Mo PSS pour une page vide. Le
-budget « < 150 Mo » **exclut donc les webviews** : le seul stack qui le respecte
-est le rendu natif (22 Mo), et la fidélité visuelle doit venir du travail de
-rendu (métriques, typographie, thème), pas d'un webview.
+⚠️ Nuance sur la ligne « 5 000 notes » : le banc charge **un** document dans
+l'éditeur ; les 5 000 notes sont sur le disque (20 Mo), pas dans le DOM. La
+mesure dit donc « webview + un éditeur », pas « webview + 5 000 notes
+ouvertes ». Le coût dominant est le moteur de rendu, pas le contenu du vault.
 
-Corollaire : l'alternative crédible à « exécuter leur renderer » n'est pas
-« notre UI en HTML/CSS », mais **notre UI native soignée** — d'où la
-spécification de fidélité (`demonstrations/obsidian-rea/UI-SPEC.md`).
+**Conséquence** : une UI web (webview du système ou Chromium) coûte **plus cher
+qu'Electron lui-même** — WebKitGTK alone vaut 286 Mo PSS pour une page vide, et
+387 Mo avec un éditeur de Markdown ouvert. Le budget « 200-400 Mo » **inclut**
+donc un webview, mais pas deux moteurs.
 
 ## Comparaison — Obsidian (Electron)
 
