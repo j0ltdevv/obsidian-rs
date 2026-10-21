@@ -112,6 +112,8 @@ pub enum Message {
     OpenCommandPalette,
     /// Ferme l'onglet d'une note ouverte (active le voisin si besoin).
     CloseTab(PathBuf),
+    /// Bascule l'affichage de la sidebar droite.
+    ToggleRightSidebar,
     /// Ferme la palette de commandes.
     CloseCommandPalette,
     /// Change la requête de la palette (résultats recalculés).
@@ -467,12 +469,13 @@ pub struct App {
     pub file_mtimes: std::collections::HashMap<PathBuf, std::time::SystemTime>,
     /// Tri alphabétique de l'Explorer (false = ordre du vault).
     pub sort_alpha: bool,
-    /// Affiche le mini-calendrier dans la sidebar.
+    /// Affiche la sidebar gauche (Explorer) à la façon Obsidian.
+    pub show_left_sidebar: bool,
+    /// Affiche la sidebar droite (Backlinks/Plan).
+    pub show_right_sidebar: bool,
     pub show_calendar: bool,
     /// Affiche le panneau Backlinks de la note ouverte.
     pub show_backlinks: bool,
-    /// Affiche la sidebar gauche (Explorer) à la façon Obsidian.
-    pub show_left_sidebar: bool,
     /// Notes sélectionnées dans l'explorateur (sélection multiple).
     pub selected_note_paths: HashSet<PathBuf>,
     /// Onglet actif de la sidebar gauche.
@@ -628,6 +631,7 @@ pub fn boot() -> (App, Task<Message>) {
         open_tabs: Vec::new(),
         open_tabs_active: 0,
         open_buffers: HashMap::new(),
+        show_right_sidebar: false,
     };
     (app, Task::none())
 }
@@ -1070,6 +1074,9 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::ToggleLeftSidebar => {
             app.show_left_sidebar = !app.show_left_sidebar;
+        }
+        Message::ToggleRightSidebar => {
+            app.show_right_sidebar = !app.show_right_sidebar;
         }
         Message::CloseTab(path) => {
             if let Some(i) = app.open_tabs.iter().position(|p| *p == path) {

@@ -26,6 +26,7 @@ use iced::{Alignment, Background, Border, Color, Element, Font, Length};
 
 use crate::app::{App, Message, SidebarTab};
 use crate::vault::live_preview::{render_markdown, Segment, SegmentStyle};
+use crate::vault::outline::extract_outline;
 use crate::vault::{Note, Wikilink};
 
 mod canvas_view;
@@ -426,6 +427,10 @@ fn ribbon<'a>(app: &'a App) -> Element<'a, Message> {
             if app.show_left_sidebar { "◀" } else { "▶" },
             Message::ToggleLeftSidebar,
         ),
+        icon(
+            if app.show_right_sidebar { "◂" } else { "▸" },
+            Message::ToggleRightSidebar,
+        ),
         icon("⚙", Message::ToggleSettings),
     ];
     container(column![haut, text("").height(Length::Fill), bas])
@@ -786,8 +791,23 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
 
     let editor = editor_panel(app);
     let preview = preview_panel(app, notes);
-
-    row![sidebar, editor, preview]
+    let right: Element<'a, Message> = if app.show_right_sidebar {
+        container(right_sidebar(app, notes))
+            .style(panel_style)
+            .width(Length::FillPortion(2))
+            .height(Length::Fill)
+            .into()
+    } else {
+        container(
+            iced::widget::Space::new()
+                .width(Length::Fixed(0.0))
+                .height(Length::Fill),
+        )
+        .width(Length::Fixed(0.0))
+        .height(Length::Fill)
+        .into()
+    };
+    row![sidebar, editor, preview, right]
         .width(Length::Fill)
         .height(Length::Fill)
         .spacing(8)
@@ -1033,6 +1053,32 @@ fn backlinks_panel<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> 
         );
     }
     container(scrollable(list)).style(panel_style).into()
+}
+
+// Sidebar droite façon Obsidian : panneau des backlinks + plan de la note
+// ouverte (les titres sont cliquables → curseur déplacé).
+fn right_sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
+    let mut col = Column::new().spacing(8);
+    col = col.push(text("Backlinks").size(13).font(bold_font()));
+    col = col.push(backlinks_panel(app, notes));
+    if let Some(open) = &app.open {
+        let outline = extract_outline(&open.content.text());
+        if !outline.is_empty() {
+            let mut list = Column::new().spacing(2).width(Length::Fill);
+            for entry in &outline {
+                let indent = (entry.level.saturating_sub(1) as f32) * 12.0;
+                let row = button(text(entry.title.clone()).size(13))
+                    .width(Length::Fill)
+                    .on_press(Message::OutlineScroll(entry.line))
+                    .style(ghost_button_style)
+                    .padding([2, indent as u16]);
+                list = list.push(row);
+            }
+            col = col.push(text("Plan").size(13).font(bold_font()));
+            col = col.push(scrollable(list));
+        }
+    }
+    container(col).height(Length::Fill).into()
 }
 
 /// Mini-calendrier mensuel : cliquez sur un jour pour ouvrir/créer sa note
