@@ -53,6 +53,16 @@
     error.code = code || 'unknown';
     return error;
   }
+  /**
+   * Journalisation explicite (console du renderer) : sert à signaler des
+   * conditions qui, sans message, feraient échouer le boot silencieusement
+   * (ex. chaîne d'acceptation introuvable).
+   */
+  function journaliser(message) {
+    if (host.console && typeof host.console.log === 'function') {
+      host.console.log('[shim] ' + message);
+    }
+  }
 
   /**
    * Appel synchrone d'une opération du moteur.
@@ -388,6 +398,72 @@
       });
     }
   };
+  // Confinement des chemins avant envoi au moteur : tout chemin absolu situé
+  // sous la racine du vault est traduit en chemin relatif ; un chemin absolu
+  // hors de la racine est refusé explicitement (aucune fuite hors du vault).
+  var RACINE_VAULT = null;
+  function obtenirRacineVault() {
+    if (RACINE_VAULT === null) {
+      RACINE_VAULT = vaultRoot();
+    }
+    return RACINE_VAULT;
+  }
+  function confinerChemin(p) {
+    if (typeof p !== 'string' || p.charAt(0) !== '/') {
+      return p;
+    }
+    var racine = obtenirRacineVault();
+    if (!racine) {
+      throw engineError('chemin absolu refusé (racine inconnue) : ' + p, 'path_refused');
+    }
+    if (p === racine) {
+      return '.';
+    }
+    if (p.lastIndexOf(racine + '/', 0) === 0) {
+      return p.slice(racine.length + 1);
+    }
+    throw engineError('chemin absolu hors du vault : ' + p, 'path_refused');
+  }
+
+  var CHEMINS_FS = {
+    readFileSync: [0],
+    writeFileSync: [0],
+    existsSync: [0],
+    readdirSync: [0],
+    statSync: [0],
+    lstatSync: [0],
+    mkdirSync: [0],
+    unlinkSync: [0],
+    renameSync: [0, 1],
+    accessSync: [0]
+  };
+
+  // On enveloppe les fonctions `fs` pour appliquer le confinement, puis on
+  // ré-arme la variable `fsModule` : les promesses (`fsModule.promises`) et
+  // la table `MODULES` la référencent par variable, elles passent donc toutes
+  // par la couche confineuse.
+  var fsModuleConfine = {};
+  Object.keys(fsModule).forEach(function (cle) {
+    var fn = fsModule[cle];
+    if (typeof fn !== 'function') {
+      fsModuleConfine[cle] = fn;
+      return;
+    }
+    fsModuleConfine[cle] = function () {
+      var args = Array.prototype.slice.call(arguments);
+      var indexChemins = CHEMINS_FS[cle];
+      if (indexChemins) {
+        for (var i = 0; i < indexChemins.length; i += 1) {
+          var idx = indexChemins[i];
+          if (idx < args.length) {
+            args[idx] = confinerChemin(args[idx]);
+          }
+        }
+      }
+      return fn.apply(fsModule, args);
+    };
+  });
+  fsModule = fsModuleConfine;
 
   /**
    * Normalisation lexicale locale (équivalent de `path.normalize`) : calcul de
@@ -473,6 +549,9 @@
     }
   };
 
+  // Version du noyau rapportée par `os.release()` / `os.version()`.
+  var NOYAU = '6.18.54-instabox';
+
   var osModule = {
     platform: function () {
       return 'linux';
@@ -490,7 +569,10 @@
       return 'localhost';
     },
     release: function () {
-      return '';
+      return NOYAU;
+    },
+    version: function () {
+      return NOYAU;
     },
     totalmem: function () {
       return 0;
@@ -544,17 +626,52 @@
    * les autres renvoient une valeur par défaut cohérente. Un canal inconnu
    * renvoie `undefined` : le renderer teste lui-même la réponse.
    */
+  /**
+   * Identifiant stable d'un vault, dérivé de sa racine absolue : le même
+   * vault porte le même `id` d'une session à l'autre (jamais un compteur).
+   */
+  function idStable(racine) {
+    var h = 5381;
+    var i;
+    for (i = 0; i < racine.length; i += 1) {
+      h = ((h << 5) + h + racine.charCodeAt(i)) | 0;
+    }
+    return 'vault-' + (h >>> 0).toString(16);
+  }
+
+  /**
+   * Chemins candidats de l'ASAR de l'application Obsidian installée. Le
+   * chemin explicite (fourni par la page hôte) prime sur le chemin standard
+   * de configuration utilisateur.
+   */
+  function cheminAsarCandidats() {
+    var candidats = [];
+    if (host.__OBSIDIAN_APP_ASAR__) {
+      candidats.push(host.__OBSIDIAN_APP_ASAR__);
+    }
+    var maison = processShim.env && processShim.env.HOME;
+    if (maison) {
+      candidats.push(maison + '/.config/obsidian/obsidian.asar');
+    }
+    return candidats;
+  }
+
   var SYNC_CHANNELS = {
     vault: function () {
-      return { path: vaultRoot(), name: 'vault', open: true };
+      var root = vaultRoot();
+      return { id: idStable(root), path: root, name: 'vault', open: true };
     },
     'vault-list': function () {
+      var root = vaultRoot();
       return {
-        vaults: [{ path: vaultRoot(), name: 'vault', open: true, ts: 0 }]
+        vaults: [
+          { id: idStable(root), path: root, name: 'vault', open: true, ts: 0 }
+        ]
       };
     },
     'vault-open': function () {
-      return { path: vaultRoot(), name: 'vault' };
+      var root = vaultRoot();
+      return { id: idStable(root), path: root, name: 'vault' };
     },
     'get-sandbox-vault-path': function () {
       return vaultRoot();
@@ -608,7 +725,22 @@
       return '';
     },
     terms: function () {
-      return '';
+      var compat = host.__OBSIDIAN_COMPAT__;
+      if (!compat || typeof compat.lireChaineAcceptation !== 'function') {
+        journaliser('module compat indisponible : chaîne d\'acceptation non lue');
+        return null;
+      }
+      var candidats = cheminAsarCandidats();
+      for (var i = 0; i < candidats.length; i += 1) {
+        var valeur = compat.lireChaineAcceptation(candidats[i]);
+        if (valeur !== null && valeur !== undefined) {
+          return valeur;
+        }
+      }
+      journaliser(
+        'chaîne d\'acceptation introuvable (application Obsidian non installée ou ASAR absent)'
+      );
+      return null;
     },
     policy: function () {
       return '';
@@ -784,6 +916,9 @@
     getLocale: function () {
       return 'fr-FR';
     },
+    getPreferredSystemLanguages: function () {
+      return ['fr-FR'];
+    },
     quit: function () {
       return undefined;
     },
@@ -802,6 +937,9 @@
       return nativeTheme;
     },
     removeListener: function () {
+      return nativeTheme;
+    },
+    removeAllListeners: function () {
       return nativeTheme;
     }
   };
@@ -864,24 +1002,55 @@
   };
 
   // `remote` (@electron/remote) : même surface, pour les appels historiques.
-  electronShim.remote = {
-    app: app,
-    clipboard: clipboard,
-    dialog: dialog,
-    shell: shell,
-    nativeTheme: nativeTheme,
-    webFrame: webFrame,
-    screen: electronShim.screen,
-    Menu: electronShim.Menu,
-    safeStorage: electronShim.safeStorage,
-    systemPreferences: electronShim.systemPreferences,
-    getCurrentWebContents: function () {
-      return { session: { fromPartition: function () { return {}; } } };
-    },
-    getCurrentWindow: function () {
-      return { id: 1 };
-    }
-  };
+  // Le module `compat-electron.js` (via `window.__OBSIDIAN_COMPAT__`)
+  // fournit la surface complète requise par le renderer
+  // (`getCurrentWindow`, `app.getPreferredSystemLanguages`,
+  // `nativeTheme.removeAllListeners` chaînable…) ; en son absence, un stub
+  // minimal reste disponible.
+  var compatRemote =
+    host.__OBSIDIAN_COMPAT__ && host.__OBSIDIAN_COMPAT__.creerSurfaceRemote;
+  if (typeof compatRemote === 'function') {
+    electronShim.remote = compatRemote({
+      app: app,
+      clipboard: clipboard,
+      dialog: dialog,
+      shell: shell,
+      nativeTheme: nativeTheme,
+      webFrame: webFrame,
+      screen: electronShim.screen,
+      Menu: electronShim.Menu,
+      safeStorage: electronShim.safeStorage,
+      systemPreferences: electronShim.systemPreferences,
+      locales: ['fr-FR']
+    });
+  } else {
+    electronShim.remote = {
+      app: app,
+      clipboard: clipboard,
+      dialog: dialog,
+      shell: shell,
+      nativeTheme: nativeTheme,
+      webFrame: webFrame,
+      screen: electronShim.screen,
+      Menu: electronShim.Menu,
+      safeStorage: electronShim.safeStorage,
+      systemPreferences: electronShim.systemPreferences,
+      getCurrentWebContents: function () {
+        return { session: { fromPartition: function () { return {}; } } };
+      },
+      getCurrentWindow: function () {
+        return {
+          minimizable: function () { return true; },
+          maximizable: function () { return true; },
+          closable: function () { return true; },
+          isFullScreen: function () { return false; },
+          isMaximized: function () { return false; },
+          isFocused: function () { return true; },
+          webContents: { getZoomFactor: function () { return 1; } }
+        };
+      }
+    };
+  }
 
   /* ------------------------------------------------------------------ */
   /* process                                                             */
@@ -1009,6 +1178,250 @@
     }
     return registered.length > 0;
   };
+  // Module `url` : sous-ensemble de Node utilisé par le renderer et ses
+  // bibliothèques (`url.pathToFileURL`, `url.fileURLToPath`, `new URL`).
+  // Implémentation autonome : ne dépend d'aucun module Node.
+
+  function scinderUrl(texte) {
+    var chaine = String(texte == null ? '' : texte).trim();
+    var m = /^([a-zA-Z][a-zA-Z0-9+.-]*:)?(\/\/[^\/?#]*)?([^?#]*)(\?[^#]*)?(#.*)?$/.exec(chaine);
+    if (!m) {
+      return null;
+    }
+    var protocol = m[1] || '';
+    var authorityRaw = m[2] || '';
+    var pathname = m[3] || '';
+    var search = m[4] || '';
+    var hash = m[5] || '';
+    var hostText = authorityRaw.slice(2);
+    var hostname = '';
+    var port = '';
+    if (hostText) {
+      var at = hostText.lastIndexOf('@');
+      if (at >= 0) {
+        hostText = hostText.slice(at + 1);
+      }
+      var deuxPoints = hostText.lastIndexOf(':');
+      if (deuxPoints >= 0) {
+        hostname = hostText.slice(0, deuxPoints);
+        port = hostText.slice(deuxPoints + 1);
+      } else {
+        hostname = hostText;
+      }
+    }
+    var href = protocol + (authorityRaw ? '//' + hostText : '') + pathname + search + hash;
+    return {
+      protocol: protocol,
+      slashes: !!authorityRaw,
+      auth: '',
+      host: hostText,
+      hostname: hostname,
+      port: port,
+      pathname: pathname,
+      search: search,
+      query: search ? search.slice(1) : null,
+      hash: hash,
+      path: pathname + search,
+      href: href,
+      origin: protocol && hostText ? protocol + '//' + hostText : 'null'
+    };
+  }
+
+  function parseUrl(urlString, parseQueryString) {
+    var o = scinderUrl(urlString);
+    if (!o) {
+      throw new Error('url.parse : URL invalide');
+    }
+    if (!parseQueryString) {
+      o.query = o.search ? o.search.slice(1) : null;
+    }
+    return o;
+  }
+
+  function formatUrl(obj) {
+    if (typeof obj === 'string') {
+      return obj;
+    }
+    var protocol = obj.protocol || '';
+    if (protocol && !/:$/.test(protocol)) {
+      protocol += ':';
+    }
+    var host = '';
+    if (obj.hostname) {
+      host = obj.hostname + (obj.port ? ':' + obj.port : '');
+    }
+    var auth = obj.auth ? obj.auth + '@' : '';
+    var slash = obj.slashes || (obj.protocol && obj.hostname !== '') ? '//' : '';
+    return protocol + slash + auth + host + (obj.pathname || '') + (obj.search || '') + (obj.hash || '');
+  }
+
+  function normalizeSlash(chemin) {
+    var parts = [];
+    String(chemin).split('/').forEach(function (part) {
+      if (part === '' || part === '.') {
+        return;
+      }
+      if (part === '..') {
+        if (parts.length) {
+          parts.pop();
+        }
+        return;
+      }
+      parts.push(part);
+    });
+    return '/' + parts.join('/');
+  }
+
+  function resolveUrl(from, to) {
+    var cible = String(to);
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(cible) || cible.indexOf('//') === 0) {
+      return cible;
+    }
+    var base = scinderUrl(from) || {};
+    if (cible.charAt(0) === '/') {
+      return (base.protocol || '') + '//' + (base.host || '') + normalizeSlash(cible);
+    }
+    var p = base.pathname || '';
+    var idx = p.lastIndexOf('/');
+    var dir = idx >= 0 ? p.slice(0, idx + 1) : '/';
+    var rejoint = normalizeSlash(dir + cible);
+    return (
+      (base.protocol || '') +
+      (base.host ? '//' : '') +
+      (base.host || '') +
+      rejoint
+    );
+  }
+
+  function fileURLToPath(urlValue) {
+    var u = typeof urlValue === 'string' ? urlValue : (urlValue && urlValue.href);
+    if (typeof u !== 'string' || u.indexOf('file://') !== 0) {
+      throw new Error('fileURLToPath : URL non-file');
+    }
+    var apres = u.slice(7);
+    var idxSlash = apres.indexOf('/');
+    var host = '';
+    if (idxSlash > 0) {
+      host = apres.slice(0, idxSlash);
+      apres = apres.slice(idxSlash);
+    }
+    if (host && host !== 'localhost') {
+      throw new Error('fileURLToPath : hôte non supporté : ' + host);
+    }
+    try {
+      return decodeURIComponent(apres).replace(/\\/g, '/');
+    } catch (e) {
+      return apres;
+    }
+  }
+
+  function pathToFileURL(chemin) {
+    var relatif = String(chemin).replace(/\\/g, '/');
+    var abs = relatif.charAt(0) === '/' ? relatif : '/' + relatif;
+    var encoded = abs
+      .split('/')
+      .map(function (part) {
+        return encodeURIComponent(part);
+      })
+      .join('/');
+    var href = 'file://' + encoded;
+    return {
+      href: href,
+      protocol: 'file:',
+      hostname: '',
+      pathname: encoded,
+      toString: function () {
+        return href;
+      },
+      toJSON: function () {
+        return href;
+      }
+    };
+  }
+
+  function MinimalURL(input, base) {
+    var chaine = input && typeof input === 'object' && input.href ? input.href : String(input);
+    if (base && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(chaine)) {
+      var b = scinderUrl(String(base)) || {};
+      chaine = resolveUrl(b.href, chaine);
+    }
+    var o = scinderUrl(chaine);
+    if (!o) {
+      throw new TypeError('Invalid URL');
+    }
+    this.protocol = o.protocol;
+    this.hostname = o.hostname;
+    this.port = o.port;
+    this.host = o.host;
+    this.pathname = o.pathname;
+    this.search = o.search;
+    this.hash = o.hash;
+    this.href = o.href;
+    this.origin = o.origin;
+  }
+  MinimalURL.prototype.toString = function () {
+    return this.href;
+  };
+  MinimalURL.prototype.toJSON = function () {
+    return this.href;
+  };
+
+  function MinimalURLSearchParams(init) {
+    this._map = {};
+    if (typeof init === 'string') {
+      init.replace(/^\?/, '').split('&').forEach(function (pair) {
+        if (!pair) {
+          return;
+        }
+        var eq = pair.indexOf('=');
+        var k = eq >= 0 ? pair.slice(0, eq) : pair;
+        var v = eq >= 0 ? pair.slice(eq + 1) : '';
+        try { k = decodeURIComponent(k); } catch (e) {}
+        try { v = decodeURIComponent(v); } catch (e) {}
+        (this._map[k] = this._map[k] || []).push(v);
+      }, this);
+    } else if (init && typeof init.forEach === 'function') {
+      init.forEach(function (entry) {
+        (this._map[entry[0]] = this._map[entry[0]] || []).push(String(entry[1]));
+      }, this);
+    }
+  }
+  MinimalURLSearchParams.prototype.get = function (k) {
+    var a = this._map[k];
+    return a && a.length ? a[0] : null;
+  };
+  MinimalURLSearchParams.prototype.getAll = function (k) {
+    return this._map[k] || [];
+  };
+  MinimalURLSearchParams.prototype.has = function (k) {
+    return !!this._map[k];
+  };
+  MinimalURLSearchParams.prototype.append = function (k, v) {
+    (this._map[k] = this._map[k] || []).push(String(v));
+  };
+  MinimalURLSearchParams.prototype.set = function (k, v) {
+    this._map[k] = [String(v)];
+  };
+  MinimalURLSearchParams.prototype.toString = function () {
+    var parts = [];
+    Object.keys(this._map).forEach(function (k) {
+      this._map[k].forEach(function (v) {
+        parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(v));
+      });
+    }, this);
+    return parts.join('&');
+  };
+
+  var urlModule = {
+    parse: parseUrl,
+    format: formatUrl,
+    resolve: resolveUrl,
+    fileURLToPath: fileURLToPath,
+    pathToFileURL: pathToFileURL,
+    URL: typeof URL !== 'undefined' ? URL : MinimalURL,
+    URLSearchParams:
+      typeof URLSearchParams !== 'undefined' ? URLSearchParams : MinimalURLSearchParams
+  };
 
   var MODULES = {
     fs: fsModule,
@@ -1016,6 +1429,7 @@
     path: pathModule,
     crypto: cryptoModule,
     os: osModule,
+    url: urlModule,
     electron: electronShim,
     util: utilModule,
     events: EventEmitter,

@@ -21,6 +21,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createContext, runInContext } from 'node:vm';
 import { Worker } from 'node:worker_threads';
+import { creerSurfaceRemote, lireChaineAcceptation } from './compat-electron.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..');
@@ -55,6 +56,34 @@ function assertEqual(actual, expected, message) {
   if (left !== right) {
     throw new Error((message || 'valeur inattendue') + ' : ' + left + ' != ' + right);
   }
+}
+
+/**
+ * Construit un faux ASAR (format Electron identique à celui de
+ * `@electron/asar`) contenant un seul fichier `app.js` de contenu donné, et
+ * renvoie ses octets.
+ */
+function construireFauxAsar(contenuAppJs) {
+  const corps = Buffer.from(contenuAppJs, 'utf8');
+  const json = JSON.stringify({
+    files: {
+      'app.js': { size: corps.length, offset: '0' }
+    }
+  });
+  const tailleChaine = Buffer.byteLength(json, 'utf8');
+
+  // Pickle d'en-tête : [payloadSize][tailleChaine][JSON].
+  const headerBuf = Buffer.alloc(8 + tailleChaine);
+  headerBuf.writeUInt32LE(4 + tailleChaine, 0);
+  headerBuf.writeUInt32LE(tailleChaine, 4);
+  headerBuf.write(json, 8, 'utf8');
+
+  // Size pickle : [payloadSize=4][tailleHeaderBuf].
+  const sizeBuf = Buffer.alloc(8);
+  sizeBuf.writeUInt32LE(4, 0);
+  sizeBuf.writeUInt32LE(headerBuf.length, 4);
+
+  return Buffer.concat([sizeBuf, headerBuf, corps]);
 }
 
 /* ------------------------------------------------------------------ */
@@ -269,6 +298,15 @@ mkdirSync(join(vault, 'dossier'), { recursive: true });
 writeFileSync(join(vault, 'Note.md'), '# Note\n\ncontenu de la note\n');
 writeFileSync(join(vault, 'dossier', 'Autre.md'), '# Autre\n');
 
+// Faux ASAR pour la lecture à l'exécution de la chaîne d'acceptation : on
+// n'utilise jamais le vrai fichier d'Obsidian, et aucune de ses chaînes
+// n'apparaît ici (littéral synthétique de 284 caractères).
+const acceptationFake = 'a'.repeat(284);
+const contenuAppFake = 'var ACCEPTE="' + acceptationFake + '";';
+const fauxAsarPath = join(tmpdir(), 'obsidian-compat-faux-' + process.pid + '.asar');
+writeFileSync(fauxAsarPath, construireFauxAsar(contenuAppFake));
+
+
 console.log('moteur   : ' + binary);
 console.log('vault    : ' + vault);
 
@@ -287,7 +325,11 @@ const sandbox = {
   TextEncoder,
   TextDecoder
 };
-sandbox.window = { __OBSIDIAN_ENGINE_PORT: engine.port };
+sandbox.window = {
+  __OBSIDIAN_ENGINE_PORT: engine.port,
+  __OBSIDIAN_COMPAT__: { creerSurfaceRemote, lireChaineAcceptation },
+  __OBSIDIAN_APP_ASAR__: fauxAsarPath
+};
 createContext(sandbox);
 runInContext(shimSource, sandbox, { filename: 'browser-shim.js' });
 
@@ -423,6 +465,104 @@ check('un canal inconnu renvoie undefined', () => {
   assertEqual(sandbox.electron.ipcRenderer.sendSync('canal-inconnu'), undefined);
 });
 
+console.log('chemins absolus sous la racine');
+check('un chemin absolu sous la racine est traduit en relatif', () => {
+  assertEqual(fs.readFileSync(join(vault, 'Note.md'), 'utf8'), '# Note\n\ncontenu de la note\n');
+});
+check('fs.existsSync(racine) renvoie true', () => {
+  assertEqual(fs.existsSync(vault), true);
+});
+check('une écriture par chemin absolu sous la racine fonctionne', () => {
+  const cible = join(vault, 'Absolue.md');
+  fs.writeFileSync(cible, '# Absolue\n', 'utf8');
+  assertEqual(fs.readFileSync(cible, 'utf8'), '# Absolue\n');
+});
+check('un chemin absolu hors de la racine est refusé', () => {
+  let error = null;
+  try {
+    fs.readFileSync(join(vault, '..', 'hors.md'), 'utf8');
+  } catch (err) {
+    error = err;
+  }
+  assert(error !== null, 'une erreur est attendue');
+  assertEqual(error.code, 'path_refused');
+});
+
+console.log('canal vault : identifiant stable');
+check('sendSync("vault") renvoie un id stable et non vide', () => {
+  const a = sandbox.electron.ipcRenderer.sendSync('vault');
+  const b = sandbox.electron.ipcRenderer.sendSync('vault');
+  assert(typeof a.id === 'string' && a.id.length > 0, 'id manquant');
+  assertEqual(a.id, b.id);
+  assertEqual(a.path, vault);
+});
+
+console.log('module url');
+const urlMod = require('url');
+check('url.parse décompose une URL', () => {
+  const u = urlMod.parse('https://exemple.com/a/b?q=1#fragment');
+  assertEqual(u.protocol, 'https:');
+  assertEqual(u.hostname, 'exemple.com');
+  assertEqual(u.pathname, '/a/b');
+  assertEqual(u.search, '?q=1');
+  assertEqual(u.hash, '#fragment');
+});
+check('url.fileURLToPath convertit une URL file://', () => {
+  assertEqual(urlMod.fileURLToPath('file:///tmp/Note%20A.md'), '/tmp/Note A.md');
+});
+check('url.pathToFileURL construit une URL file://', () => {
+  const fichier = urlMod.pathToFileURL('/tmp/Note.md');
+  assertEqual(fichier.href, 'file:///tmp/Note.md');
+  assertEqual(String(fichier), 'file:///tmp/Note.md');
+});
+
+console.log('os.version');
+check('os.version() et os.release() renvoient la version du noyau', () => {
+  const osMod = require('os');
+  const version = osMod.version();
+  const release = osMod.release();
+  assert(typeof version === 'string' && version.length > 0, 'version vide');
+  assert(typeof release === 'string' && release.length > 0, 'release vide');
+  assertEqual(osMod.platform(), 'linux');
+});
+
+console.log('surface electron.remote');
+check('remote.app.getPreferredSystemLanguages renvoie des langues', () => {
+  const langues = sandbox.electron.remote.app.getPreferredSystemLanguages();
+  assert(Array.isArray(langues) && langues.length > 0, 'aucune langue');
+});
+check('remote.getCurrentWindow expose l’état fenêtré sous forme de méthodes', () => {
+  const fenetre = sandbox.electron.remote.getCurrentWindow();
+  for (const membre of ['minimizable', 'maximizable', 'closable', 'isFullScreen', 'isMaximized', 'isFocused']) {
+    assert(typeof fenetre[membre] === 'function', membre + ' doit être une méthode');
+  }
+  assert(typeof fenetre.webContents.getZoomFactor === 'function', 'getZoomFactor manquant');
+  assertEqual(fenetre.webContents.getZoomFactor(), 1);
+});
+check('nativeTheme.removeAllListeners est chaînable', () => {
+  const theme = sandbox.electron.nativeTheme;
+  const retour = theme.removeAllListeners('updated');
+  assert(retour === theme, 'removeAllListeners doit retourner l’émetteur');
+  assert(typeof theme.on === 'function', 'on manquant');
+});
+
+console.log('chaîne d’acceptation lue à l’exécution');
+check('lireChaineAcceptation lit la constante dans un faux ASAR', () => {
+  assertEqual(lireChaineAcceptation(fauxAsarPath), acceptationFake);
+});
+check('lireChaineAcceptation renvoie null si l’application est absente', () => {
+  const absent = join(vault, 'absence.asar');
+  assertEqual(lireChaineAcceptation(absent), null);
+});
+check('sendSync("terms") renvoie la chaîne lue depuis l’ASAR', () => {
+  assertEqual(sandbox.electron.ipcRenderer.sendSync('terms'), acceptationFake);
+});
+check('sendSync("terms") renvoie null (jamais vide) si aucune application', () => {
+  sandbox.window.__OBSIDIAN_APP_ASAR__ = undefined;
+  const termes = sandbox.electron.ipcRenderer.sendSync('terms');
+  assert(termes === null || termes === undefined, 'terms ne doit pas être une chaîne vide');
+});
+
 console.log('transport');
 check('les requêtes sont bien synchrones', () => {
   assert(sentRequests.length > 0, 'aucune requête envoyée');
@@ -481,6 +621,7 @@ console.log(
 engine.child.kill('SIGTERM');
 await worker.terminate();
 rmSync(vault, { recursive: true, force: true });
+rmSync(fauxAsarPath, { force: true });
 
 console.log('');
 console.log('résultat : ' + passed + ' ok, ' + failed + ' échec(s)');

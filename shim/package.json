@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Shim navigateur (window.require / window.process / window.electron) pour le moteur obsidian-rs",
+  "type": "module",
   "scripts": {
     "test": "node test-sync.mjs"
   }
