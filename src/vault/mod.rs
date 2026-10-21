@@ -23,6 +23,7 @@ pub mod meta;
 pub mod note;
 pub mod ops;
 pub mod outline;
+pub mod pdf;
 pub mod plugins_manifest;
 pub mod properties;
 pub mod publish;
