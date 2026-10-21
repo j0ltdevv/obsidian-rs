@@ -204,6 +204,10 @@ pub enum Message {
     Autosave,
     /// Bascule le tri de l'Explorer (alphabétique / ordre du vault).
     ToggleSort,
+    /// Exporte le vault en archive ZIP.
+    VaultExportZip(String),
+    /// Importe une archive ZIP dans le vault.
+    VaultImportZip(String),
 }
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
@@ -691,6 +695,29 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::ToggleSort => {
             app.sort_alpha = !app.sort_alpha;
+        }
+        Message::VaultExportZip(dest) => {
+            let dest = PathBuf::from(dest);
+            match crate::vault::vault_archive::export_vault_zip(&app.vault_root, &dest) {
+                Ok(()) => app.error = None,
+                Err(error) => {
+                    app.error = Some(format!("Export zip impossible : {error}"));
+                }
+            }
+        }
+        Message::VaultImportZip(source) => {
+            let source = PathBuf::from(source);
+            match crate::vault::vault_archive::import_vault_zip(&source, &app.vault_root) {
+                Ok(count) => {
+                    app.error = None;
+                    if count > 0 {
+                        return update(app, Message::Refresh);
+                    }
+                }
+                Err(error) => {
+                    app.error = Some(format!("Import zip impossible : {error}"));
+                }
+            }
         }
         Message::SaveNote => {
             if !acquire_write_lock(&app.vault_root) {

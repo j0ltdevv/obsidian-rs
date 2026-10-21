@@ -212,6 +212,26 @@ fn settings_overlay<'a>(app: &'a App) -> Element<'a, Message> {
         .spacing(8),
         text(format!("Thème : {}", app.current_theme)).size(13),
         text("Raccourcis (hotkeys.json)").size(13),
+        text("Vault").size(13),
+        row![
+            button(text("Exporter .zip"))
+                .on_press(Message::VaultExportZip(
+                    app.vault_root
+                        .join("vault-export.zip")
+                        .display()
+                        .to_string(),
+                ))
+                .style(ghost_button_style),
+            button(text("Importer .zip"))
+                .on_press(Message::VaultImportZip(
+                    app.vault_root
+                        .join("vault-import.zip")
+                        .display()
+                        .to_string(),
+                ))
+                .style(ghost_button_style),
+        ]
+        .spacing(8),
     ]
     .spacing(12)
     .padding(20);
