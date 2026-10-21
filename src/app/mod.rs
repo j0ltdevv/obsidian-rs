@@ -116,6 +116,14 @@ pub enum Message {
     ToggleRightSidebar,
     /// Redimensionne un panneau (pane_grid).
     PaneResized(iced::widget::pane_grid::ResizeEvent),
+    /// Démarre le renommage d'une pièce jointe.
+    AttachmentRenameStart(PathBuf),
+    /// Édite le nom (sans extension) du renommage courant.
+    AttachmentRenameChange(String),
+    /// Valide le renommage de la pièce jointe.
+    AttachmentRenameCommit,
+    /// Met une pièce jointe à la corbeille.
+    AttachmentDelete(PathBuf),
     /// Ferme la palette de commandes.
     CloseCommandPalette,
     /// Change la requête de la palette (résultats recalculés).
@@ -355,6 +363,8 @@ pub enum SidebarTab {
     Backlinks,
     /// Mini-calendrier (notes journalières).
     Calendrier,
+    /// Pièces jointes du vault.
+    Attachments,
 }
 
 /// Contenu d'un panneau redimensionnable de l'espace de travail.
@@ -498,6 +508,10 @@ pub struct App {
     pub sidebar_tab: SidebarTab,
     /// État des panneaux redimensionnables (pane_grid).
     pub pane_state: iced::widget::pane_grid::State<PaneKind>,
+    /// Inventaire des pièces jointes du vault.
+    pub attachments: Vec<crate::vault::attachments::Attachment>,
+    /// Renommage d'une pièce jointe : (chemin, nouveau nom sans extension).
+    pub attachment_rename: Option<(PathBuf, String)>,
 }
 /// `true` si la note doit être ignorée par l'Explorer : à l'intérieur du
 /// dossier de gabarits configuré ou dans un dossier `.archive`.
@@ -721,6 +735,8 @@ pub fn boot() -> (App, Task<Message>) {
         show_left_sidebar: true,
         sidebar_tab: SidebarTab::Explorer,
         pane_state,
+        attachments: Vec::new(),
+        attachment_rename: None,
         open_tabs: Vec::new(),
         open_tabs_active: 0,
         open_buffers: HashMap::new(),
@@ -815,6 +831,8 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 .ok()
                 .map(|notes| AliasIndex::build(notes));
             app.canvas = canvas;
+            app.attachments =
+                crate::vault::attachments::scan_attachments(&app.vault_root).unwrap_or_default();
             if let Ok(notes) = &app.notes {
                 let present: HashSet<PathBuf> = notes.iter().map(|n| n.path.clone()).collect();
                 app.selected_note_paths.retain(|p| present.contains(p));
@@ -1184,6 +1202,85 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             app.pane_state.resize(event.split, event.ratio);
             let ratios = pane_ratios(&app.pane_state);
             save_pane_ratios(&app.vault_root, &ratios);
+        }
+        Message::AttachmentRenameStart(path) => {
+            let base = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            app.attachment_rename = Some((path, base));
+        }
+        Message::AttachmentRenameChange(name) => {
+            if let Some((_, current)) = &mut app.attachment_rename {
+                *current = name;
+            }
+        }
+        Message::AttachmentRenameCommit => {
+            let Some((path, new_name)) = app.attachment_rename.take() else {
+                return Task::none();
+            };
+            let new_name = new_name.trim().to_string();
+            if new_name.is_empty() {
+                app.error = Some("Nom de pièce jointe vide.".to_string());
+                return Task::none();
+            }
+            let candidate = Path::new(&new_name);
+            if candidate.is_absolute() || candidate.components().count() > 1 {
+                app.error = Some("Nom invalide (chemins interdits).".to_string());
+                return Task::none();
+            }
+            let ext = path.extension().map(|e| e.to_string_lossy().into_owned());
+            let mut to = path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| PathBuf::from(""));
+            to.push(&new_name);
+            if let Some(ext) = ext {
+                to.set_extension(ext);
+            }
+            if !acquire_write_lock(&app.vault_root) {
+                app.error = Some(
+                    "Vault verrouillé par une autre instance (fichier .obsidian/lock).".to_string(),
+                );
+                return Task::none();
+            }
+            let result = fs::rename(app.vault_root.join(&path), app.vault_root.join(&to));
+            release_write_lock(&app.vault_root, true);
+            match result {
+                Ok(()) => {
+                    app.error = None;
+                    return update(app, Message::Refresh);
+                }
+                Err(error) => {
+                    app.error = Some(format!("Renommage impossible : {error}"));
+                }
+            }
+        }
+        Message::AttachmentDelete(path) => {
+            if !acquire_write_lock(&app.vault_root) {
+                app.error = Some(
+                    "Vault verrouillé par une autre instance (fichier .obsidian/lock).".to_string(),
+                );
+                return Task::none();
+            }
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+                .to_string();
+            let target = app.vault_root.join(&path);
+            let trash = app.vault_root.join(".trash").join(&stamp).join(&path);
+            if let Some(parent) = trash.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let result = fs::rename(&target, &trash);
+            release_write_lock(&app.vault_root, true);
+            if result.is_err() {
+                app.error = Some("Suppression de la pièce jointe impossible.".to_string());
+            } else {
+                app.error = None;
+                return update(app, Message::Refresh);
+            }
         }
         Message::CloseTab(path) => {
             if let Some(i) = app.open_tabs.iter().position(|p| *p == path) {

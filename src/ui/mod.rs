@@ -919,6 +919,11 @@ fn sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
             app.sidebar_tab == SidebarTab::Calendrier,
             Message::SetSidebarTab(SidebarTab::Calendrier),
         ),
+        tab_btn(
+            "Pièces jointes",
+            app.sidebar_tab == SidebarTab::Attachments,
+            Message::SetSidebarTab(SidebarTab::Attachments),
+        ),
     ]
     .spacing(4)
     .padding([4, 8]);
@@ -929,6 +934,7 @@ fn sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         SidebarTab::Tags => tags_panel(app, notes),
         SidebarTab::Backlinks => backlinks_panel(app, notes),
         SidebarTab::Calendrier => calendar_widget(app),
+        SidebarTab::Attachments => attachments_panel(app),
     };
     column![tabs, content]
         .width(Length::Fill)
@@ -975,8 +981,63 @@ fn explorer_panel<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
         .into()
 }
 
-// Panneau Tags : liste des tags du vault avec leur compte ; clic → filtre
-// du graphe.
+// Panneau Pièces jointes : liste des fichiers non-note avec taille, bouton
+// de renommage (saisie inline) et suppression vers la corbeille.
+fn attachments_panel<'a>(app: &'a App) -> Element<'a, Message> {
+    if app.attachments.is_empty() {
+        return container(text("Aucune pièce jointe").size(12))
+            .padding(8)
+            .into();
+    }
+    let mut list = Column::new().spacing(4).width(Length::Fill);
+    for att in &app.attachments {
+        let size_kb = att.size as f64 / 1024.0;
+        let mut row_children: Vec<Element<'a, Message>> = vec![
+            text(&att.name).size(13).width(Length::Fill).into(),
+            text(format!("{size_kb:.1} Ko"))
+                .size(11)
+                .color(UNRESOLVED_COLOR)
+                .into(),
+        ];
+        if let Some((path, draft)) = &app.attachment_rename {
+            if *path == att.path {
+                row_children.push(
+                    text_input("Nouveau nom", draft)
+                        .on_input(Message::AttachmentRenameChange)
+                        .on_submit(Message::AttachmentRenameCommit)
+                        .padding(4)
+                        .width(Length::Fixed(140.0))
+                        .into(),
+                );
+                row_children.push(
+                    button(text("OK"))
+                        .on_press(Message::AttachmentRenameCommit)
+                        .style(primary_button_style)
+                        .into(),
+                );
+            }
+        } else {
+            row_children.push(
+                button(text("Renommer"))
+                    .on_press(Message::AttachmentRenameStart(att.path.clone()))
+                    .style(ghost_button_style)
+                    .into(),
+            );
+        }
+        row_children.push(
+            button(text("Supprimer"))
+                .on_press(Message::AttachmentDelete(att.path.clone()))
+                .style(ghost_button_style)
+                .into(),
+        );
+        let line = container(row(row_children).spacing(6))
+            .width(Length::Fill)
+            .padding([2, 6]);
+        list = list.push(line);
+    }
+    scrollable(list).into()
+}
+
 fn tags_panel<'a>(_app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
     use std::collections::BTreeMap;
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
