@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Test du shim obsidian-rs</title>
+    <style>
+      body {
+        font-family: ui-monospace, "DejaVu Sans Mono", monospace;
+        margin: 2rem;
+        background: #14161a;
+        color: #e6e6e6;
+      }
+      h1 {
+        font-size: 1.1rem;
+      }
+      .ok {
+        color: #6fce6f;
+      }
+      .ko {
+        color: #ff6b6b;
+      }
+      .info {
+        color: #9aa4b2;
+      }
+      pre {
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Test du shim obsidian-rs (pont synchrone)</h1>
+    <p class="info">
+      Démarrer le moteur&nbsp;:
+      <code>obsidian-engine --root &lt;vault&gt; --port 27123</code>, puis ouvrir
+      cette page avec <code>?port=27123</code> (le port est lu dans l'URL).
+    </p>
+    <pre id="sortie">en cours…</pre>
+
+    <script>
+      // Le port doit être connu AVANT le chargement du shim : le shim lit
+      // `window.__OBSIDIAN_ENGINE_PORT` à son installation.
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        window.__OBSIDIAN_ENGINE_PORT = Number(params.get('port') || 27123);
+      })();
+    </script>
+    <script src="browser-shim.js"></script>
+    <script>
+      (function () {
+        var sortie = document.getElementById('sortie');
+        var lignes = [];
+        var ok = 0;
+        var ko = 0;
+
+        function ecrire(texte) {
+          lignes.push(texte);
+          sortie.textContent = lignes.join('\n');
+        }
+
+        function verifier(libelle, fn) {
+          try {
+            fn();
+            ok += 1;
+            ecrire('OK    ' + libelle);
+          } catch (err) {
+            ko += 1;
+            ecrire('ÉCHEC ' + libelle + ' : ' + (err && err.message ? err.message : err));
+          }
+        }
+
+        function egal(actuel, attendu, message) {
+          var a = JSON.stringify(actuel);
+          var b = JSON.stringify(attendu);
+          if (a !== b) {
+            throw new Error((message || 'valeur inattendue') + ' : ' + a + ' != ' + b);
+          }
+        }
+
+        window.addEventListener('load', function () {
+          var fs = window.require('fs');
+          var path = window.require('path');
+          var crypto = window.require('crypto');
+
+          ecrire('moteur : ' + window.__OBSIDIAN_ENGINE__.endpoint);
+          ecrire('');
+
+          verifier('fs.readFileSync renvoie le contenu', function () {
+            egal(fs.readFileSync('Note.md', 'utf8'), '# Note\n\ncontenu de la note\n');
+          });
+          verifier('fs.existsSync renvoie true', function () {
+            egal(fs.existsSync('Note.md'), true);
+          });
+          verifier('fs.existsSync renvoie false', function () {
+            egal(fs.existsSync('Absent.md'), false);
+          });
+          verifier('path.join assemble les fragments', function () {
+            egal(path.join('dossier', 'Autre.md'), 'dossier/Autre.md');
+          });
+          verifier('la remontée hors du vault est refusée', function () {
+            var erreur = null;
+            try {
+              fs.readFileSync('../../etc/passwd', 'utf8');
+            } catch (err) {
+              erreur = err;
+            }
+            if (!erreur) {
+              throw new Error('une erreur était attendue');
+            }
+            egal(erreur.code, 'path_refused');
+          });
+          verifier('crypto.randomUUID renvoie un UUID v4', function () {
+            var uuid = crypto.randomUUID();
+            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(uuid)) {
+              throw new Error('UUID invalide : ' + uuid);
+            }
+          });
+          verifier('ipcRenderer.sendSync("vault") renvoie la racine', function () {
+            var info = window.electron.ipcRenderer.sendSync('vault');
+            if (!info || typeof info.path !== 'string') {
+              throw new Error('chemin manquant');
+            }
+            ecrire('      racine du vault : ' + info.path);
+          });
+
+          ecrire('');
+          ecrire('résultat : ' + ok + ' ok, ' + ko + ' échec(s)');
+        });
+      })();
+    </script>
+  </body>
+</html>
