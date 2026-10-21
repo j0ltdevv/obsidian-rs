@@ -1205,10 +1205,37 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 }
                 _ => PathBuf::from(format!("{new_name}.md")),
             };
+            let old_stem = from
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_string();
+            let new_stem = new_name.clone();
             match crate::vault::ops::move_note(&app.vault_root, &from, &to) {
                 Ok(()) => {
                     if app.open.as_ref().is_some_and(|o| o.path == from) {
                         app.open = None;
+                    }
+                    // Met à jour les wikilinks référents `[[ancien]]` → `[[nouveau]]`.
+                    if let Ok(notes) = &app.notes {
+                        for note in notes {
+                            if note.path == from {
+                                continue;
+                            }
+                            let Ok(source) = fs::read_to_string(app.vault_root.join(&note.path))
+                            else {
+                                continue;
+                            };
+                            if !source.contains(&format!("[[{old_stem}]]")) {
+                                continue;
+                            }
+                            let replaced = source
+                                .replace(&format!("[[{old_stem}]]"), &format!("[[{new_stem}]]"));
+                            if let Err(error) = write_note(&app.vault_root, &note.path, &replaced) {
+                                app.error =
+                                    Some(format!("Mise à jour des liens impossible : {error}"));
+                            }
+                        }
                     }
                     return update(app, Message::Refresh);
                 }

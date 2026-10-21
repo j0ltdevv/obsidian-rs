@@ -36,6 +36,7 @@ pub mod tasks;
 pub mod templates;
 pub mod themes;
 pub mod wikilinks;
+pub mod vault_archive;
 
 pub use note::{Note, NoteMetadata, Wikilink};
 pub use scan::scan_vault;
