@@ -210,6 +210,8 @@ pub enum Message {
     VaultImportZip(String),
     /// Fait cycler la profondeur du graphe local (1→2→3→1).
     GraphCycleDepth,
+    /// Fait cycler le filtre « modifiées depuis » (aucun→7j→30j→90j→aucun).
+    GraphCyclePeriod,
 }
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
@@ -730,6 +732,30 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 1 => 2,
                 2 => 3,
                 _ => 1,
+            };
+        }
+        Message::GraphCyclePeriod => {
+            let now = std::time::SystemTime::now();
+            const DAY: u64 = 86_400;
+            app.graph_filters.modified_after = match app.graph_filters.modified_after {
+                None => now.checked_sub(std::time::Duration::from_secs(7 * DAY)),
+                Some(since)
+                    if since
+                        <= now
+                            .checked_sub(std::time::Duration::from_secs(90 * DAY))
+                            .unwrap_or(std::time::UNIX_EPOCH) =>
+                {
+                    None
+                }
+                Some(since)
+                    if since
+                        <= now
+                            .checked_sub(std::time::Duration::from_secs(30 * DAY))
+                            .unwrap_or(std::time::UNIX_EPOCH) =>
+                {
+                    now.checked_sub(std::time::Duration::from_secs(90 * DAY))
+                }
+                Some(_) => now.checked_sub(std::time::Duration::from_secs(30 * DAY)),
             };
         }
         Message::SaveNote => {

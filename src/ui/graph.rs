@@ -106,6 +106,7 @@ impl GraphScene {
         size: Size,
         filters: &GraphFilters,
         drags: &HashMap<usize, (f32, f32)>,
+        mtimes: &std::collections::HashMap<std::path::PathBuf, std::time::SystemTime>,
     ) -> Self {
         let graph = build_graph(notes, index);
         let mut positions: HashMap<usize, Point> = HashMap::new();
@@ -124,7 +125,7 @@ impl GraphScene {
 
         // Notes visibles selon les filtres.
         let allowed: Vec<usize> = (0..notes.len())
-            .filter(|&i| filters.allows(&graph, notes, i))
+            .filter(|&i| filters.allows(&graph, notes, i, mtimes))
             .collect();
         if allowed.is_empty() {
             let edges = Vec::new();
@@ -449,7 +450,14 @@ pub fn graph_view<'a>(app: &'a App, notes: &'a [Note], size: Size) -> Element<'a
     let Some(index) = &app.index else {
         return container(text("Index absent")).into();
     };
-    let scene = GraphScene::layout(notes, index, size, &app.graph_filters, &app.graph_drags);
+    let scene = GraphScene::layout(
+        notes,
+        index,
+        size,
+        &app.graph_filters,
+        &app.graph_drags,
+        &app.file_mtimes,
+    );
 
     // Réutilise le programme persistant s'il a déjà été construit (la scène
     // est simplement remplacée), sinon en crée un. Le canevas reçoit une
@@ -482,6 +490,33 @@ pub fn graph_view<'a>(app: &'a App, notes: &'a [Note], size: Size) -> Element<'a
     toolbar = toolbar.push(
         button(text(format!("Profondeur {depth}")))
             .on_press(Message::GraphCycleDepth)
+            .style(super::ghost_button_style),
+    );
+    let period_label = match &app.graph_filters.modified_after {
+        None => "Depuis : tout",
+        Some(since) => {
+            let now = std::time::SystemTime::now();
+            const DAY: u64 = 86_400;
+            if *since
+                <= now
+                    .checked_sub(std::time::Duration::from_secs(90 * DAY))
+                    .unwrap_or(std::time::UNIX_EPOCH)
+            {
+                "Depuis : 90 j"
+            } else if *since
+                <= now
+                    .checked_sub(std::time::Duration::from_secs(30 * DAY))
+                    .unwrap_or(std::time::UNIX_EPOCH)
+            {
+                "Depuis : 30 j"
+            } else {
+                "Depuis : 7 j"
+            }
+        }
+    };
+    toolbar = toolbar.push(
+        button(text(period_label))
+            .on_press(Message::GraphCyclePeriod)
             .style(super::ghost_button_style),
     );
     toolbar = toolbar.push(
@@ -541,10 +576,24 @@ mod tests {
         let size = scene_size();
         let no_drags = HashMap::new();
 
-        let base = GraphScene::layout(&notes, &index, size, &GraphFilters::default(), &no_drags);
+        let base = GraphScene::layout(
+            &notes,
+            &index,
+            size,
+            &GraphFilters::default(),
+            &no_drags,
+            &HashMap::new(),
+        );
 
         let drags = HashMap::from([(0usize, (12.0, -7.0))]);
-        let dragged = GraphScene::layout(&notes, &index, size, &GraphFilters::default(), &drags);
+        let dragged = GraphScene::layout(
+            &notes,
+            &index,
+            size,
+            &GraphFilters::default(),
+            &drags,
+            &HashMap::new(),
+        );
 
         let base_0 = base.positions[&0];
         assert_eq!(
@@ -562,9 +611,23 @@ mod tests {
         let size = scene_size();
         let no_drags = HashMap::new();
 
-        let base = GraphScene::layout(&notes, &index, size, &GraphFilters::default(), &no_drags);
+        let base = GraphScene::layout(
+            &notes,
+            &index,
+            size,
+            &GraphFilters::default(),
+            &no_drags,
+            &HashMap::new(),
+        );
         let drags = HashMap::from([(0usize, (50.0, 40.0))]);
-        let dragged = GraphScene::layout(&notes, &index, size, &GraphFilters::default(), &drags);
+        let dragged = GraphScene::layout(
+            &notes,
+            &index,
+            size,
+            &GraphFilters::default(),
+            &drags,
+            &HashMap::new(),
+        );
 
         // Le curseur sur la position décalée touche le nœud déplacé.
         let moved = dragged.positions[&0];
@@ -585,6 +648,7 @@ mod tests {
             &index,
             size,
             &GraphFilters::default(),
+            &HashMap::new(),
             &HashMap::new(),
         );
         let program = GraphProgram::new(scene);

@@ -34,6 +34,8 @@ pub struct GraphFilters {
     /// Si défini, n'affiche que les notes de ce dossier (ou
     /// sous-dossiers).
     pub folder: Option<PathBuf>,
+    /// Si défini, n'affiche que les notes modifiées après cette date.
+    pub modified_after: Option<std::time::SystemTime>,
 }
 
 impl Default for GraphFilters {
@@ -43,12 +45,20 @@ impl Default for GraphFilters {
             local_depth: 1,
             tag: None,
             folder: None,
+            modified_after: None,
         }
     }
 }
+
 impl GraphFilters {
     /// `true` si la note d'indice `idx` doit être affichée.
-    pub fn allows(&self, graph: &Graph, notes: &[Note], idx: usize) -> bool {
+    pub fn allows(
+        &self,
+        graph: &Graph,
+        notes: &[Note],
+        idx: usize,
+        mtimes: &std::collections::HashMap<std::path::PathBuf, std::time::SystemTime>,
+    ) -> bool {
         let Some(note) = notes.get(idx) else {
             return false;
         };
@@ -68,6 +78,12 @@ impl GraphFilters {
         }
         if let Some(folder) = &self.folder {
             if !note.path.starts_with(folder) {
+                return false;
+            }
+        }
+        if let Some(since) = &self.modified_after {
+            let modified = mtimes.get(&note.path);
+            if !modified.is_some_and(|t| *t >= *since) {
                 return false;
             }
         }
@@ -188,6 +204,7 @@ pub fn build_graph(notes: &[Note], index: &NoteIndex) -> Graph {
 mod tests {
     use super::*;
     use crate::vault::note::NoteMetadata;
+    use std::collections::HashMap;
     use std::path::Path;
 
     fn note(path: &str, tags: &[&str]) -> Note {
@@ -221,8 +238,9 @@ mod tests {
         let index = NoteIndex::build_index(&notes);
         let graph = build_graph(&notes, &index);
         let filters = GraphFilters::default();
-        assert!(filters.allows(&graph, &notes, 0));
-        assert!(filters.allows(&graph, &notes, 2));
+        let mtimes = HashMap::new();
+        assert!(filters.allows(&graph, &notes, 0, &mtimes));
+        assert!(filters.allows(&graph, &notes, 2, &mtimes));
     }
 
     #[test]
@@ -234,9 +252,10 @@ mod tests {
             local_note: Some(PathBuf::from("A.md")),
             ..GraphFilters::default()
         };
-        assert!(filters.allows(&graph, &notes, 0));
-        assert!(!filters.allows(&graph, &notes, 1));
-        assert!(!filters.allows(&graph, &notes, 2));
+        let mtimes = HashMap::new();
+        assert!(filters.allows(&graph, &notes, 0, &mtimes));
+        assert!(!filters.allows(&graph, &notes, 1, &mtimes));
+        assert!(!filters.allows(&graph, &notes, 2, &mtimes));
     }
 
     #[test]
@@ -248,9 +267,10 @@ mod tests {
             tag: Some("projet".to_string()),
             ..GraphFilters::default()
         };
-        assert!(filters.allows(&graph, &notes, 0));
-        assert!(!filters.allows(&graph, &notes, 1));
-        assert!(filters.allows(&graph, &notes, 2));
+        let mtimes = HashMap::new();
+        assert!(filters.allows(&graph, &notes, 0, &mtimes));
+        assert!(!filters.allows(&graph, &notes, 1, &mtimes));
+        assert!(filters.allows(&graph, &notes, 2, &mtimes));
     }
 
     #[test]
@@ -262,7 +282,34 @@ mod tests {
             folder: Some(PathBuf::from("Dossier")),
             ..GraphFilters::default()
         };
-        assert!(!filters.allows(&graph, &notes, 0));
-        assert!(filters.allows(&graph, &notes, 2));
+        let mtimes = HashMap::new();
+        assert!(!filters.allows(&graph, &notes, 0, &mtimes));
+        assert!(filters.allows(&graph, &notes, 2, &mtimes));
+    }
+
+    #[test]
+    fn filtre_par_date_ne_garde_que_notes_modifiees_apres() {
+        let notes = sample_notes();
+        let index = NoteIndex::build_index(&notes);
+        let graph = build_graph(&notes, &index);
+        let now = std::time::SystemTime::now();
+        let mut mtimes = HashMap::new();
+        mtimes.insert(PathBuf::from("A.md"), now);
+        mtimes.insert(
+            PathBuf::from("B.md"),
+            now.checked_sub(std::time::Duration::from_secs(100 * 86_400))
+                .unwrap(),
+        );
+        mtimes.insert(PathBuf::from("Dossier/C.md"), now);
+        let filters = GraphFilters {
+            modified_after: Some(
+                now.checked_sub(std::time::Duration::from_secs(30 * 86_400))
+                    .unwrap(),
+            ),
+            ..GraphFilters::default()
+        };
+        assert!(filters.allows(&graph, &notes, 0, &mtimes));
+        assert!(!filters.allows(&graph, &notes, 1, &mtimes));
+        assert!(filters.allows(&graph, &notes, 2, &mtimes));
     }
 }
