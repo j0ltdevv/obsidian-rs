@@ -3,12 +3,11 @@
 //! Rendu pur : le plan est extrait du tampon d'édition (`OpenNote::content`),
 //! aucune I/O n'est effectuée ici.
 
-use iced::widget::{column, container, scrollable, text, Row};
+use iced::widget::{button, column, container, scrollable, text, Row};
 use iced::{Color, Element, Length};
 
 use crate::app::{App, Message};
 use crate::vault::outline::{extract_outline, OutlineEntry};
-
 /// Couleur du texte discret (aucune note, aucun titre).
 const MUTED_COLOR: Color = Color::from_rgb(0.55, 0.55, 0.58);
 /// Couleur d'un titre de niveau 1.
@@ -64,18 +63,22 @@ pub fn outline_view<'a>(app: &'a App) -> Element<'a, Message> {
                     .into()
             } else {
                 let mut entries = column![].spacing(4).width(Length::Fill);
-                for (level, title) in outline_rows(&outline) {
-                    let indent = f32::from(level.saturating_sub(1)) * INDENT_STEP;
+                for entry in &outline {
+                    let indent = f32::from(entry.level.saturating_sub(1)) * INDENT_STEP;
                     let line: Row<'a, Message> = Row::new()
                         .push(
-                            text(level_marker(level))
+                            text(level_marker(entry.level))
                                 .size(TITLE_SIZE)
-                                .color(level_color(level)),
+                                .color(level_color(entry.level)),
                         )
-                        .push(text(title).size(TITLE_SIZE))
+                        .push(text(entry.title.clone()).size(TITLE_SIZE))
                         .spacing(8)
                         .padding([2, indent as u16]);
-                    entries = entries.push(line);
+                    let clickable = button(line)
+                        .width(Length::Fill)
+                        .on_press(Message::OutlineScroll(entry.line))
+                        .style(crate::ui::ghost_button_style);
+                    entries = entries.push(clickable);
                 }
                 scrollable(container(entries).padding(12).width(Length::Fill)).into()
             }

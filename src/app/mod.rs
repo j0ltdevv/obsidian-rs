@@ -102,6 +102,8 @@ pub enum Message {
     DeleteSelected,
     /// Prend un snapshot global de tout le vault (copie de chaque note).
     TakeVaultSnapshot,
+    /// Déplace le curseur de l'éditeur sur la ligne du titre cliqué (Plan).
+    OutlineScroll(usize),
     /// Ouvre la palette de commandes.
     OpenCommandPalette,
     /// Ferme la palette de commandes.
@@ -1005,6 +1007,24 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.show_plugins = false;
                 app.show_search = false;
                 app.show_tasks = false;
+            }
+        }
+        Message::OutlineScroll(target_line) => {
+            app.show_outline = false;
+            if let Some(open) = &mut app.open {
+                let line_count = open.content.line_count();
+                let target_line = target_line.min(line_count.saturating_sub(1));
+                let current_line = open.content.cursor().position.line;
+                let delta = (target_line as i32) - (current_line as i32);
+                open.content
+                    .perform(text_editor::Action::Scroll { lines: delta });
+                open.content.move_to(text_editor::Cursor {
+                    position: text_editor::Position {
+                        line: target_line,
+                        column: 0,
+                    },
+                    selection: None,
+                });
             }
         }
         Message::ToggleSearch => {
@@ -2489,5 +2509,28 @@ mod tests {
         }
         assert!(found, "le snapshot doit contenir a.md et b.md");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn outline_scroll_fixe_le_curseur_sur_la_ligne_du_titre() {
+        let (mut app, _task) = boot();
+        app.open = Some(OpenNote {
+            path: PathBuf::from("a.md"),
+            name: "a".to_string(),
+            content: text_editor::Content::with_text("# Un\n## Deux\n# Trois"),
+            metadata: NoteMetadata {
+                frontmatter: None,
+                frontmatter_error: None,
+                wikilinks: Vec::new(),
+                tags: Vec::new(),
+            },
+            property_drafts: PropertyDrafts::default(),
+        });
+        app.show_outline = true;
+        let _ = update(&mut app, Message::OutlineScroll(1));
+        assert!(!app.show_outline, "le Plan doit se fermer après le clic");
+        let pos = app.open.as_ref().unwrap().content.cursor().position;
+        assert_eq!(pos.line, 1);
+        assert_eq!(pos.column, 0);
     }
 }
