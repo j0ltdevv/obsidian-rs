@@ -706,6 +706,10 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 .ok()
                 .map(|notes| AliasIndex::build(notes));
             app.canvas = canvas;
+            if let Ok(notes) = &app.notes {
+                let present: HashSet<PathBuf> = notes.iter().map(|n| n.path.clone()).collect();
+                app.selected_note_paths.retain(|p| present.contains(p));
+            }
             app.error = None;
             if let Some(query) = app.search_panel.as_ref().map(|s| s.query.clone()) {
                 let hits = search_results(app, &query);
@@ -1213,11 +1217,35 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     find.current = (find.current + 1) % find.occurrences;
                 }
             }
+            if let Some(find) = &app.find {
+                if let Some(open) = &mut app.open {
+                    if let Some((line, column)) =
+                        occurrence_line_col(&open.content.text(), &find.query, find.current)
+                    {
+                        open.content.move_to(text_editor::Cursor {
+                            position: text_editor::Position { line, column },
+                            selection: None,
+                        });
+                    }
+                }
+            }
         }
         Message::FindPrev => {
             if let Some(find) = &mut app.find {
                 if find.occurrences > 0 {
                     find.current = (find.current + find.occurrences - 1) % find.occurrences;
+                }
+            }
+            if let Some(find) = &app.find {
+                if let Some(open) = &mut app.open {
+                    if let Some((line, column)) =
+                        occurrence_line_col(&open.content.text(), &find.query, find.current)
+                    {
+                        open.content.move_to(text_editor::Cursor {
+                            position: text_editor::Position { line, column },
+                            selection: None,
+                        });
+                    }
                 }
             }
         }
@@ -1621,11 +1649,12 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 .join("snapshots")
                 .join("vault")
                 .join(&stamp);
+            let tmp_dir = snap_dir.with_extension(format!("{stamp}.tmp"));
             let mut errored = false;
             if let Ok(notes) = &app.notes {
                 for note in notes {
                     let source = app.vault_root.join(&note.path);
-                    let target = snap_dir.join(&note.path);
+                    let target = tmp_dir.join(&note.path);
                     if let Some(parent) = target.parent() {
                         if fs::create_dir_all(parent).is_err() {
                             errored = true;
@@ -1637,6 +1666,12 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                         break;
                     }
                 }
+            }
+            if !errored && fs::rename(&tmp_dir, &snap_dir).is_err() {
+                errored = true;
+            }
+            if errored {
+                let _ = fs::remove_dir_all(&tmp_dir);
             }
             release_write_lock(&app.vault_root, true);
             if errored {
@@ -2118,6 +2153,20 @@ fn count_occurrences(content: &str, query: &str) -> usize {
     content.match_indices(query).count()
 }
 
+/// Position (ligne, colonne, 0-based) de la `n`-ième occurrence de `query`
+/// dans `content`. Retourne `None` si `query` est vide ou si l'occurrence
+/// n'existe pas.
+fn occurrence_line_col(content: &str, query: &str, nth: usize) -> Option<(usize, usize)> {
+    if query.is_empty() {
+        return None;
+    }
+    let byte = content.match_indices(query).nth(nth).map(|(i, _)| i)?;
+    let prefix = &content[..byte];
+    let line = prefix.matches('\n').count();
+    let column = prefix.len() - prefix.rfind('\n').map(|i| i + 1).unwrap_or(0);
+    Some((line, column))
+}
+
 /// Résout une cible de lien (`[[cible]]` ou alias) vers les notes
 /// correspondantes. Combine l'index des wikilinks puis l'index des alias,
 /// en dédupliquant par chemin (l'ordre de l'index prime).
@@ -2448,6 +2497,16 @@ mod tests {
     }
 
     #[test]
+    fn occurrence_line_col_localise_bonne_ligne_colonne() {
+        assert_eq!(occurrence_line_col("un deux un", "un", 0), Some((0, 0)));
+        assert_eq!(occurrence_line_col("un deux un", "un", 1), Some((0, 8)));
+        assert_eq!(occurrence_line_col("a\nun b\nun", "un", 0), Some((1, 0)));
+        assert_eq!(occurrence_line_col("a\nun b\nun", "un", 1), Some((2, 0)));
+        assert_eq!(occurrence_line_col("abc", "x", 0), None);
+        assert_eq!(occurrence_line_col("abc", "", 0), None);
+    }
+
+    #[test]
     fn find_next_prev_cycle_dans_les_occurrences() {
         let (mut app, _task) = boot();
         app.open = Some(OpenNote {
@@ -2475,6 +2534,9 @@ mod tests {
         assert_eq!(app.find.as_ref().unwrap().current, 0);
         let _ = update(&mut app, Message::FindPrev);
         assert_eq!(app.find.as_ref().unwrap().current, 2);
+        let pos = app.open.as_ref().unwrap().content.cursor().position;
+        assert_eq!(pos.line, 0);
+        assert_eq!(pos.column, 16); // 3e « un » : 0, 8, 16
     }
 
     #[test]

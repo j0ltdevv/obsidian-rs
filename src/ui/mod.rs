@@ -406,31 +406,27 @@ fn folder_overlay<'a>(app: &'a App) -> Element<'a, Message> {
 // compactes, groupe haut et bas séparés.
 fn ribbon<'a>(app: &'a App) -> Element<'a, Message> {
     use iced::widget::button as btn;
-    let icon = |sym: String, msg| {
+    let icon = |sym: &'static str, msg| {
         btn(text(sym).size(16))
             .width(Length::Fill)
             .on_press(msg)
             .style(ghost_button_style)
     };
     let haut = column![
-        icon("⛁".to_string(), Message::Refresh),
-        icon("🕸".to_string(), Message::ToggleGraph),
-        icon("⌘".to_string(), Message::OpenCommandPalette),
-        icon("🔍".to_string(), Message::OpenSwitcher),
-        icon("📄".to_string(), Message::NewNoteOpen),
+        icon("⛁", Message::Refresh),
+        icon("🕸", Message::ToggleGraph),
+        icon("⌘", Message::OpenCommandPalette),
+        icon("🔍", Message::OpenSwitcher),
+        icon("📄", Message::NewNoteOpen),
     ]
     .spacing(4)
     .padding(4);
     let bas = column![
         icon(
-            if app.show_left_sidebar {
-                "◀".to_string()
-            } else {
-                "▶".to_string()
-            },
+            if app.show_left_sidebar { "◀" } else { "▶" },
             Message::ToggleLeftSidebar,
         ),
-        icon("⚙".to_string(), Message::ToggleSettings),
+        icon("⚙", Message::ToggleSettings),
     ];
     container(column![haut, text("").height(Length::Fill), bas])
         .width(48)
@@ -839,7 +835,7 @@ fn error_banner(error: &str) -> Element<'_, Message> {
 // Barre latérale gauche façon Obsidian : onglets Fichiers / Recherche / Tags
 // / Backlinks / Calendrier, avec le contenu de l'onglet actif en dessous.
 fn sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
-    let tab_btn = |label: String, active: bool, msg| {
+    let tab_btn = |label: &'static str, active: bool, msg| {
         button(text(label).size(12)).on_press(msg).style(if active {
             primary_button_style
         } else {
@@ -848,27 +844,27 @@ fn sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
     };
     let tabs = row![
         tab_btn(
-            "Fichiers".to_string(),
+            "Fichiers",
             app.sidebar_tab == SidebarTab::Explorer,
             Message::SetSidebarTab(SidebarTab::Explorer),
         ),
         tab_btn(
-            "Recherche".to_string(),
+            "Recherche",
             app.sidebar_tab == SidebarTab::Recherche,
             Message::SetSidebarTab(SidebarTab::Recherche),
         ),
         tab_btn(
-            "Tags".to_string(),
+            "Tags",
             app.sidebar_tab == SidebarTab::Tags,
             Message::SetSidebarTab(SidebarTab::Tags),
         ),
         tab_btn(
-            "Backlinks".to_string(),
+            "Backlinks",
             app.sidebar_tab == SidebarTab::Backlinks,
             Message::SetSidebarTab(SidebarTab::Backlinks),
         ),
         tab_btn(
-            "Calendrier".to_string(),
+            "Calendrier",
             app.sidebar_tab == SidebarTab::Calendrier,
             Message::SetSidebarTab(SidebarTab::Calendrier),
         ),
