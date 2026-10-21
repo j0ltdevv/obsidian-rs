@@ -849,14 +849,64 @@ fn sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
     let explorer = column![header, scrollable(tree_node(app, notes, Path::new(""), 0))]
         .width(Length::Fill)
         .height(Length::FillPortion(if app.show_calendar { 6 } else { 10 }));
-    if !app.show_calendar {
-        return explorer.into();
+
+    let mut children: Vec<Element<'a, Message>> = vec![explorer.into()];
+    if app.show_calendar {
+        children.push(calendar_widget(app));
     }
-    let calendar = calendar_widget(app);
-    column![explorer, calendar]
+    if app.show_backlinks {
+        children.push(backlinks_panel(app, notes));
+    }
+    column(children)
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
+}
+
+/// Panneau « Backlinks » : toutes les notes qui pointent vers la note
+/// ouverte. Chaque ligne ouvre la note référente.
+fn backlinks_panel<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
+    let open_path = match &app.open {
+        Some(open) => &open.path,
+        None => {
+            return container(text("Aucune note ouverte").size(12))
+                .padding(8)
+                .into();
+        }
+    };
+    let Some(index) = &app.index else {
+        return container(text("Index absent").size(12)).padding(8).into();
+    };
+    let Some(open_note) = notes.iter().find(|n| &n.path == open_path) else {
+        return container(text("Note introuvable").size(12))
+            .padding(8)
+            .into();
+    };
+    let backlinks = index.backlinks(open_note);
+    let mut list = Column::new().spacing(2).padding([4, 8]);
+    list = list.push(
+        row![
+            text("Backlinks").size(13).font(bold_font()),
+            text(format!("({})", backlinks.len())).size(12),
+            text("").width(Length::Fill),
+            button(text("Fermer"))
+                .on_press(Message::ToggleBacklinks)
+                .style(ghost_button_style),
+        ]
+        .spacing(6),
+    );
+    if backlinks.is_empty() {
+        list = list.push(text("Aucun lien entrant").size(12));
+    }
+    for note in backlinks {
+        list = list.push(
+            button(text(note.name.clone()).size(13))
+                .on_press(Message::OpenNote(note.path.clone()))
+                .style(ghost_button_style)
+                .width(Length::Fill),
+        );
+    }
+    container(scrollable(list)).style(panel_style).into()
 }
 
 /// Mini-calendrier mensuel : cliquez sur un jour pour ouvrir/créer sa note
@@ -1064,6 +1114,13 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
     let header = row![
         text(title).size(16).font(bold_font()),
         text("").width(Length::Fill),
+        button(if app.show_backlinks {
+            "Backlinks ✓"
+        } else {
+            "Backlinks"
+        })
+        .on_press(Message::ToggleBacklinks)
+        .style(ghost_button_style),
         button(text("Renommer"))
             .on_press(Message::ToggleRename(open.path.clone()))
             .style(ghost_button_style),

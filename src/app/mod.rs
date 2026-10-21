@@ -216,6 +216,8 @@ pub enum Message {
     ToggleCalendar,
     /// Ouvre la note journalière de la date ISO `AAAA-MM-JJ` (créée si absente).
     OpenDailyDate(String),
+    /// Bascule le panneau Backlinks de la note ouverte.
+    ToggleBacklinks,
 }
 pub struct NewNoteState {
     /// Nom de la note (sans extension).
@@ -421,6 +423,8 @@ pub struct App {
     pub sort_alpha: bool,
     /// Affiche le mini-calendrier dans la sidebar.
     pub show_calendar: bool,
+    /// Affiche le panneau Backlinks de la note ouverte.
+    pub show_backlinks: bool,
 }
 impl App {
     /// Scanne le vault donné et reconstitue notes + index.
@@ -539,6 +543,7 @@ pub fn boot() -> (App, Task<Message>) {
         file_mtimes: HashMap::new(),
         sort_alpha: false,
         show_calendar: false,
+        show_backlinks: false,
     };
     (app, Task::none())
 }
@@ -782,6 +787,9 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     app.error = Some(format!("Note du jour impossible : {error}"));
                 }
             }
+        }
+        Message::ToggleBacklinks => {
+            app.show_backlinks = !app.show_backlinks;
         }
         Message::SaveNote => {
             if !acquire_write_lock(&app.vault_root) {
