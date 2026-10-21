@@ -110,6 +110,8 @@ pub enum Message {
     SetSidebarTab(SidebarTab),
     /// Ouvre la palette de commandes.
     OpenCommandPalette,
+    /// Ferme l'onglet d'une note ouverte (active le voisin si besoin).
+    CloseTab(PathBuf),
     /// Ferme la palette de commandes.
     CloseCommandPalette,
     /// Change la requête de la palette (résultats recalculés).
@@ -363,6 +365,13 @@ pub struct App {
     pub vault_root: PathBuf,
     /// Note ouverte dans l'éditeur, si présente.
     pub open: Option<OpenNote>,
+    /// Onglets de notes ouvertes (chemins relatifs), dans l'ordre d'ouverture.
+    pub open_tabs: Vec<PathBuf>,
+    /// Indice de l'onglet actif dans `open_tabs`.
+    pub open_tabs_active: usize,
+    /// Tampons bruts non sauvegardés, indexés par chemin (préservés au
+    /// changement d'onglet).
+    pub open_buffers: HashMap<PathBuf, String>,
     /// Dossiers dépliés dans la barre latérale (chemins relatifs).
     pub expanded: HashSet<PathBuf>,
     /// Message d'erreur du dernier échec, affiché en bannière.
@@ -616,6 +625,9 @@ pub fn boot() -> (App, Task<Message>) {
         selected_note_paths: HashSet::new(),
         show_left_sidebar: true,
         sidebar_tab: SidebarTab::Explorer,
+        open_tabs: Vec::new(),
+        open_tabs_active: 0,
+        open_buffers: HashMap::new(),
     };
     (app, Task::none())
 }
@@ -1058,6 +1070,28 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::ToggleLeftSidebar => {
             app.show_left_sidebar = !app.show_left_sidebar;
+        }
+        Message::CloseTab(path) => {
+            if let Some(i) = app.open_tabs.iter().position(|p| *p == path) {
+                let was_active = app.open.as_ref().is_some_and(|o| o.path == path);
+                app.open_tabs.remove(i);
+                app.open_buffers.remove(&path);
+                if i < app.open_tabs_active {
+                    app.open_tabs_active = app.open_tabs_active.saturating_sub(1);
+                }
+                if was_active {
+                    if app.open_tabs.is_empty() {
+                        app.open = None;
+                        app.open_dirty = false;
+                        app.editor_undo.clear();
+                        app.editor_redo.clear();
+                    } else {
+                        let next = app.open_tabs[app.open_tabs_active.min(app.open_tabs.len() - 1)]
+                            .clone();
+                        open_note(app, &next);
+                    }
+                }
+            }
         }
         Message::SetSidebarTab(tab) => {
             app.sidebar_tab = tab;
@@ -1833,6 +1867,22 @@ fn open_note(app: &mut App, path: &Path) {
     app.recent.retain(|p| p != path);
     app.recent.insert(0, path.to_path_buf());
     app.recent.truncate(20);
+
+    // Met de côté le tampon non sauvegardé de la note courante avant de
+    // basculer vers une autre.
+    if let Some(open) = &app.open {
+        if open.path != *path && app.open_dirty {
+            app.open_buffers
+                .insert(open.path.clone(), open.content.text());
+        }
+    }
+
+    // Enregistre l'onglet et le marque actif.
+    if !app.open_tabs.iter().any(|p| p.as_path() == path) {
+        app.open_tabs.push(path.to_path_buf());
+    }
+    app.open_tabs_active = app.open_tabs.iter().position(|p| p == path).unwrap_or(0);
+
     let snapshot = app
         .notes
         .as_ref()
@@ -1858,6 +1908,23 @@ fn open_note(app: &mut App, path: &Path) {
     };
 
     let property_drafts = PropertyDrafts::from_frontmatter(&metadata.frontmatter);
+
+    // Restaure le tampon en cache (éditions non sauvegardées) s'il existe,
+    // sinon relit le contenu depuis le disque.
+    if let Some(cached) = app.open_buffers.get(path).cloned() {
+        app.open = Some(OpenNote {
+            path: path.to_path_buf(),
+            name,
+            content: text_editor::Content::with_text(&cached),
+            metadata,
+            property_drafts,
+        });
+        app.error = None;
+        app.open_dirty = true;
+        app.editor_undo.clear();
+        app.editor_redo.clear();
+        return;
+    }
 
     match fs::read_to_string(app.vault_root.join(path)) {
         Ok(source) => {
@@ -2641,5 +2708,88 @@ mod tests {
         let _ = update(&mut app, Message::SetSidebarTab(SidebarTab::Recherche));
         assert_eq!(app.sidebar_tab, SidebarTab::Recherche);
         assert!(app.search_panel.is_some());
+    }
+
+    #[test]
+    fn ouvrir_deux_notes_enregistre_onglets() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        dir.push(format!("obsidian-rs-tabs-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "a").unwrap();
+        std::fs::write(dir.join("b.md"), "b").unwrap();
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let (mut app, _task) = boot();
+        app.vault_root = dir.clone();
+        app.notes = notes;
+        let a = PathBuf::from("a.md");
+        let b = PathBuf::from("b.md");
+        let _ = update(&mut app, Message::OpenNote(a.clone()));
+        let _ = update(&mut app, Message::OpenNote(b.clone()));
+        assert_eq!(app.open_tabs, vec![a, b]);
+        assert_eq!(app.open_tabs_active, 1);
+        assert_eq!(app.open.as_ref().unwrap().name, "b");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn changer_donglet_preserve_le_tampon_non_sauvegardé() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        dir.push(format!("obsidian-rs-tabs-dirty-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "original a").unwrap();
+        std::fs::write(dir.join("b.md"), "original b").unwrap();
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let (mut app, _task) = boot();
+        app.vault_root = dir.clone();
+        app.notes = notes;
+        let a = PathBuf::from("a.md");
+        let b = PathBuf::from("b.md");
+        let _ = update(&mut app, Message::OpenNote(a.clone()));
+        app.open.as_mut().unwrap().content = text_editor::Content::with_text("édité a");
+        let _ = update(&mut app, Message::MarkDirty);
+        let _ = update(&mut app, Message::OpenNote(b.clone()));
+        let _ = update(&mut app, Message::OpenNote(a.clone()));
+        assert!(
+            app.open_dirty,
+            "le tampon édité doit être restauré comme sale"
+        );
+        assert_eq!(app.open.as_ref().unwrap().content.text(), "édité a");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fermer_longlet_actif_active_le_voisin() {
+        let mut dir = std::env::temp_dir();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        dir.push(format!("obsidian-rs-tabs-close-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "a").unwrap();
+        std::fs::write(dir.join("b.md"), "b").unwrap();
+        let (notes, _index) = App::rescan(&dir, "Templates");
+        let (mut app, _task) = boot();
+        app.vault_root = dir.clone();
+        app.notes = notes;
+        let a = PathBuf::from("a.md");
+        let b = PathBuf::from("b.md");
+        let _ = update(&mut app, Message::OpenNote(a.clone()));
+        let _ = update(&mut app, Message::OpenNote(b.clone()));
+        let _ = update(&mut app, Message::CloseTab(b.clone()));
+        assert_eq!(app.open_tabs, vec![a.clone()]);
+        assert_eq!(app.open.as_ref().unwrap().name, "a");
+        let _ = update(&mut app, Message::CloseTab(a.clone()));
+        assert!(app.open_tabs.is_empty());
+        assert!(app.open.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

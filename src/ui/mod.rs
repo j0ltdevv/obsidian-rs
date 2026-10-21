@@ -1235,6 +1235,35 @@ fn children_of<'a>(
     (subdirs.into_iter().collect(), files)
 }
 
+// Bandeau d'onglets des notes ouvertes (façon Obsidian) : un onglet par
+// note, clic pour activer, « × » pour fermer.
+fn tab_bar<'a>(app: &'a App) -> Element<'a, Message> {
+    let mut bar = Row::new().spacing(4);
+    for (i, path) in app.open_tabs.iter().enumerate() {
+        let name = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let active = i == app.open_tabs_active;
+        let label = button(text(name))
+            .on_press(Message::OpenNote(path.clone()))
+            .style(if active {
+                primary_button_style
+            } else {
+                ghost_button_style
+            });
+        let close = button(text("×"))
+            .on_press(Message::CloseTab(path.clone()))
+            .style(ghost_button_style);
+        bar = bar.push(row![label, close].spacing(2));
+    }
+    container(bar)
+        .width(Length::Fill)
+        .padding([2, 8])
+        .style(panel_style)
+        .into()
+}
+
 /// Panneau éditeur : en-tête (nom + bouton de sauvegarde) et zone d'édition.
 fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
     let Some(open) = &app.open else {
@@ -1286,7 +1315,7 @@ fn editor_panel<'a>(app: &'a App) -> Element<'a, Message> {
         .padding([8, 10])
         .height(Length::Fill);
 
-    let mut children: Vec<Element<'a, Message>> = vec![header.into()];
+    let mut children: Vec<Element<'a, Message>> = vec![tab_bar(app), header.into()];
     if let Some(find) = &app.find {
         let counter = if find.occurrences > 0 {
             format!("{}/{}", find.current + 1, find.occurrences)
