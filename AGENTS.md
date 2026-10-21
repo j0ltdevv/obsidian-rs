@@ -30,5 +30,7 @@ appliqué). Colle la sortie, pas une promesse.
 
 ## Hors périmètre (Phase 0 non validée)
 
-Pas d'ingénierie inverse d'Obsidian, pas de plugin, pas de sync : le propriétaire valide
-la Phase 0 avant tout développement de fonctionnalité.
+Pas de plugin, pas de sync. **2026-10-21 : le propriétaire a validé une reverse-engineering
+officielle d'Obsidian** via REA (`demonstrations/obsidian-rea/ANALYSE.md`). La règle clean-room
+reste en vigueur : on *déduit* le comportement des artefacts et on ne copie aucune ligne de
+code d'Obsidian (ou de tout autre client) dans ce dépôt.
