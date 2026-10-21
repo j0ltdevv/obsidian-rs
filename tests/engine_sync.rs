@@ -380,6 +380,54 @@ fn operations_dossier_et_metadonnees() {
     );
 }
 
+//  12. La racine du vault est accessible via le chemin relatif vide.
+#[test]
+fn racine_vault_accessible_par_chemin_vide() {
+    let vault = TempVault::new();
+    vault.write("Note.md", "# Note\n");
+    vault.write("sous/Extra.md", "# Extra\n");
+    let server = TestServer::start(&vault.root);
+
+    // `readdir` de la racine via le chemin vide : entrées de premier niveau,
+    // et rien en dehors du vault.
+    let entrees = sync_value(server.port, "fs.readdirSync", json!([""]));
+    assert_eq!(entrees, json!(["Note.md", "sous"]));
+    assert_eq!(
+        entrees.as_array().expect("liste des entrées").len(),
+        2,
+        "le readdir de la racine ne doit exposer que les entrées du vault"
+    );
+    assert_eq!(entrees, json!(vault.root_entries()));
+
+    // Le chemin réduit à des espaces désigne aussi la racine.
+    let entrees_espaces = sync_value(server.port, "fs.readdirSync", json!(["  "]));
+    assert_eq!(entrees_espaces, entrees);
+
+    // La racine est lisible (`existsSync`) et statistable (`statSync`).
+    assert_eq!(
+        sync_value(server.port, "fs.existsSync", json!([""])),
+        json!(true)
+    );
+    let stats = sync_value(server.port, "fs.statSync", json!([""]));
+    assert_eq!(stats["isDirectory"], json!(true));
+
+    // `readdir` d'un sous-dossier continue de fonctionner.
+    let entrees_sous = sync_value(server.port, "fs.readdirSync", json!(["sous"]));
+    assert_eq!(entrees_sous, json!(["Extra.md"]));
+
+    // Un chemin absolu et une remontée restent refusés.
+    assert_eq!(
+        sync_error(server.port, "fs.readdirSync", json!(["/etc"])),
+        "path_refused",
+        "un chemin absolu doit être refusé"
+    );
+    assert_eq!(
+        sync_error(server.port, "fs.readdirSync", json!(["../hors"])),
+        "path_refused",
+        "une remontée hors du vault doit être refusée"
+    );
+}
+
 /// 7. `ipc.vault.*` est réparti vers les handlers existants de l'API.
 #[test]
 fn canal_ipc_vault_repartit_vers_les_handlers() {

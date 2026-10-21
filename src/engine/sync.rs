@@ -33,6 +33,12 @@
 //! **exactement** la logique de `src/engine/paths.rs`, celle déjà utilisée par
 //! `api.rs` : aucune exception, aucune reimplémentation.
 //!
+//! **Seul cas particulier** : le chemin relatif vide (ou réduit à vidé après
+//! normalisation, comme `"."` ou `"./"`) désigne la racine du vault. Il est
+//! autorisé et listable (l'explorateur du renderer le lit pour peupler son
+//! arbre), sans pour autant affaiblir le confinement : un chemin absolu ou
+//! remontant (`..`) reste toujours refusé.
+//!
 //! Les opérations `path.*` sont des calculs de chaînes purs (aucun fichier
 //! n'est ouvert) : elles ne sont donc pas confinées, mais le résultat ne peut
 //! servir qu'à une opération `fs.*`, qui l'est.
@@ -200,16 +206,18 @@ fn check_encoding(args: &[Value], index: usize) -> SyncResult<()> {
 /// Confinement d'un chemin fourni par le shim.
 ///
 /// Le chemin passe par exactement la même logique que le reste du moteur :
-/// `paths::normalize_relative` (lexicale : ni vide, ni absolu, ni `..`) puis
-/// `paths::ensure_inside` (physique : le chemin canonisé doit rester sous
-/// la racine du vault, un lien symbolique sortant est donc refusé).
+/// `paths::normalize_relative` (lexicale : ni absolu, ni `..` ; la racine du
+/// vault est désignée par le chemin vide) puis `paths::ensure_inside`
+/// (physique : le chemin canonisé doit rester sous la racine du vault, un
+/// lien symbolique sortant est donc refusé).
 fn confined(engine: &Engine, raw: &str) -> SyncResult<PathBuf> {
     let relative = match paths::normalize_relative(raw) {
         Ok(relative) => relative,
         Err(paths::PathError::Empty) => {
-            // « . » (ou « ./ ») désigne la racine du vault : c'est le
-            // dossier courant du renderer, il est sous la racine par
-            // définition. Les autres chemins vides restent refusés.
+            // Le chemin vide (ou réduit à vidé) désigne la racine du vault :
+            // c'est le dossier courant du renderer, il est sous la racine par
+            // définition. Un chemin absolu ou remontant n'arrive jamais ici
+            // (il est refusé plus haut par `normalize_relative`).
             if is_vault_root(raw) {
                 return Ok(PathBuf::from("."));
             }
@@ -228,14 +236,15 @@ fn confined(engine: &Engine, raw: &str) -> SyncResult<PathBuf> {
     Ok(relative)
 }
 
-/// Le chemin désigne-t-il la racine du vault (« . », « ./ », …) ?
+/// Le chemin désigne-t-il la racine du vault (vide, « . », « ./ », …) ?
 ///
 /// Un chemin absolu ou remontant (`..`) n'est jamais considéré comme la
-/// racine : seuls des composants `.` (ou vides) sont acceptés.
+/// racine : seuls des composants `.` (ou vides) sont acceptés, y compris
+/// lorsque le chemin entier est vide ou réduit à des espaces.
 fn is_vault_root(raw: &str) -> bool {
     let trimmed = raw.trim();
-    !trimmed.is_empty()
-        && trimmed
+    trimmed.is_empty()
+        || trimmed
             .split('/')
             .all(|piece| piece.is_empty() || piece == ".")
 }
