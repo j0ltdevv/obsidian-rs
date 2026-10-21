@@ -428,7 +428,7 @@ fn parse_prefixe_bloc(line: &str) -> Option<(&str, SegmentStyle)> {
             let id = &reste[..fin];
             let after = reste[fin + 1..].trim_start();
             if !id.is_empty() && after.starts_with(':') {
-                return Some((reste, SegmentStyle::Footnote));
+                return Some((after[1..].trim_start(), SegmentStyle::Footnote));
             }
         }
     }
@@ -1508,7 +1508,7 @@ mod tests {
         let segs = render_markdown("[^1] : texte de note");
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].style, SegmentStyle::Footnote);
-        assert!(segs[0].text.contains("1] : texte"));
+        assert_eq!(segs[0].text, "texte de note");
     }
 
     #[test]
