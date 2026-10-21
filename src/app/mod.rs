@@ -728,6 +728,12 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.selected_note_paths.retain(|p| present.contains(p));
                 app.open_tabs.retain(|p| present.contains(p));
                 app.open_buffers.retain(|p, _| present.contains(p));
+                let n = app.open_tabs.len();
+                app.open_tabs_active = if n == 0 {
+                    0
+                } else {
+                    app.open_tabs_active.min(n - 1)
+                };
             }
             app.error = None;
             if let Some(query) = app.search_panel.as_ref().map(|s| s.query.clone()) {
@@ -1602,6 +1608,12 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     }
                     app.open_tabs.retain(|p| p != &path);
                     app.open_buffers.remove(&path);
+                    let n = app.open_tabs.len();
+                    app.open_tabs_active = if n == 0 {
+                        0
+                    } else {
+                        app.open_tabs_active.min(n - 1)
+                    };
                     return update(app, Message::Refresh);
                 }
                 Err(error) => {
@@ -1660,6 +1672,12 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 }
             }
             app.selected_note_paths = remaining;
+            let n = app.open_tabs.len();
+            app.open_tabs_active = if n == 0 {
+                0
+            } else {
+                app.open_tabs_active.min(n - 1)
+            };
             release_write_lock(&app.vault_root, true);
             if errored {
                 return Task::none();
