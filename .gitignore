@@ -1,3 +1,11 @@
 /target
 .omp/
 demo-vault/.obsidian/window.json
+
+demo-vault/.obsidian/obsidian-rs-state.json
+demo-vault/.obsidian/pane_layout.json
+# Captures et journaux de diagnostic de leur application (preuves conservées
+# sur la boîte instabox, jamais dans le dépôt).
+demonstrations/obsidian-rea/renderer-boot-electron-*.png
+demonstrations/obsidian-rea/renderer-boot-electron-cdp.json
+demonstrations/obsidian-rea/logs-electron-harness.stdout

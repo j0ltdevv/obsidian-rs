@@ -1,8 +1,0 @@
-[harnais] chaîne d'acceptation : 284 caractères
-[harnais] @electron/remote non activable : Invalid value used as weak map key
-[harnais] chargement de file:///data/home/obsidian-rea/asar-x1/index.html
-[renderer] [{"frame":{},"level":"info","message":"[preload] remote minimal installé","lineNumber":141,"sourceId":"/data/home/obsidian-rea/tools/preload-harness.js"},1,"[preload] remote minimal installé",141,"/data/home/obsidian-rea/tools/preload-harness.js"]
-[renderer] [{"frame":{},"level":"info","message":"%cObsidian Developer Console color:#7f6df2; font-size:40px; font-weight:bold;","lineNumber":1,"sourceId":"file:///data/home/obsidian-rea/asar-x1/app.js"},1,"%cObsidian Developer Console color:#7f6df2; font-size:40px; font-weight:bold;",1,"file:///data/home/obsidian-rea/asar-x1/app.js"]
-[harnais] fenêtre affichée
-[harnais] URL finale : file:///data/home/obsidian-rea/asar-x1/index.html
-[harnais] titre : New tab - vault - Obsidian 1.14.4

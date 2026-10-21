@@ -44,16 +44,25 @@ fn main() {
     std::env::set_var("OBSIDIAN_RS_ENGINE_URL", &adresse);
 
     tauri::Builder::default()
-        .setup(move |_application| {
+        .setup(move |application| {
+            // L'adresse du moteur doit être connue du front : on l'injecte
+            // dans la page avant tout script (un webview ne voit pas
+            // l'environnement du processus parent).
+            if let Some(fenetre) = application.get_webview_window("main") {
+                let _ = fenetre.eval(&format!("window.OBSIDIAN_ENGINE_URL = {adresse:?};"));
+            }
             println!("obsidian-rs : moteur prêt sur {adresse}");
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("fenêtre obsidian-rs")
-        .run(move |_application, _evenement| {
-            // La fenêtre se ferme : on arrête le moteur.
-            let _ = moteur.kill();
-            let _ = moteur.wait();
+        .run(move |_application, evenement| {
+            // La fenêtre se ferme : on arrête le moteur — uniquement à la
+            // sortie de l'application, pas au premier événement.
+            if let tauri::RunEvent::Exit = evenement {
+                let _ = moteur.kill();
+                let _ = moteur.wait();
+            }
         });
 }
 
