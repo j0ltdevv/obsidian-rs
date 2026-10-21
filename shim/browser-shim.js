@@ -430,6 +430,38 @@
       });
     }
   };
+  // `fs.promises` : **généré** à partir de l'API synchrone ci-dessus. Le
+  // moteur ne propose que des appels synchrones ; leur renderer en réclame
+  // des variantes asynchrones dont la liste évolue à chaque version. Plutôt
+  // que d'énumérer les méthodes une à une, on fabrique automatiquement une
+  // promesse pour chaque méthode synchrone existante (suffixe `Sync`), et
+  // les autres restent absentes : une méthode manquante vaut mieux qu'un
+  // `undefined` qui casse leur code sans message.
+  fsModule.promises = {};
+  Object.keys(fsModule).forEach(function (nomSync) {
+    if (nomSync.slice(-4) !== 'Sync') {
+      return;
+    }
+    var synchrone = fsModule[nomSync];
+    fsModule.promises[nomSync.slice(0, -4)] = function () {
+      var args = Array.prototype.slice.call(arguments);
+      return new Promise(function (resoudre, rejeter) {
+        try {
+          resoudre(synchrone.apply(fsModule, args));
+        } catch (err) {
+          rejeter(err);
+        }
+      });
+    };
+  });
+  // `realpath` n'a pas d'équivalent synchrone exposé par le moteur : on
+  // renvoie le chemin tel quel (confinement assuré par l'appelant).
+  if (typeof fsModule.promises.realpath !== 'function') {
+    fsModule.promises.realpath = function (file) {
+      return Promise.resolve(String(file));
+    };
+  }
+
   // Confinement des chemins avant envoi au moteur : tout chemin absolu situé
   // sous la racine du vault est traduit en chemin relatif ; un chemin absolu
   // hors de la racine est refusé explicitement (aucune fuite hors du vault).
@@ -1460,8 +1492,11 @@
     return {
       on: function () { return this; },
       once: function () { return this; },
-      emit: function () { return false; },
+      addListener: function () { return this; },
+      removeListener: function () { return this; },
+      off: function () { return this; },
       removeAllListeners: function () { return this; },
+      emit: function () { return false; },
       close: function () { return undefined; },
       ref: function () { return this; },
       unref: function () { return this; }

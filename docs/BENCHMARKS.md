@@ -63,7 +63,7 @@ code de l'application. D'où l'option `default-features = false` avec la feature
 | Runtime | Charge | PSS | RSS | Détail |
 |---|---|---|---|---|
 | **notre UI native** (iced + tiny-skia, release) | page Markdown réelle | **22,0 Mo** | 22,5 Mo | 1 processus, 10 threads — `pour-omp` |
-| **notre front `web/`** (Tauri 2 + WebKitGTK) | vault démo, note ouverte | **224 Mo** | 335 Mo | 105,8 Mo (Tauri) + 85,3 Mo (renderer WebKit) + 36,2 Mo (réseau) + 2,5 Mo (moteur) — `pour-omp` |
+| **notre front `web/`** (Tauri 2 + WebKitGTK) | vault démo, note ouverte | **223,9 Mo** (229 875 Ko) | 335 Mo | 105 827 Ko (Tauri) + 85 341 Ko (renderer WebKit) + 36 210 Ko (réseau) + 2 497 Ko (moteur) — `pour-omp` |
 | **notre UI native** (debug) | vault de 5 000 notes | **70,7 Mo** | 72,4 Mo | VmHWM = VmRSS : aucun pic — `hermes` |
 | **Tauri 2 + WebKitGTK** | page HTML **vide** | **286 Mo** | 467 Mo | 87,6 Mo (Tauri) + 176 Mo (WebKit) + 29 Mo (réseau) — `pour-omp` |
 | Tauri 2 + WebKitGTK + **CodeMirror 6** | un document ouvert | **395 Mo** | 576 Mo | banc `/data/home/tauri-probe` |
