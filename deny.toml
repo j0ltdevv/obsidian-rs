@@ -1,0 +1,18 @@
+[advisories]
+# Échoue sur toute vulnérabilité de niveau élevé.
+severity = "high"
+unmaintained = "warn"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "ISC",
+    "OFL-1.1",
+    "Unlicense",
+]
+confidence = 0.8
