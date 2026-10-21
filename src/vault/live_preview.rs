@@ -360,14 +360,21 @@ fn est_ligne_separation_tableau(line: &str) -> bool {
     if !trim.starts_with('|') {
         return false;
     }
+    // Chaque cellule doit être composée uniquement de `:`, `-`, espaces,
+    // et contenir au moins un `-` (sinon `| :note: |` serait mangé).
     let cells: Vec<&str> = trim.trim_matches('|').split('|').collect();
-    !cells.is_empty()
-        && cells.iter().all(|c| {
-            let c = c.trim();
-            c.starts_with(':')
-                || c.ends_with(':')
-                || c.trim_matches(':').chars().all(|ch| ch == '-')
-        })
+    if cells.is_empty() {
+        return false;
+    }
+    let mut any_dash = false;
+    for c in &cells {
+        let c = c.trim();
+        if c.is_empty() || !c.chars().all(|ch| matches!(ch, ':' | '-' | ' ')) {
+            return false;
+        }
+        any_dash |= c.contains('-');
+    }
+    any_dash
 }
 
 /// Nettoie une ligne de tableau : bordures `|` retirées, cellules
@@ -1519,5 +1526,12 @@ mod tests {
         content.perform(text_editor::Action::Edit(text_editor::Edit::Enter));
         content.perform(text_editor::Action::SelectAll);
         assert!(content.text().contains('\n'));
+    }
+
+    #[test]
+    fn ligne_avec_shortcode_non_separateur() {
+        let segs = render_markdown("| :note: | x |");
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].style, SegmentStyle::Table);
     }
 }

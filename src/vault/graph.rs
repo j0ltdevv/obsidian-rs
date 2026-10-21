@@ -22,11 +22,12 @@ pub struct Graph {
 }
 
 /// Filtres d'affichage du graphe.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct GraphFilters {
     /// Si défini, n'affiche que la note cible et ses voisins directs
     /// (graphe local autour de cette note).
     pub local_note: Option<PathBuf>,
+    /// Profondeur du graphe local (1 = voisins directs, 2/3 = plus loin).
     pub local_depth: usize,
     /// Si défini, n'affiche que les notes portant ce tag.
     pub tag: Option<String>,
@@ -35,6 +36,16 @@ pub struct GraphFilters {
     pub folder: Option<PathBuf>,
 }
 
+impl Default for GraphFilters {
+    fn default() -> Self {
+        Self {
+            local_note: None,
+            local_depth: 1,
+            tag: None,
+            folder: None,
+        }
+    }
+}
 impl GraphFilters {
     /// `true` si la note d'indice `idx` doit être affichée.
     pub fn allows(&self, graph: &Graph, notes: &[Note], idx: usize) -> bool {

@@ -1252,7 +1252,8 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                     if app.open.as_ref().is_some_and(|o| o.path == from) {
                         app.open = None;
                     }
-                    // Met à jour les wikilinks référents `[[ancien]]` → `[[nouveau]]`.
+                    // Met à jour les wikilinks référents (formes `[[x]]`,
+                    // `[[x|alias]]`, `[[x#titre]]`, `![[x]]`).
                     if let Ok(notes) = &app.notes {
                         for note in notes {
                             if note.path == from {
@@ -1262,14 +1263,14 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                             else {
                                 continue;
                             };
-                            if !source.contains(&format!("[[{old_stem}]]")) {
-                                continue;
-                            }
-                            let replaced = source
-                                .replace(&format!("[[{old_stem}]]"), &format!("[[{new_stem}]]"));
-                            if let Err(error) = write_note(&app.vault_root, &note.path, &replaced) {
-                                app.error =
-                                    Some(format!("Mise à jour des liens impossible : {error}"));
+                            let replaced = rewrite_wikilink_target(&source, &old_stem, &new_stem);
+                            if replaced != source {
+                                if let Err(error) =
+                                    write_note(&app.vault_root, &note.path, &replaced)
+                                {
+                                    app.error =
+                                        Some(format!("Mise à jour des liens impossible : {error}"));
+                                }
                             }
                         }
                     }
@@ -1288,8 +1289,14 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 return Task::none();
             };
             let target = app.vault_root.join(&path);
-            // Corbeille du vault : `.trash/` (préserve le chemin relatif).
-            let trash = app.vault_root.join(".trash").join(&path);
+            // Corbeille du vault : `.trash/<horodatage>/<chemin>` — préserve
+            // le chemin relatif et évite l'écrasement de versions précédentes.
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+                .to_string();
+            let trash = app.vault_root.join(".trash").join(&stamp).join(&path);
             if let Some(parent) = trash.parent() {
                 if fs::create_dir_all(parent).is_err() {
                     app.error = Some("Création de la corbeille impossible.".to_string());
@@ -1644,6 +1651,40 @@ fn make_snippet(content: &str, query: &str) -> String {
         let end = char_boundary(content, 80.min(content.len()));
         content[..end].to_string()
     }
+}
+
+/// Réécrit les cibles de wikilinks `[[ancien…]]` / `![[ancien…]]` vers
+/// `[[nouveau…]]` quand le jeton s'arrête avant `]]`, `|` ou `#`.
+fn rewrite_wikilink_target(source: &str, old: &str, new: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    let mut rest = source;
+    while let Some(lt) = rest.find('[') {
+        out.push_str(&rest[..lt]);
+        let after = &rest[lt..];
+        let prefix = if after.starts_with("![[") {
+            3
+        } else if after.starts_with("[[") {
+            2
+        } else {
+            out.push('[');
+            rest = &after[1..];
+            continue;
+        };
+        let link_tail = &after[prefix..];
+        if link_tail.starts_with(old) {
+            let after_old = &link_tail[old.len()..];
+            if matches!(after_old.chars().next(), Some(']' | '|' | '#')) {
+                out.push_str(&after[..prefix]);
+                out.push_str(new);
+                rest = after_old;
+                continue;
+            }
+        }
+        out.push_str(&after[..prefix]);
+        rest = link_tail;
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Crée la note journalière du jour (commande palette) puis l'ouvre.
@@ -2004,5 +2045,21 @@ mod tests {
         assert_eq!(app.current_theme, "light");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rewrite_wikilink_target_couvre_alias_section_embed() {
+        let src = "[[ancien]] [[ancien|alias]] [[ancien#titre]] ![[ancien]]";
+        let out = rewrite_wikilink_target(src, "ancien", "nouveau");
+        assert_eq!(
+            out,
+            "[[nouveau]] [[nouveau|alias]] [[nouveau#titre]] ![[nouveau]]"
+        );
+    }
+
+    #[test]
+    fn rewrite_wikilink_target_ignore_prefixes() {
+        let out = rewrite_wikilink_target("a [[anciens]] b", "ancien", "nouveau");
+        assert_eq!(out, "a [[anciens]] b");
     }
 }
