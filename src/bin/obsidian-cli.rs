@@ -16,7 +16,7 @@ fn usage() -> ! {
     std::process::exit(2);
 }
 
-fn cmd_notes(vault: &PathBuf) -> ExitCode {
+fn cmd_notes(vault: &std::path::Path) -> ExitCode {
     match obsidian_rs::vault::scan_vault(vault) {
         Ok(notes) => {
             for note in &notes {
@@ -31,7 +31,7 @@ fn cmd_notes(vault: &PathBuf) -> ExitCode {
     }
 }
 
-fn cmd_grep(vault: &PathBuf, pattern: &str) -> ExitCode {
+fn cmd_grep(vault: &std::path::Path, pattern: &str) -> ExitCode {
     let Ok(notes) = obsidian_rs::vault::scan_vault(vault) else {
         eprintln!("Impossible de scanner le vault.");
         return ExitCode::FAILURE;
@@ -53,7 +53,7 @@ fn cmd_grep(vault: &PathBuf, pattern: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn cmd_stats(vault: &PathBuf) -> ExitCode {
+fn cmd_stats(vault: &std::path::Path) -> ExitCode {
     match obsidian_rs::vault::scan_vault(vault) {
         Ok(notes) => {
             let mut total_lines = 0usize;
