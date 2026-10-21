@@ -24,7 +24,7 @@ use iced::widget::{
 };
 use iced::{Alignment, Background, Border, Color, Element, Font, Length};
 
-use crate::app::{App, Message};
+use crate::app::{App, Message, SidebarTab};
 use crate::vault::live_preview::{render_markdown, Segment, SegmentStyle};
 use crate::vault::{Note, Wikilink};
 
@@ -836,33 +836,76 @@ fn error_banner(error: &str) -> Element<'_, Message> {
     .into()
 }
 
-/// Barre latérale : arborescence des notes, dossiers repliables.
+// Barre latérale gauche façon Obsidian : onglets Fichiers / Recherche / Tags
+// / Backlinks / Calendrier, avec le contenu de l'onglet actif en dessous.
 fn sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
-    let header = row![
-        text("Explorer").size(14).font(bold_font()),
-        text("").width(Length::Fill),
+    let tab_btn = |label: String, active: bool, msg| {
+        button(text(label).size(12)).on_press(msg).style(if active {
+            primary_button_style
+        } else {
+            ghost_button_style
+        })
+    };
+    let tabs = row![
+        tab_btn(
+            "Fichiers".to_string(),
+            app.sidebar_tab == SidebarTab::Explorer,
+            Message::SetSidebarTab(SidebarTab::Explorer),
+        ),
+        tab_btn(
+            "Recherche".to_string(),
+            app.sidebar_tab == SidebarTab::Recherche,
+            Message::SetSidebarTab(SidebarTab::Recherche),
+        ),
+        tab_btn(
+            "Tags".to_string(),
+            app.sidebar_tab == SidebarTab::Tags,
+            Message::SetSidebarTab(SidebarTab::Tags),
+        ),
+        tab_btn(
+            "Backlinks".to_string(),
+            app.sidebar_tab == SidebarTab::Backlinks,
+            Message::SetSidebarTab(SidebarTab::Backlinks),
+        ),
+        tab_btn(
+            "Calendrier".to_string(),
+            app.sidebar_tab == SidebarTab::Calendrier,
+            Message::SetSidebarTab(SidebarTab::Calendrier),
+        ),
+    ]
+    .spacing(4)
+    .padding([4, 8]);
+
+    let content: Element<'a, Message> = match app.sidebar_tab {
+        SidebarTab::Explorer => explorer_panel(app, notes),
+        SidebarTab::Recherche => search_sidebar_panel(app, notes),
+        SidebarTab::Tags => tags_panel(app, notes),
+        SidebarTab::Backlinks => backlinks_panel(app, notes),
+        SidebarTab::Calendrier => calendar_widget(app),
+    };
+    column![tabs, content]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+}
+
+// Panneau Fichiers : barre d'outils (tri, dossier) + arborescence.
+fn explorer_panel<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
+    let toolbar = row![
         button(if app.sort_alpha {
             "Tri A→Z ✓"
         } else {
             "Tri A→Z"
         })
         .on_press(Message::ToggleSort)
-        .style(crate::ui::ghost_button_style),
-        button(if app.show_calendar {
-            "Calendrier ✓"
-        } else {
-            "Calendrier"
-        })
-        .on_press(Message::ToggleCalendar)
-        .style(crate::ui::ghost_button_style),
+        .style(ghost_button_style),
         button(text("+ Dossier"))
             .on_press(Message::FolderDialogOpen)
-            .style(crate::ui::ghost_button_style),
+            .style(ghost_button_style),
     ]
-    .spacing(8)
-    .padding([4, 8]);
-    let mut explorer_children: Vec<Element<'a, Message>> =
-        vec![tree_node(app, notes, Path::new(""), 0)];
+    .spacing(6)
+    .padding([2, 8]);
+    let mut children: Vec<Element<'a, Message>> = vec![tree_node(app, notes, Path::new(""), 0)];
     if !app.selected_note_paths.is_empty() {
         let n = app.selected_note_paths.len();
         let bar = row![
@@ -870,27 +913,81 @@ fn sidebar<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
             text("").width(Length::Fill),
             button(text("Effacer"))
                 .on_press(Message::ClearSelection)
-                .style(crate::ui::ghost_button_style),
+                .style(ghost_button_style),
             button(text("Supprimer"))
                 .on_press(Message::DeleteSelected)
-                .style(crate::ui::primary_button_style),
+                .style(primary_button_style),
         ]
         .spacing(6)
         .padding([2, 8]);
-        explorer_children.push(bar.into());
+        children.push(bar.into());
     }
-    let explorer = column![header, scrollable(column(explorer_children).spacing(2))]
+    column![toolbar, scrollable(column(children).spacing(2))]
         .width(Length::Fill)
-        .height(Length::FillPortion(if app.show_calendar { 6 } else { 10 }));
+        .height(Length::Fill)
+        .into()
+}
 
-    let mut children: Vec<Element<'a, Message>> = vec![explorer.into()];
-    if app.show_calendar {
-        children.push(calendar_widget(app));
+// Panneau Tags : liste des tags du vault avec leur compte ; clic → filtre
+// du graphe.
+fn tags_panel<'a>(_app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
+    use std::collections::BTreeMap;
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for note in notes {
+        for tag in &note.metadata.tags {
+            *counts.entry(tag.clone()).or_default() += 1;
+        }
     }
-    if app.show_backlinks {
-        children.push(backlinks_panel(app, notes));
+    if counts.is_empty() {
+        return container(text("Aucun tag").size(12)).padding(8).into();
     }
-    column(children)
+    let mut list = Column::new().spacing(2).width(Length::Fill);
+    for (tag, n) in counts {
+        let row = button(
+            row![
+                text(format!("#{tag}")).size(13),
+                text("").width(Length::Fill),
+                text(n.to_string()).size(12).color(UNRESOLVED_COLOR),
+            ]
+            .spacing(6),
+        )
+        .width(Length::Fill)
+        .on_press(Message::GraphFilterTag(tag.clone()))
+        .style(ghost_button_style);
+        list = list.push(row);
+    }
+    scrollable(list).into()
+}
+
+// Panneau Recherche : zone de saisie + résultats (extraits) ouvrant les notes.
+fn search_sidebar_panel<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
+    let query = app
+        .search_panel
+        .as_ref()
+        .map(|state| state.query.clone())
+        .unwrap_or_default();
+    let input = text_input("Rechercher dans le vault…", &query)
+        .on_input(Message::SearchQuery)
+        .padding(6);
+    let mut results = Column::new().spacing(2).width(Length::Fill);
+    if let Some(state) = &app.search_panel {
+        for hit in &state.results {
+            if let Some(note) = notes.get(hit.index) {
+                let line = button(
+                    column![
+                        text(&note.name).size(13).width(Length::Fill),
+                        text(&hit.snippet).size(11).color(UNRESOLVED_COLOR),
+                    ]
+                    .spacing(2),
+                )
+                .width(Length::Fill)
+                .on_press(Message::OpenNote(note.path.clone()))
+                .style(ghost_button_style);
+                results = results.push(line);
+            }
+        }
+    }
+    column![input, scrollable(results)]
         .width(Length::Fill)
         .height(Length::Fill)
         .into()

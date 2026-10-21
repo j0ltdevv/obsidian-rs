@@ -106,6 +106,8 @@ pub enum Message {
     OutlineScroll(usize),
     /// Bascule l'affichage de la sidebar gauche.
     ToggleLeftSidebar,
+    /// Change l'onglet actif de la sidebar gauche.
+    SetSidebarTab(SidebarTab),
     /// Ouvre la palette de commandes.
     OpenCommandPalette,
     /// Ferme la palette de commandes.
@@ -334,6 +336,21 @@ impl PropertyDrafts {
     }
 }
 
+/// Onglet actif de la sidebar gauche (façon Obsidian).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarTab {
+    /// Explorateur de fichiers.
+    Explorer,
+    /// Recherche full-text.
+    Recherche,
+    /// Liste des tags du vault.
+    Tags,
+    /// Backlinks de la note ouverte.
+    Backlinks,
+    /// Mini-calendrier (notes journalières).
+    Calendrier,
+}
+
 /// État global de l'application.
 pub struct App {
     /// Résultat du dernier scan : liste des notes ou message d'erreur.
@@ -449,6 +466,8 @@ pub struct App {
     pub show_left_sidebar: bool,
     /// Notes sélectionnées dans l'explorateur (sélection multiple).
     pub selected_note_paths: HashSet<PathBuf>,
+    /// Onglet actif de la sidebar gauche.
+    pub sidebar_tab: SidebarTab,
 }
 /// `true` si la note doit être ignorée par l'Explorer : à l'intérieur du
 /// dossier de gabarits configuré ou dans un dossier `.archive`.
@@ -596,6 +615,7 @@ pub fn boot() -> (App, Task<Message>) {
         show_backlinks: false,
         selected_note_paths: HashSet::new(),
         show_left_sidebar: true,
+        sidebar_tab: SidebarTab::Explorer,
     };
     (app, Task::none())
 }
@@ -1034,6 +1054,16 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::ToggleLeftSidebar => {
             app.show_left_sidebar = !app.show_left_sidebar;
+        }
+        Message::SetSidebarTab(tab) => {
+            app.sidebar_tab = tab;
+            if tab == SidebarTab::Recherche && app.search_panel.is_none() {
+                let hits = search_results(app, "");
+                app.search_panel = Some(SearchPanelState {
+                    query: String::new(),
+                    results: hits,
+                });
+            }
         }
         Message::ToggleSearch => {
             app.show_search = !app.show_search;
@@ -2540,5 +2570,14 @@ mod tests {
         let pos = app.open.as_ref().unwrap().content.cursor().position;
         assert_eq!(pos.line, 1);
         assert_eq!(pos.column, 0);
+    }
+
+    #[test]
+    fn tab_recherche_initialise_le_panneau_search() {
+        let (mut app, _task) = boot();
+        assert!(app.search_panel.is_none());
+        let _ = update(&mut app, Message::SetSidebarTab(SidebarTab::Recherche));
+        assert_eq!(app.sidebar_tab, SidebarTab::Recherche);
+        assert!(app.search_panel.is_some());
     }
 }
