@@ -5,6 +5,11 @@
 //! feuille de style `style.css` unique. Les pièces jointes référencées par
 //! `![[…]]` sont copiées dans `assets/` et référencées en relatif.
 //!
+//! Les wikilinks `[[cible]]` sont résolus vers les notes du vault et rendus
+//! en `<a href="cible.html">` (les cibles inconnues restent du texte, sans
+//! lien mort). Chaque page termine par une section `Backlinks` listant les
+//! notes qui la citent, calculée pendant l'export.
+//!
 //! Sécurité :
 //! - le HTML est produit à partir des segments de [`super::live_preview`]
 //!   (aucun nouveau moteur Markdown), et tout texte utilisateur est échappé
@@ -16,7 +21,7 @@
 //!   est refusé, afin qu'aucune écriture ne sorte du répertoire de
 //!   destination.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::Write as FmtWrite;
 use std::fs::{self, File};
 use std::io::Write;
@@ -52,6 +57,23 @@ pub enum PublishError {
     /// Erreur d'entrée-sortie.
     #[error("erreur d'entrée-sortie : {0}")]
     Io(#[from] std::io::Error),
+}
+
+/// Note rendue en mémoire entre les deux phases de l'export.
+///
+/// La première phase rend le corps de chaque note et collecte les cibles de
+/// ses wikilinks ; la seconde écrit les pages une fois les backlinks connus.
+struct PageRendue {
+    /// Nom de la note (sans extension), clé de résolution des wikilinks.
+    name: String,
+    /// Titre affiché (frontmatter `title`, sinon le nom de la note).
+    title: String,
+    /// Tags du frontmatter (métadonnées `<meta>`).
+    tags: Vec<String>,
+    /// Corps HTML déjà rendu.
+    body: String,
+    /// Noms canoniques des notes citées par des wikilinks.
+    sortants: Vec<String>,
 }
 
 /// Bilan d'un export statique.
@@ -103,13 +125,20 @@ pub fn publish_site(vault_root: &Path, dest: &Path) -> Result<PublishReport, Pub
     let assets_dir = dest.join("assets");
     fs::create_dir_all(&assets_dir)?;
 
-    // Cibles existantes (minuscules) pour résoudre les wikilinks.
-    let targets: HashSet<String> = notes.iter().map(|n| n.name.to_lowercase()).collect();
+    // Cibles existantes : nom de note en minuscules → nom canonique. En cas
+    // de doublons de noms, la première note du scan gagne (ordre stable).
+    let mut targets: HashMap<String, String> = HashMap::with_capacity(notes.len());
+    for note in &notes {
+        targets
+            .entry(note.name.to_lowercase())
+            .or_insert_with(|| note.name.clone());
+    }
 
-    let mut pages: Vec<(String, String, PathBuf)> = Vec::with_capacity(notes.len());
+    // Phase 1 : rendu des corps et collecte des liens sortants.
+    let mut rendues: Vec<PageRendue> = Vec::with_capacity(notes.len());
     let mut assets_copied = 0usize;
 
-    for (index, note) in notes.iter().enumerate() {
+    for note in &notes {
         let source_path = vault_root.join(&note.path);
         let content = fs::read_to_string(&source_path)
             .map_err(|e| PublishError::ReadNote(note.name.clone(), e.to_string()))?;
@@ -117,17 +146,56 @@ pub fn publish_site(vault_root: &Path, dest: &Path) -> Result<PublishReport, Pub
         let (frontmatter_title, tags) = frontmatter_title_tags(&note.metadata.frontmatter);
         let title = frontmatter_title.unwrap_or_else(|| note.name.clone());
 
+        let mut sortants: Vec<String> = Vec::new();
         let body = render_body(
             &content,
             &targets,
             vault_root,
             &assets_dir,
             &mut assets_copied,
+            &mut sortants,
         )?;
-        let html = page_html(&title, &tags, &body);
+        rendues.push(PageRendue {
+            name: note.name.clone(),
+            title,
+            tags,
+            body,
+            sortants,
+        });
+    }
+
+    // Backlinks : nom canonique de la cible → noms des notes sources (triés,
+    // sans auto-référence).
+    let mut backlinks: HashMap<String, BTreeSet<String>> = HashMap::new();
+    for page in &rendues {
+        for cible in &page.sortants {
+            if cible == &page.name {
+                continue;
+            }
+            backlinks
+                .entry(cible.clone())
+                .or_default()
+                .insert(page.name.clone());
+        }
+    }
+
+    let titres: HashMap<String, String> = rendues
+        .iter()
+        .map(|page| (page.name.clone(), page.title.clone()))
+        .collect();
+
+    // Phase 2 : écriture des pages, section de backlinks comprise.
+    let mut pages: Vec<(String, String, PathBuf)> = Vec::with_capacity(notes.len());
+    for (index, page) in rendues.iter().enumerate() {
+        let section = backlinks_section(backlinks.get(&page.name), &titres);
+        let html = page_html(&page.title, &page.tags, &page.body, &section);
         write_atomic_str(&plan[index].1, &html)?;
 
-        pages.push((title.to_lowercase(), title, plan[index].1.clone()));
+        pages.push((
+            page.title.to_lowercase(),
+            page.title.clone(),
+            plan[index].1.clone(),
+        ));
     }
 
     pages.sort_by(|a, b| a.0.cmp(&b.0));
@@ -174,10 +242,11 @@ pub fn html_filename(name: &str) -> Result<String, PublishError> {
 /// [`super::live_preview::render_markdown`].
 fn render_body(
     content: &str,
-    targets: &HashSet<String>,
+    targets: &HashMap<String, String>,
     vault_root: &Path,
     assets_dir: &Path,
     assets_copied: &mut usize,
+    sortants: &mut Vec<String>,
 ) -> Result<String, PublishError> {
     let segments = render_markdown(content);
     let region = frontmatter_region(content);
@@ -205,6 +274,7 @@ fn render_body(
             vault_root,
             assets_dir,
             assets_copied,
+            sortants,
             &mut out,
         )?;
         i = j;
@@ -215,10 +285,11 @@ fn render_body(
 /// Rend un groupe de segments d'une même ligne en HTML.
 fn render_line(
     group: &[&Segment],
-    targets: &HashSet<String>,
+    targets: &HashMap<String, String>,
     vault_root: &Path,
     assets_dir: &Path,
     assets_copied: &mut usize,
+    sortants: &mut Vec<String>,
     out: &mut String,
 ) -> Result<(), PublishError> {
     // Bloc de code : un seul segment couvre toute la plage de lignes.
@@ -232,7 +303,15 @@ fn render_line(
     // Titres.
     if let Some(tag) = group.first().and_then(|s| heading_tag(s.style)) {
         let _ = write!(out, "<{tag}>");
-        push_inline(group, targets, vault_root, assets_dir, assets_copied, out)?;
+        push_inline(
+            group,
+            targets,
+            vault_root,
+            assets_dir,
+            assets_copied,
+            sortants,
+            out,
+        )?;
         let _ = writeln!(out, "</{tag}>");
         return Ok(());
     }
@@ -262,7 +341,15 @@ fn render_line(
         )
     }) {
         out.push_str("<blockquote>");
-        push_inline(group, targets, vault_root, assets_dir, assets_copied, out)?;
+        push_inline(
+            group,
+            targets,
+            vault_root,
+            assets_dir,
+            assets_copied,
+            sortants,
+            out,
+        )?;
         out.push_str("</blockquote>\n");
         return Ok(());
     }
@@ -287,25 +374,46 @@ fn render_line(
         )
     }) {
         out.push_str("<li>");
-        push_inline(group, targets, vault_root, assets_dir, assets_copied, out)?;
+        push_inline(
+            group,
+            targets,
+            vault_root,
+            assets_dir,
+            assets_copied,
+            sortants,
+            out,
+        )?;
         out.push_str("</li>\n");
         return Ok(());
     }
 
     // Paragraphe par défaut.
     out.push_str("<p>");
-    push_inline(group, targets, vault_root, assets_dir, assets_copied, out)?;
+    push_inline(
+        group,
+        targets,
+        vault_root,
+        assets_dir,
+        assets_copied,
+        sortants,
+        out,
+    )?;
     out.push_str("</p>\n");
     Ok(())
 }
 
 /// Pousse le HTML inline d'un groupe de segments dans `out`.
+///
+/// `sortants` reçoit le nom canonique de chaque note citée par un wikilink
+/// résolu ; il alimente le calcul des backlinks après le rendu de toutes les
+/// notes.
 fn push_inline(
     group: &[&Segment],
-    targets: &HashSet<String>,
+    targets: &HashMap<String, String>,
     vault_root: &Path,
     assets_dir: &Path,
     assets_copied: &mut usize,
+    sortants: &mut Vec<String>,
     out: &mut String,
 ) -> Result<(), PublishError> {
     for seg in group {
@@ -345,19 +453,17 @@ fn push_inline(
                 out.push_str(&esc);
                 out.push_str("</a>");
             }
-            SegmentStyle::Wikilink | SegmentStyle::Embed => {
-                let key = seg.text.to_lowercase();
-                if targets.contains(&key) {
-                    let href = html_escape(&format!("{}.html", seg.text));
-                    out.push_str("<a href=\"");
-                    out.push_str(&href);
-                    out.push_str("\">");
-                    out.push_str(&esc);
-                    out.push_str("</a>");
-                } else {
-                    out.push_str(&esc);
+            SegmentStyle::Wikilink => match resolve_target(targets, &seg.text) {
+                Some(cible) => {
+                    push_note_link(out, cible, &esc);
+                    sortants.push(cible.to_string());
                 }
-            }
+                None => out.push_str(&esc),
+            },
+            SegmentStyle::Embed => match resolve_target(targets, &seg.text) {
+                Some(cible) => push_note_link(out, cible, &esc),
+                None => out.push_str(&esc),
+            },
             SegmentStyle::EmbedImage | SegmentStyle::EmbedPdf => {
                 copy_attachment(seg, vault_root, assets_dir, assets_copied, out)?;
             }
@@ -399,6 +505,103 @@ fn push_inline(
     Ok(())
 }
 
+/// Résout une cible de wikilink en nom canonique de note du vault.
+///
+/// La cible peut porter une section (`[[Note#Titre]]`) ou l'extension
+/// Markdown (`[[Note.md]]`) ; l'alias éventuel a déjà été remplacé par son
+/// texte d'affichage en amont (le segment ne contient que ce texte).
+///
+/// Retourne `None` pour une cible vide, hors vault (composant `..`,
+/// séparateur) ou inconnue : l'appelant émet alors du texte simple, sans lien
+/// mort.
+fn resolve_target<'a>(targets: &'a HashMap<String, String>, raw: &str) -> Option<&'a str> {
+    let trimmed = raw.trim();
+    let base = trimmed.split('#').next().unwrap_or(trimmed).trim();
+    if base.is_empty() || base.contains('/') || base.contains('\\') || base.contains("..") {
+        return None;
+    }
+    let base = if base.to_ascii_lowercase().ends_with(".md") {
+        &base[..base.len() - 3]
+    } else {
+        base
+    };
+    if base.is_empty() {
+        return None;
+    }
+    targets.get(&base.to_lowercase()).map(String::as_str)
+}
+
+/// Émet un lien relatif vers la page HTML d'une note.
+///
+/// `cible` est un nom canonique de note : le nom de fichier est revalidé par
+/// [`html_filename`] (confinement) puis encodé pour l'attribut `href`. Si le
+/// nom est refusé, `label` est émis en texte simple.
+fn push_note_link(out: &mut String, cible: &str, label: &str) {
+    match html_filename(cible) {
+        Ok(filename) => {
+            let _ = write!(out, "<a href=\"{}\">", encode_href(&filename));
+            out.push_str(label);
+            out.push_str("</a>");
+        }
+        Err(_) => out.push_str(label),
+    }
+}
+
+/// Encode un nom de fichier relatif pour un attribut `href`.
+///
+/// Seuls des noms de fichiers confinés arrivent ici (aucun séparateur, aucun
+/// composant `..`) : les caractères réservés ou non sûrs sont percent-encodés
+/// pour que le lien reste relatif au site publié.
+fn encode_href(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for c in path.chars() {
+        match c {
+            ' ' => out.push_str("%20"),
+            '#' => out.push_str("%23"),
+            '?' => out.push_str("%3F"),
+            '%' => out.push_str("%25"),
+            '"' => out.push_str("%22"),
+            '<' => out.push_str("%3C"),
+            '>' => out.push_str("%3E"),
+            '&' => out.push_str("&amp;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Édifie la section `Backlinks` d'une page, ou une chaîne vide si la page
+/// n'a aucun lien entrant.
+fn backlinks_section(
+    sources: Option<&BTreeSet<String>>,
+    titres: &HashMap<String, String>,
+) -> String {
+    let Some(sources) = sources else {
+        return String::new();
+    };
+    if sources.is_empty() {
+        return String::new();
+    }
+    let mut s = String::from("<section class=\"backlinks\">\n<h2>Backlinks</h2>\n<ul>\n");
+    for source in sources {
+        let Ok(filename) = html_filename(source) else {
+            continue;
+        };
+        let titre = titres
+            .get(source)
+            .map(String::as_str)
+            .unwrap_or(source.as_str());
+        let _ = writeln!(
+            s,
+            "<li><a href=\"{}\">{}</a></li>",
+            encode_href(&filename),
+            html_escape(titre)
+        );
+    }
+    s.push_str("</ul>\n</section>\n");
+    s
+}
+
 /// Copie la pièce jointe référencée par un segment d'embed dans `assets/` et
 /// émet la référence relative. Si la pièce jointe est introuvable, émet du
 /// texte simple (pas de lien mort).
@@ -427,16 +630,19 @@ fn copy_attachment(
     copy_atomic(&source, &destination)?;
     *assets_copied += 1;
 
+    // Le nom de fichier vient du vault : il est encodé pour l'attribut (une
+    // pièce jointe « img une.png » ne doit pas produire un `src` invalide).
+    let url = encode_href(&base);
     let esc = html_escape(&seg.text);
     if seg.style == SegmentStyle::EmbedImage {
         out.push_str("<img src=\"assets/");
-        out.push_str(&base);
+        out.push_str(&url);
         out.push_str("\" alt=\"");
         out.push_str(&esc);
         out.push_str("\">");
     } else {
         out.push_str("<a href=\"assets/");
-        out.push_str(&base);
+        out.push_str(&url);
         out.push_str("\">");
         out.push_str(&esc);
         out.push_str("</a>");
@@ -498,8 +704,8 @@ fn heading_tag(style: SegmentStyle) -> Option<&'static str> {
     }
 }
 
-/// Édif la page HTML complète d'une note.
-fn page_html(title: &str, tags: &[String], body: &str) -> String {
+/// Édifie la page HTML complète d'une note.
+fn page_html(title: &str, tags: &[String], body: &str, backlinks: &str) -> String {
     let mut s = String::new();
     s.push_str("<!DOCTYPE html>\n<html lang=\"fr\">\n<head>\n");
     s.push_str("<meta charset=\"utf-8\">\n");
@@ -521,11 +727,12 @@ fn page_html(title: &str, tags: &[String], body: &str) -> String {
     s.push_str("</head>\n<body>\n");
     let _ = writeln!(s, "<h1>{}</h1>", html_escape(title));
     s.push_str(body);
+    s.push_str(backlinks);
     s.push_str("\n</body>\n</html>\n");
     s
 }
 
-/// Édif la page `index.html` (sommaire trié par titre).
+/// Édifie la page `index.html` (sommaire trié par titre).
 fn index_html(pages: &[(String, String, PathBuf)]) -> String {
     let mut s = String::new();
     s.push_str("<!DOCTYPE html>\n<html lang=\"fr\">\n<head>\n");
@@ -542,7 +749,7 @@ fn index_html(pages: &[(String, String, PathBuf)]) -> String {
         let _ = writeln!(
             s,
             "<li><a href=\"{}\">{}</a></li>",
-            html_escape(&href),
+            encode_href(&href),
             html_escape(title)
         );
     }
@@ -692,4 +899,226 @@ table td, table th {
   padding: 0 0.3em;
   color: #446;
 }
+.backlinks {
+  margin-top: 2rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #ddd;
+  font-size: 0.9em;
+}
+.backlinks h2 {
+  font-size: 1em;
+  color: #666;
+}
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Crée un répertoire temporaire unique (vault et destination).
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "obsidian_publish_{tag}_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("horloge système avant epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("création du répertoire temporaire");
+        dir
+    }
+
+    /// Écrit une note (création des dossiers parents au besoin).
+    fn write_note(root: &Path, rel: &str, content: &str) {
+        let path = root.join(rel);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("création du dossier de note");
+        }
+        fs::write(&path, content).expect("écriture de la note");
+    }
+
+    /// Publie un vault temporaire et retourne (base, destination).
+    fn publier(tag: &str, notes: &[(&str, &str)]) -> (PathBuf, PathBuf) {
+        let base = temp_dir(tag);
+        let vault = base.join("vault");
+        let dest = base.join("site");
+        for (rel, content) in notes {
+            write_note(&vault, rel, content);
+        }
+        publish_site(&vault, &dest).expect("export statique");
+        (base, dest)
+    }
+
+    #[test]
+    fn wikilink_resolu_devient_un_lien() {
+        let (base, dest) = publier(
+            "lien",
+            &[("Alpha.md", "# Alpha\n"), ("Beta.md", "Voir [[Alpha]].\n")],
+        );
+
+        let html = fs::read_to_string(dest.join("Beta.html")).expect("page Beta");
+        assert!(
+            html.contains(r#"<a href="Alpha.html">Alpha</a>"#),
+            "lien résolu attendu : {html}"
+        );
+        fs::remove_dir_all(&base).expect("nettoyage");
+    }
+
+    #[test]
+    fn wikilink_avec_section_pointe_vers_la_note() {
+        let (base, dest) = publier(
+            "section",
+            &[
+                ("Alpha.md", "# Alpha\n"),
+                ("Beta.md", "Voir [[Alpha#Détail]].\n"),
+            ],
+        );
+
+        let html = fs::read_to_string(dest.join("Beta.html")).expect("page Beta");
+        assert!(
+            html.contains(r#"<a href="Alpha.html">Alpha#Détail</a>"#),
+            "la section ne doit pas empêcher la résolution : {html}"
+        );
+        fs::remove_dir_all(&base).expect("nettoyage");
+    }
+
+    #[test]
+    fn wikilink_non_resolu_reste_du_texte() {
+        let (base, dest) = publier("inconnue", &[("Beta.md", "Voir [[Inconnue]] ici.\n")]);
+
+        let html = fs::read_to_string(dest.join("Beta.html")).expect("page Beta");
+        assert!(!html.contains("<a"), "aucun lien mort attendu : {html}");
+        assert!(html.contains("Inconnue"), "la cible reste affichée");
+        fs::remove_dir_all(&base).expect("nettoyage");
+    }
+
+    #[test]
+    fn backlinks_listes_sur_la_cible() {
+        let (base, dest) = publier(
+            "backlinks",
+            &[
+                ("Alpha.md", "# Alpha\n"),
+                ("Beta.md", "Vers [[Alpha]].\n"),
+                ("Gamma.md", "Aussi [[Alpha]].\n"),
+            ],
+        );
+
+        let alpha = fs::read_to_string(dest.join("Alpha.html")).expect("page Alpha");
+        assert!(
+            alpha.contains(r#"<section class="backlinks">"#),
+            "la section backlinks doit exister : {alpha}"
+        );
+        assert!(
+            alpha.contains(r#"<a href="Beta.html">Beta</a>"#),
+            "Beta doit figurer dans les backlinks : {alpha}"
+        );
+        assert!(
+            alpha.contains(r#"<a href="Gamma.html">Gamma</a>"#),
+            "Gamma doit figurer dans les backlinks : {alpha}"
+        );
+        fs::remove_dir_all(&base).expect("nettoyage");
+    }
+
+    #[test]
+    fn pas_de_backlinks_sans_lien_entrant() {
+        let (base, dest) = publier("sans_backlink", &[("Seule.md", "Aucun lien entrant.\n")]);
+
+        let html = fs::read_to_string(dest.join("Seule.html")).expect("page Seule");
+        assert!(
+            !html.contains("backlinks"),
+            "aucune section backlinks ne doit être émise : {html}"
+        );
+        fs::remove_dir_all(&base).expect("nettoyage");
+    }
+
+    #[test]
+    fn auto_reference_ignoree_dans_les_backlinks() {
+        let (base, dest) = publier("auto", &[("Alpha.md", "Je me cite [[Alpha]].\n")]);
+
+        let html = fs::read_to_string(dest.join("Alpha.html")).expect("page Alpha");
+        assert!(
+            html.contains(r#"<a href="Alpha.html">"#),
+            "le wikilink interne reste un lien : {html}"
+        );
+        assert!(
+            !html.contains("backlinks"),
+            "une note ne se cite pas elle-même : {html}"
+        );
+        fs::remove_dir_all(&base).expect("nettoyage");
+    }
+
+    #[test]
+    fn href_encode_les_espaces() {
+        let (base, dest) = publier(
+            "espaces",
+            &[("Note 1.md", "# Un\n"), ("Ref.md", "Voir [[Note 1]].\n")],
+        );
+
+        let html = fs::read_to_string(dest.join("Ref.html")).expect("page Ref");
+        assert!(
+            html.contains(r#"<a href="Note%201.html">Note 1</a>"#),
+            "l'espace doit être encodé dans le href : {html}"
+        );
+        fs::remove_dir_all(&base).expect("nettoyage");
+    }
+
+    #[test]
+    fn cible_hors_vault_non_resolue_et_href_confiné() {
+        let (base, dest) = publier(
+            "confinement",
+            &[("Note.md", "[[../../evasion]] et [[..]]\n")],
+        );
+
+        let html = fs::read_to_string(dest.join("Note.html")).expect("page Note");
+        assert!(
+            !html.contains("<a"),
+            "une cible hors vault ne doit produire aucun lien : {html}"
+        );
+        assert!(
+            !html.contains("href=\"../"),
+            "aucun href ne doit remonter hors de la destination : {html}"
+        );
+        fs::remove_dir_all(&base).expect("nettoyage");
+    }
+
+    #[test]
+    fn piece_jointe_avec_espace_encodee_dans_src() {
+        let base = temp_dir("asset_espace");
+        let vault = base.join("vault");
+        let dest = base.join("site");
+        write_note(&vault, "Note.md", "![[img une.png]]\n");
+        fs::write(vault.join("img une.png"), [0x89u8, 0x50, 0x4e, 0x47])
+            .expect("écriture de la pièce jointe");
+
+        let report = publish_site(&vault, &dest).expect("export statique");
+        assert_eq!(report.assets, 1, "une pièce jointe copiée");
+
+        let html = fs::read_to_string(dest.join("Note.html")).expect("page Note");
+        assert!(
+            html.contains(r#"<img src="assets/img%20une.png""#),
+            "le src doit être encodé : {html}"
+        );
+        assert!(
+            dest.join("assets").join("img une.png").is_file(),
+            "la pièce jointe doit être copiée dans assets/"
+        );
+        fs::remove_dir_all(&base).expect("nettoyage");
+    }
+
+    #[test]
+    fn resolution_des_cibles() {
+        let mut targets = HashMap::new();
+        targets.insert("note".to_string(), "Note".to_string());
+
+        assert_eq!(resolve_target(&targets, "Note"), Some("Note"));
+        assert_eq!(resolve_target(&targets, "  note  "), Some("Note"));
+        assert_eq!(resolve_target(&targets, "Note#Titre"), Some("Note"));
+        assert_eq!(resolve_target(&targets, "Note.md"), Some("Note"));
+        assert_eq!(resolve_target(&targets, "../Note"), None);
+        assert_eq!(resolve_target(&targets, "dossier/Note"), None);
+        assert_eq!(resolve_target(&targets, "#Titre"), None);
+        assert_eq!(resolve_target(&targets, ""), None);
+        assert_eq!(resolve_target(&targets, "Inconnue"), None);
+    }
+}

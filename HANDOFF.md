@@ -6,7 +6,7 @@ La copie dans Instabox est un bac à sable jetable : ne jamais y éditer.
 ## État
 
 - Version `0.2.0`, tag `v0.2.0`, worktree propre.
-- **531 tests verts** (+2 tests `#[ignore]` = benchmarks), `cargo clippy --all-targets -- -D warnings` clean.
+- **848 tests verts** (benchmarks `#[ignore]`), `cargo clippy --all-targets -- -D warnings` clean.
 - Portes qualité : `cargo fmt --all` → `build` → `test` → `clippy -D warnings`.
 - Travailler par petits commits verts ; jamais de `#[allow]`, jamais de `unwrap()` sur entrée/fichier.
 - Écriture fichier atomique (temp + rename) partout.

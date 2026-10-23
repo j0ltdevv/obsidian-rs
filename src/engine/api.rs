@@ -14,9 +14,10 @@ use super::json as engine_json;
 use super::paths;
 use super::sync;
 use super::{display_path, Engine, EngineError};
+use crate::vault::outline::extract_outline;
 
 /// Chemins exposés par l'API.
-const ROUTES: [&str; 8] = [
+const ROUTES: [&str; 12] = [
     "/health",
     "/files",
     "/file",
@@ -24,6 +25,10 @@ const ROUTES: [&str; 8] = [
     "/backlinks",
     "/search",
     "/graph",
+    "/tags",
+    "/outline",
+    "/tasks",
+    "/aliases",
     "/sync",
 ];
 
@@ -44,6 +49,10 @@ pub fn route(engine: &mut Engine, request: &Request) -> Response {
         ("GET", "/backlinks") => backlinks(engine, request),
         ("GET", "/search") => search(engine, request),
         ("GET", "/graph") => graph(engine),
+        ("GET", "/tags") => tags(engine),
+        ("GET", "/outline") => outline(engine, request),
+        ("GET", "/tasks") => tasks(engine, request),
+        ("GET", "/aliases") => aliases(engine),
         ("POST", "/sync") => sync::handle(engine, request),
         ("OPTIONS", "/sync") => Response {
             status: 204,
@@ -295,6 +304,112 @@ fn graph(engine: &Engine) -> Response {
         .map(|edge| json!({ "from": &edge.from, "to": &edge.to }))
         .collect();
     Response::json(200, &json!({ "nodes": nodes, "edges": edges }))
+}
+
+/// `GET /tags` — tags du vault et nombre de notes qui les portent.
+///
+/// Triés par nom de tag ; le compte est le nombre de notes portant le tag (au
+/// plus une fois par note).
+fn tags(engine: &Engine) -> Response {
+    let tags: Vec<Value> = engine
+        .tags_data()
+        .iter()
+        .map(|entry| json!({ "tag": &entry.tag, "count": entry.count }))
+        .collect();
+    Response::json(200, &json!({ "tags": tags }))
+}
+
+/// `GET /outline?path=…` — plan (titres) d'une note.
+///
+/// Les lignes sont renvoyées en 1-based, comme `/search`.
+fn outline(engine: &Engine, request: &Request) -> Response {
+    let relative = match requested_path(request) {
+        Ok(relative) => relative,
+        Err(response) => return response,
+    };
+    let Some(note) = engine.find_note(&relative) else {
+        return Response::error(
+            404,
+            format!("note introuvable : {}", display_path(&relative)),
+        );
+    };
+    let target = engine.root().join(&note.path);
+    if let Err(err) = paths::ensure_inside(engine.root(), &target, &display_path(&note.path)) {
+        return Response::error(400, err.to_string());
+    }
+    let content = match engine.read_file(&note.path) {
+        Ok(content) => content,
+        Err(err) => return Response::error(status_for(&err), err.to_string()),
+    };
+    let entries: Vec<Value> = extract_outline(&content)
+        .iter()
+        .map(|entry| {
+            json!({
+                "level": entry.level,
+                "title": &entry.title,
+                "line": entry.line + 1,
+            })
+        })
+        .collect();
+    Response::json(
+        200,
+        &json!({
+            "path": display_path(&note.path),
+            "outline": entries,
+        }),
+    )
+}
+
+/// `GET /tasks[?path=…]` — cases à cocher du vault, ou d'une seule note.
+///
+/// Les tâches sont triées par chemin puis par ligne (1-based en JSON). Un
+/// `path` inconnu donne 404 ; un `path` hors du vault donne 400.
+fn tasks(engine: &Engine, request: &Request) -> Response {
+    let filter = match request.param("path") {
+        Some(raw) => {
+            let relative = match paths::normalize_relative(raw) {
+                Ok(relative) => relative,
+                Err(err) => return Response::error(400, err.to_string()),
+            };
+            let Some(note) = engine.find_note(&relative) else {
+                return Response::error(
+                    404,
+                    format!("note introuvable : {}", display_path(&relative)),
+                );
+            };
+            Some(note.path.clone())
+        }
+        None => None,
+    };
+    let tasks: Vec<Value> = engine
+        .tasks_data()
+        .iter()
+        .filter(|entry| filter.as_ref().is_none_or(|path| &entry.path == path))
+        .map(|entry| {
+            json!({
+                "path": display_path(&entry.path),
+                "line": entry.line + 1,
+                "text": &entry.text,
+                "done": entry.done,
+            })
+        })
+        .collect();
+    Response::json(200, &json!({ "tasks": tasks }))
+}
+
+/// `GET /aliases` — alias déclarés dans les frontmatters.
+fn aliases(engine: &Engine) -> Response {
+    let aliases: Vec<Value> = engine
+        .aliases_data()
+        .iter()
+        .map(|entry| {
+            json!({
+                "alias": &entry.alias,
+                "path": display_path(&entry.path),
+            })
+        })
+        .collect();
+    Response::json(200, &json!({ "aliases": aliases }))
 }
 
 /// Chemin relatif demandé par le client, normalisé et confiné.

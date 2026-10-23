@@ -12,6 +12,11 @@
 //! - Texte encodé Windows-1252 (WinAnsi), échappé pour les caractères PDF
 //!   `(`, `)`, `\`. Les caractères non représentables sont remplacés par `?`
 //!   sans jamais provoquer de panic.
+//! - La ponctuation typographique (`—`, `–`, `‘`, `’`, `“`, `”`, `…`, `€`,
+//!   `•`, `œ`…) est ramenée sur son emplacement Windows-1252 ; les caractères
+//!   hors jeu mais fréquents (tiret insécable, espaces fines, primes) ont un
+//!   repli ASCII, et les caractères de largeur nulle (ZWSP, BOM, trait
+//!   d'union conditionnel) sont purement omis.
 //! - Mise en page A4 (595 × 842 pt) avec marges, interligne et pagination
 //!   automatique (numéro de page en pied de page).
 //!
@@ -79,19 +84,126 @@ const LARGEURS_HELVETICA: &[u16] = &[
 ];
 
 /// Largeur d'un caractère donné (en points) pour une police et une taille.
+///
+/// La largeur suit exactement ce qui sera émis : un caractère non
+/// représentable devient `?` et occupe donc la largeur du `?`, et les
+/// caractères typographiques ramenés en Windows-1252 utilisent la largeur du
+/// glyphe réellement dessiné. Une largeur sous-estimée ferait déborder la
+/// ligne au-delà de la marge droite.
 fn largeur_caractere(police: Police, taille: f32, c: char) -> f32 {
+    if est_invisible(c) {
+        return 0.0;
+    }
     match police {
         Police::ChasseFixe => 0.6 * taille,
-        Police::Romaine | Police::Grasse => {
-            let b = c as u32;
-            if (32..=126).contains(&b) {
-                LARGEURS_HELVETICA[(b - 32) as usize] as f32 * taille / 1000.0
-            } else {
-                // Les caractères hors plage sont remplacés par `?` à l'encodage.
-                0.5 * taille
-            }
-        }
+        Police::Romaine | Police::Grasse => largeur_em(c) * taille,
     }
+}
+
+/// Largeur d'un caractère en em (fraction de la taille) pour Helvetica.
+fn largeur_em(c: char) -> f32 {
+    let ascii = c as u32;
+    if (32..=126).contains(&ascii) {
+        return LARGEURS_HELVETICA[(ascii - 32) as usize] as f32 / 1000.0;
+    }
+    let Some(octet) = octet_winansi(c) else {
+        // Caractère remplacé par `?` à l'encodage : largeur du `?`.
+        return LARGEURS_HELVETICA[(b'?' - 32) as usize] as f32 / 1000.0;
+    };
+    if (32..=126).contains(&octet) {
+        // Repli ASCII (tiret, espace fine, prime…).
+        return LARGEURS_HELVETICA[(octet - 32) as usize] as f32 / 1000.0;
+    }
+    largeur_etendue(octet, c)
+}
+
+/// Largeur (en em) d'un octet WinAnsi hors ASCII imprimable.
+fn largeur_etendue(octet: u8, c: char) -> f32 {
+    match octet {
+        0x80 => 0.556, // €
+        0x82 => 0.222, // ‚
+        0x83 => 0.556, // ƒ
+        0x84 => 0.333, // „
+        0x85 => 1.0,   // …
+        0x86 => 0.556, // †
+        0x87 => 0.556, // ‡
+        0x88 => 0.333, // ˆ
+        0x89 => 1.0,   // ‰
+        0x8A => 0.667, // Š
+        0x8B => 0.333, // ‹
+        0x8C => 1.0,   // Œ
+        0x8E => 0.611, // Ž
+        0x91 => 0.222, // ‘
+        0x92 => 0.222, // ’
+        0x93 => 0.333, // “
+        0x94 => 0.333, // ”
+        0x95 => 0.35,  // •
+        0x96 => 0.556, // –
+        0x97 => 1.0,   // —
+        0x98 => 0.333, // ˜
+        0x99 => 1.0,   // ™
+        0x9A => 0.5,   // š
+        0x9B => 0.333, // ›
+        0x9C => 0.944, // œ
+        0x9E => 0.5,   // ž
+        0x9F => 0.667, // Ÿ
+        0xA0 => 0.278, // espace insécable
+        _ => largeur_latin1(c),
+    }
+}
+
+/// Largeur (en em) d'une lettre Latin-1 (accents compris).
+fn largeur_latin1(c: char) -> f32 {
+    match c {
+        'Æ' => 1.0,
+        'æ' => 0.889,
+        'Ø' => 0.778,
+        'ø' | 'ß' => 0.611,
+        'Þ' => 0.667,
+        'þ' => 0.556,
+        '×' | '÷' => 0.584,
+        '°' => 0.4,
+        '©' | '®' => 0.737,
+        '§' | 'µ' => 0.556,
+        '¶' => 0.537,
+        _ => match lettre_de_base(c) {
+            Some(base) => LARGEURS_HELVETICA[(base as u32 - 32) as usize] as f32 / 1000.0,
+            // Largeur moyenne : préfère un repli un peu large à un débordement.
+            None => 0.667,
+        },
+    }
+}
+
+/// Lettre ASCII portant l'accent de `c` (`é` → `e`, `Ç` → `C`).
+fn lettre_de_base(c: char) -> Option<char> {
+    let base = match c {
+        'À' | 'Á' | 'Â' | 'Ã' | 'Ä' | 'Å' => 'A',
+        'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' => 'a',
+        'Ç' => 'C',
+        'ç' => 'c',
+        'È' | 'É' | 'Ê' | 'Ë' => 'E',
+        'è' | 'é' | 'ê' | 'ë' => 'e',
+        'Ì' | 'Í' | 'Î' | 'Ï' => 'I',
+        'ì' | 'í' | 'î' | 'ï' => 'i',
+        'Ñ' => 'N',
+        'ñ' => 'n',
+        'Ò' | 'Ó' | 'Ô' | 'Õ' | 'Ö' => 'O',
+        'ò' | 'ó' | 'ô' | 'õ' | 'ö' => 'o',
+        'Ù' | 'Ú' | 'Û' | 'Ü' => 'U',
+        'ù' | 'ú' | 'û' | 'ü' => 'u',
+        'Ý' => 'Y',
+        'ý' | 'ÿ' => 'y',
+        _ => return None,
+    };
+    Some(base)
+}
+
+/// `true` si le caractère n'occupe aucune largeur et n'est pas émis.
+fn est_invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}' | '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}'
+    )
 }
 
 /// Largeur totale d'une chaîne (en points).
@@ -615,20 +727,67 @@ fn mettre_en_page(blocs: &[Bloc]) -> Vec<Vec<u8>> {
 
 /// Mappe un caractère vers un octet Windows-1252 (WinAnsi).
 ///
-/// Retourne `None` pour les caractères non représentables (remplacés par `?`).
+/// Retourne `None` pour les caractères non représentables (remplacés par `?`
+/// à l'encodage). Les contrôles C1 (U+0080..=U+009F) ne sont pas des glyphes :
+/// ils sont rejetés, seuls leurs emplacements WinAnsi le sont via la table
+/// Unicode → octet de [`octet_typographique`].
 fn octet_winansi(c: char) -> Option<u8> {
-    match c as u32 {
-        0x20..=0x7E => Some(c as u8),
-        0x80..=0x9F => Some(c as u8), // octets Win-1252 (€, œ…)
-        0xA0..=0xFF => Some(c as u8), // Latin-1 direct
-        _ => None,
+    match c {
+        ' '..='~' => Some(c as u8),
+        '\u{A0}'..='\u{FF}' => Some(c as u8), // Latin-1 direct
+        _ => octet_typographique(c),
     }
+}
+
+/// Mappe la ponctuation typographique vers un octet WinAnsi, ou vers un repli
+/// ASCII quand le glyphe n'existe pas dans le jeu.
+fn octet_typographique(c: char) -> Option<u8> {
+    let octet = match c {
+        '\u{20AC}' => 0x80,              // €
+        '\u{201A}' => 0x82,              // ‚
+        '\u{0192}' => 0x83,              // ƒ
+        '\u{201E}' => 0x84,              // „
+        '\u{2026}' => 0x85,              // …
+        '\u{2020}' => 0x86,              // †
+        '\u{2021}' => 0x87,              // ‡
+        '\u{02C6}' => 0x88,              // ˆ
+        '\u{2030}' => 0x89,              // ‰
+        '\u{0160}' => 0x8A,              // Š
+        '\u{2039}' => 0x8B,              // ‹
+        '\u{0152}' => 0x8C,              // Œ
+        '\u{017D}' => 0x8E,              // Ž
+        '\u{2018}' | '\u{201B}' => 0x91, // ‘
+        '\u{2019}' => 0x92,              // ’
+        '\u{201C}' | '\u{201F}' => 0x93, // “
+        '\u{201D}' => 0x94,              // ”
+        '\u{2022}' | '\u{2219}' => 0x95, // •
+        '\u{2012}' | '\u{2013}' => 0x96, // –
+        '\u{2014}' | '\u{2015}' => 0x97, // —
+        '\u{02DC}' => 0x98,              // ˜
+        '\u{2122}' => 0x99,              // ™
+        '\u{0161}' => 0x9A,              // š
+        '\u{203A}' => 0x9B,              // ›
+        '\u{0153}' => 0x9C,              // œ
+        '\u{017E}' => 0x9E,              // ž
+        '\u{0178}' => 0x9F,              // Ÿ
+        // Replis ASCII : pas de glyphe, mais une graphie équivalente existe.
+        '\u{2010}' | '\u{2011}' | '\u{2212}' => b'-',
+        '\u{2002}' | '\u{2003}' | '\u{2007}' | '\u{2008}' | '\u{2009}' | '\u{200A}'
+        | '\u{202F}' => b' ',
+        '\u{2032}' => b'\'',
+        '\u{2033}' => b'"',
+        _ => return None,
+    };
+    Some(octet)
 }
 
 /// Pousse une chaîne en littéral PDF `(…)` échappé et encodé Windows-1252.
 fn pousser_chaine_echappee(sortie: &mut Vec<u8>, texte: &str) {
     sortie.push(b'(');
     for c in texte.chars() {
+        if est_invisible(c) {
+            continue;
+        }
         match c {
             '(' => sortie.extend(b"\\("),
             ')' => sortie.extend(b"\\)"),
@@ -744,4 +903,85 @@ fn assembler(pages: Vec<Vec<u8>>, titre: &str) -> Vec<u8> {
     doc.extend(b"%%EOF\n");
 
     doc
+}
+
+// ─────────────────────────────── Tests ───────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Génère le PDF d'une note de test.
+    fn pdf(markdown: &str) -> Vec<u8> {
+        note_to_pdf("Test", markdown).expect("le PDF doit être généré")
+    }
+
+    /// `true` si le document contient l'octet donné.
+    fn contient(doc: &[u8], octet: u8) -> bool {
+        doc.contains(&octet)
+    }
+
+    #[test]
+    fn ponctuation_typographique_encodee_en_winansi() {
+        assert_eq!(octet_winansi('\u{2014}'), Some(0x97)); // —
+        assert_eq!(octet_winansi('\u{2013}'), Some(0x96)); // –
+        assert_eq!(octet_winansi('\u{2018}'), Some(0x91)); // ‘
+        assert_eq!(octet_winansi('\u{2019}'), Some(0x92)); // ’
+        assert_eq!(octet_winansi('\u{201C}'), Some(0x93)); // “
+        assert_eq!(octet_winansi('\u{201D}'), Some(0x94)); // ”
+        assert_eq!(octet_winansi('\u{2026}'), Some(0x85)); // …
+        assert_eq!(octet_winansi('\u{20AC}'), Some(0x80)); // €
+        assert_eq!(octet_winansi('\u{2022}'), Some(0x95)); // •
+        assert_eq!(octet_winansi('\u{0153}'), Some(0x9C)); // œ
+        assert_eq!(octet_winansi('é'), Some(0xE9)); // accent conservé
+    }
+
+    #[test]
+    fn replis_ascii_et_caracteres_non_representables() {
+        assert_eq!(octet_winansi('\u{2011}'), Some(b'-')); // tiret insécable
+        assert_eq!(octet_winansi('\u{2009}'), Some(b' ')); // espace fine
+        assert_eq!(octet_winansi('\u{2032}'), Some(b'\'')); // prime
+        assert_eq!(octet_winansi('\u{4E2D}'), None); // 中
+        assert_eq!(octet_winansi('\u{0085}'), None); // contrôle C1
+    }
+
+    #[test]
+    fn largeurs_coherentes_avec_l_encodage() {
+        // Le tiret cadratin occupe un cadratin, pas un demi-cadratin.
+        assert!((largeur_caractere(Police::Romaine, 10.0, '\u{2014}') - 10.0).abs() < 0.001);
+        // Un idéogramme devient `?` : même largeur des deux côtés du wrapping.
+        assert_eq!(
+            largeur_caractere(Police::Romaine, 10.0, '\u{4E2D}'),
+            largeur_caractere(Police::Romaine, 10.0, '?')
+        );
+        // Les caractères de largeur nulle n'avancent pas le curseur.
+        assert_eq!(largeur_caractere(Police::Romaine, 10.0, '\u{200B}'), 0.0);
+    }
+
+    #[test]
+    fn note_avec_ponctuation_produit_un_pdf_valide() {
+        let doc = pdf("Un tiret — un peu de “typographie”… pour 42 € et du ‘français épatant’.\n");
+        assert!(doc.starts_with(b"%PDF-1.4"), "en-tête PDF");
+        assert!(doc.trim_ascii_end().ends_with(b"%%EOF"), "fin PDF");
+        for octet in [0x97u8, 0x93, 0x94, 0x85, 0x80, 0x91, 0x92, 0xE9] {
+            assert!(contient(&doc, octet), "octet {octet:#04x} attendu");
+        }
+        assert!(!contient(&doc, b'?'), "aucun caractère de remplacement");
+    }
+
+    #[test]
+    fn caracteres_de_largeur_nulle_omis() {
+        let doc = pdf("a\u{200B}b\u{FEFF}c\n");
+        assert!(doc.trim_ascii_end().ends_with(b"%%EOF"));
+        assert!(!contient(&doc, b'?'), "aucun caractère de remplacement");
+        assert!(!doc.windows(3).any(|w| w == "\u{200B}".as_bytes()));
+    }
+
+    #[test]
+    fn ideogramme_remplace_par_point_interrogation() {
+        let doc = pdf("\u{4E2D}\u{6587}\n");
+        assert!(doc.trim_ascii_end().ends_with(b"%%EOF"));
+        assert!(contient(&doc, b'?'));
+        assert!(!doc.windows(3).any(|w| w == "\u{4E2D}".as_bytes()));
+    }
 }

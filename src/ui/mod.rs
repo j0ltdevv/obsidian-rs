@@ -991,10 +991,18 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
     }
 
     if app.show_dataview {
-        let dview = dataview_view(notes, |i| {
-            let path = notes.get(i).map(|n| n.path.clone()).unwrap_or_default();
-            Message::OpenNote(path)
-        });
+        let dview = dataview_view(
+            notes,
+            &app.dataview_indices,
+            &app.dataview_query,
+            app.dataview_error.as_deref(),
+            Message::DataviewQueryChanged,
+            Message::DataviewRun,
+            |i| {
+                let path = notes.get(i).map(|n| n.path.clone()).unwrap_or_default();
+                Message::OpenNote(path)
+            },
+        );
         return row![
             left_el,
             container(dview)
@@ -1916,9 +1924,17 @@ fn segment_widget(root: &Path, seg: &Segment) -> Element<'static, Message> {
         SegmentStyle::Link | SegmentStyle::ExternalUrl => text(seg.text.clone())
             .color(Color::from_rgb(0.2, 0.4, 0.8))
             .into(),
-        SegmentStyle::Wikilink => text(seg.text.clone())
-            .color(Color::from_rgb(0.55, 0.3, 0.75))
-            .into(),
+        SegmentStyle::Wikilink => match &seg.target {
+            // Wikilink du corps : cliquable, comme dans le bloc métadonnées.
+            Some(target) => button(text(seg.text.clone()).color(Color::from_rgb(0.55, 0.3, 0.75)))
+                .padding(0)
+                .style(ghost_button_style)
+                .on_press(Message::OpenWikilink(target.clone()))
+                .into(),
+            None => text(seg.text.clone())
+                .color(Color::from_rgb(0.55, 0.3, 0.75))
+                .into(),
+        },
         SegmentStyle::Tag => tag_chip(&seg.text),
         SegmentStyle::TaskCheckboxTodo | SegmentStyle::TaskCheckboxDone => {
             let check = if seg.style == SegmentStyle::TaskCheckboxDone {

@@ -1,34 +1,126 @@
-//! Vue tableau des notes (style Dataview) : une ligne par note avec son nom,
+//! Vue requête + tableau (style Dataview) : une barre de requête DQL, un
+//! message d'erreur éventuel, puis une ligne par note résultat avec son nom,
 //! ses tags, son nombre de wikilinks et la première propriété de son
 //! frontmatter. Les lignes sont cliquables et ouvrent la note sélectionnée.
 
-use iced::widget::{button, container, row, scrollable, text, Column};
+use iced::widget::{button, container, row, scrollable, text, text_input, Column};
 use iced::{Alignment, Background, Color, Element, Length};
 
 use crate::app::Message;
 use crate::vault::note::Note;
 
-/// Vue tableau des notes.
+/// Portion de largeur occupée par la colonne « Nom ».
+const PORTION_NOM: u16 = 3;
+/// Portion de largeur occupée par la colonne « Tags ».
+const PORTION_TAGS: u16 = 2;
+/// Portion de largeur occupée par la colonne « Liens ».
+const PORTION_LIENS: u16 = 1;
+/// Portion de largeur occupée par la colonne « Première propriété ».
+const PORTION_PROPRIETE: u16 = 3;
+/// Espacement horizontal entre deux colonnes.
+const ESPACEMENT_COLONNES: f32 = 8.0;
+/// Marge interne d'une ligne du tableau.
+const MARGE_LIGNE: iced::Padding = iced::Padding {
+    top: 4.0,
+    right: 8.0,
+    bottom: 4.0,
+    left: 8.0,
+};
+
+/// Couleur du texte d'une erreur de requête.
+const COULEUR_ERREUR: Color = Color::from_rgb(0.75, 0.22, 0.22);
+/// Couleur de l'en-tête du tableau et des états vides.
+const COULEUR_ATTENUEE: Color = Color::from_rgb(0.42, 0.46, 0.52);
+
+/// Vue requête + tableau des notes.
 ///
 /// `notes` est la liste complète du vault ; `indices` sélectionne et ordonne
-/// les lignes à afficher (par exemple le résultat d'une recherche). Chaque
-/// ligne est cliquable et appelle `on_open` avec l'indice dans `notes`.
+/// les lignes à afficher (le résultat de la requête). `query` est le texte
+/// courant de la barre de requête et `error` le message d'erreur de la
+/// dernière exécution. Chaque ligne cliquable appelle `on_open` avec l'indice
+/// dans `notes` ; les indices hors bornes sont ignorés silencieusement.
 pub fn dataview_view<'a>(
     notes: &'a [Note],
+    indices: &'a [usize],
+    query: &'a str,
+    error: Option<&'a str>,
+    on_query_change: impl Fn(String) -> Message + 'a,
+    on_run: Message,
     on_open: impl Fn(usize) -> Message + 'a,
 ) -> Element<'a, Message> {
-    if notes.is_empty() {
-        return container(text("Aucune note.").size(13)).padding(12).into();
-    }
+    let input = text_input("TABLE … FROM … WHERE …", query)
+        .on_input(on_query_change)
+        .on_submit(on_run.clone())
+        .padding(6)
+        .width(Length::Fill);
+    let run = button(text("Exécuter").size(13))
+        .on_press(on_run)
+        .padding([6, 12]);
 
-    let mut table = Column::new().spacing(2);
-    for (index, note) in notes.iter().enumerate() {
-        table = table.push(data_view_row(note, index, &on_open));
-    }
-
-    scrollable(table)
+    let mut content = Column::new()
+        .spacing(6)
+        .padding(12)
         .width(Length::Fill)
         .height(Length::Fill)
+        .push(row![input, run].spacing(6).align_y(Alignment::Center));
+
+    if let Some(error) = error {
+        content = content.push(text(error).size(12).color(COULEUR_ERREUR));
+    }
+
+    content = content.push(header_row());
+
+    if query.trim().is_empty() {
+        content = content.push(
+            text("Saisissez une requête, puis « Exécuter ».")
+                .size(13)
+                .color(COULEUR_ATTENUEE),
+        );
+        return content.into();
+    }
+
+    let mut table = Column::new().spacing(2).width(Length::Fill);
+    let mut lignes = 0usize;
+    for &index in indices {
+        let Some(note) = notes.get(index) else {
+            continue;
+        };
+        table = table.push(data_view_row(note, index, &on_open));
+        lignes += 1;
+    }
+
+    if lignes == 0 {
+        content = content.push(text("Aucun résultat.").size(13).color(COULEUR_ATTENUEE));
+        return content.into();
+    }
+
+    content.push(scrollable(table).height(Length::Fill)).into()
+}
+
+/// En-tête du tableau : mêmes portions de largeur que les lignes, pour que
+/// les colonnes restent alignées.
+fn header_row<'a>() -> Element<'a, Message> {
+    let cells = row![
+        header_cell("Nom", PORTION_NOM),
+        header_cell("Tags", PORTION_TAGS),
+        header_cell("Liens", PORTION_LIENS),
+        header_cell("Première propriété", PORTION_PROPRIETE),
+    ]
+    .spacing(ESPACEMENT_COLONNES)
+    .align_y(Alignment::Center);
+
+    container(cells)
+        .padding(MARGE_LIGNE)
+        .width(Length::Fill)
+        .into()
+}
+
+/// Une cellule d'en-tête : texte discret, en minuscules optiques (taille 12).
+fn header_cell<'a>(label: &'a str, portion: u16) -> Element<'a, Message> {
+    text(label)
+        .size(12)
+        .color(COULEUR_ATTENUEE)
+        .width(Length::FillPortion(portion))
         .into()
 }
 
@@ -45,24 +137,24 @@ fn data_view_row<'a>(
     let first = first_frontmatter_entry(&note.metadata.frontmatter);
 
     let cells = row![
-        text(name).size(13).width(Length::FillPortion(3)),
-        text(tags).size(13).width(Length::FillPortion(2)),
-        text(wikilinks).size(13).width(Length::FillPortion(1)),
-        text(first).size(13).width(Length::FillPortion(3)),
+        text(name).size(13).width(Length::FillPortion(PORTION_NOM)),
+        text(tags).size(13).width(Length::FillPortion(PORTION_TAGS)),
+        text(wikilinks)
+            .size(13)
+            .width(Length::FillPortion(PORTION_LIENS)),
+        text(first)
+            .size(13)
+            .width(Length::FillPortion(PORTION_PROPRIETE)),
     ]
-    .spacing(8)
+    .spacing(ESPACEMENT_COLONNES)
     .align_y(Alignment::Center);
 
-    button(container(cells).padding(iced::Padding {
-        top: 4.0,
-        right: 8.0,
-        bottom: 4.0,
-        left: 8.0,
-    }))
-    .width(Length::Fill)
-    .on_press(on_open(index))
-    .style(dataview_row_style)
-    .into()
+    button(container(cells).padding(MARGE_LIGNE))
+        .width(Length::Fill)
+        .padding(0)
+        .on_press(on_open(index))
+        .style(dataview_row_style)
+        .into()
 }
 
 /// Style d'une ligne : fond discret au survol, pas de bordure.
@@ -122,6 +214,19 @@ mod tests {
                 tags: Vec::new(),
             },
         }
+    }
+
+    /// Construit la vue avec une requête non vide et sans erreur.
+    fn vue<'a>(notes: &'a [Note], indices: &'a [usize]) -> Element<'a, Message> {
+        dataview_view(
+            notes,
+            indices,
+            "TABLE file.name",
+            None,
+            |_query| Message::Refresh,
+            Message::Refresh,
+            |_index| Message::Refresh,
+        )
     }
 
     #[test]
@@ -194,20 +299,80 @@ mod tests {
     }
 
     #[test]
-    fn dataview_view_notes_vides_affiche_aucune_note() {
+    fn dataview_view_sans_note_ni_resultat_se_construit() {
         let notes: Vec<Note> = vec![];
-        let _view = dataview_view(&notes, |_index| Message::Refresh);
+        let indices: Vec<usize> = vec![];
+        let _view = vue(&notes, &indices);
     }
 
     #[test]
-    fn dataview_view_affiche_les_lignes_dans_l_ordre_des_notes() {
+    fn dataview_view_requete_vide_se_construit() {
+        let notes = vec![note("A", None)];
+        let indices = vec![0];
+        let _view = dataview_view(
+            &notes,
+            &indices,
+            "",
+            None,
+            |_query| Message::Refresh,
+            Message::Refresh,
+            |_index| Message::Refresh,
+        );
+    }
+
+    #[test]
+    fn dataview_view_affiche_les_lignes_dans_l_ordre_des_indices() {
         let notes = vec![note("A", None), note("B", None), note("C", None)];
+        let indices = vec![2, 0, 1];
         let opened = std::cell::RefCell::new(Vec::new());
-        let _view = dataview_view(&notes, |index| {
-            opened.borrow_mut().push(index);
-            Message::Refresh
-        });
-        assert_eq!(*opened.borrow(), vec![0, 1, 2]);
+        let _view = dataview_view(
+            &notes,
+            &indices,
+            "TABLE file.name",
+            None,
+            |_query| Message::Refresh,
+            Message::Refresh,
+            |index| {
+                opened.borrow_mut().push(index);
+                Message::Refresh
+            },
+        );
+        assert_eq!(*opened.borrow(), vec![2, 0, 1]);
+    }
+
+    #[test]
+    fn dataview_view_ignore_les_indices_hors_bornes() {
+        let notes = vec![note("A", None)];
+        let indices = vec![0, 5];
+        let opened = std::cell::RefCell::new(Vec::new());
+        let _view = dataview_view(
+            &notes,
+            &indices,
+            "TABLE file.name",
+            None,
+            |_query| Message::Refresh,
+            Message::Refresh,
+            |index| {
+                opened.borrow_mut().push(index);
+                Message::Refresh
+            },
+        );
+        assert_eq!(*opened.borrow(), vec![0]);
+    }
+
+    #[test]
+    fn dataview_view_affiche_l_erreur_se_construit() {
+        let notes = vec![note("A", None)];
+        let indices: Vec<usize> = vec![];
+        let _view = dataview_view(
+            &notes,
+            &indices,
+            "TABLE ??",
+            Some("Requête invalide : TABLE attendu"),
+            |_query| Message::Refresh,
+            Message::Refresh,
+            |_index| Message::Refresh,
+        );
     }
 
     #[test]

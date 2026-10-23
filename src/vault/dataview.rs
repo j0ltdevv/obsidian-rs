@@ -24,10 +24,18 @@
 //! # Langage de requête Dataview (DQL)
 //!
 //! [`query_notes`] et [`parse_dql`] ajoutent un sous-ensemble du langage
-//! Dataview : `FROM #tag`, `WHERE ...`, `SORT ...`, `LIMIT ...`. Une requête
-//! vide renvoie toutes les notes. Voir [`parse_dql`] pour la syntaxe complète.
+//! Dataview : `FROM #tag`, `WHERE ...`, `SORT ...`, `GROUP BY ...`,
+//! `FLATTEN ...`, `LIMIT ...`. Une requête vide renvoie toutes les notes.
+//! Voir [`parse_dql`] pour la syntaxe complète.
+//!
+//! Les résultats qui ne tiennent pas dans une liste d'indices passent par des
+//! fonctions dédiées, sans changer le contrat de [`evaluate_dql`] :
+//! [`evaluate_dql_grouped`] (clé de groupe → indices) et [`flatten_rows`]
+//! (une ligne par élément d'un champ liste).
 
 use std::cmp::Ordering;
+use std::collections::HashMap;
+use std::fmt;
 use std::fs;
 use std::time::UNIX_EPOCH;
 
@@ -184,17 +192,27 @@ pub fn sort_by_field(notes: &[Note], field: &str, ascending: bool, indices: &mut
 // Langage de requête Dataview (sous-ensemble de DQL)
 // =============================================================================
 //
-// Syntaxe supportée (clauses dans cet ordre) :
-//   [FROM <source>] [WHERE <condition>] [SORT <champ> [ASC|DESC]] [LIMIT <n>]
+// Syntaxe supportée :
+//   [FROM <source>] [WHERE <condition>]
+//   [SORT <champ> [ASC|DESC]] [GROUP BY <champ>] [FLATTEN <champ>] [LIMIT <n>]
 //
 //   - `FROM #tag`      : notes portant le tag (sous-tags inclus).
 //   - `FROM "dossier"` : notes du dossier et de ses sous-dossiers.
 //   - `FROM *` ou absente : toutes les notes.
+//   - Les sources de `FROM` ignorent la casse (`#Projet` = `#projet`,
+//     `"Proj"` = `"proj"`) ; une barre finale est tolérée dans un dossier.
 //   - `WHERE <condition>` : AND/OR/NOT, parenthèses, comparaisons `=`, `!=`,
 //     `<`, `>`, `<=`, `>=`, `contains`, `startswith`, `endswith`.
 //   - `SORT <champ> [ASC|DESC]` : tri stable ; les notes sans valeur passent en
 //     fin, quel que soit le sens.
+//   - `GROUP BY <champ>` : regroupement par valeur de champ (voir
+//     [`evaluate_dql_grouped`]).
+//   - `FLATTEN <champ>` : dépliage d'un champ liste en plusieurs lignes (voir
+//     [`flatten_rows`]).
 //   - `LIMIT <n>` : ne garde que les `n` premières notes.
+//
+// Les clauses `SORT`, `GROUP BY`, `FLATTEN` et `LIMIT` peuvent apparaître dans
+// n'importe quel ordre après `WHERE` ; une clause répétée est une erreur.
 //
 // Champs : `file.name`, `file.path`, `file.folder`, `file.ext`, `file.size`,
 // `file.mtime`, `file.ctime`, `file.tags` (liste), `file.links` (liste), et
@@ -203,8 +221,6 @@ pub fn sort_by_field(notes: &[Note], field: &str, ascending: bool, indices: &mut
 // `file.size`, `file.mtime` et `file.ctime` sont lus sur le système de fichiers
 // (`std::fs::metadata`). Pour une note synthétique dont le chemin n'existe pas
 // sur disque (tests), ces champs sont considérés absents.
-
-use std::fmt;
 
 /// Erreur de parsing d'une requête Dataview, localisée (ligne/colonne).
 #[derive(Debug, Clone, PartialEq)]
@@ -305,7 +321,45 @@ pub struct ParsedDql {
     source: Source,
     condition: Option<Expr>,
     sort: Option<SortSpec>,
+    group_by: Option<FieldRef>,
+    flatten: Option<FieldRef>,
     limit: Option<usize>,
+}
+
+impl ParsedDql {
+    /// Nom du champ de regroupement (`GROUP BY`), s'il est présent.
+    pub fn group_field(&self) -> Option<String> {
+        self.group_by.as_ref().map(field_name)
+    }
+
+    /// Nom du champ déplié (`FLATTEN`), s'il est présent.
+    pub fn flatten_field(&self) -> Option<String> {
+        self.flatten.as_ref().map(field_name)
+    }
+
+    /// Limite de résultats (`LIMIT`), si elle est présente.
+    pub fn limit(&self) -> Option<usize> {
+        self.limit
+    }
+}
+
+/// Nom affichable d'une référence de champ : `file.tags`, `priority`, etc.
+fn field_name(field: &FieldRef) -> String {
+    match field {
+        FieldRef::Property(name) => name.clone(),
+        FieldRef::File(file_field) => match file_field {
+            FileField::Name => "file.name",
+            FileField::Path => "file.path",
+            FileField::Folder => "file.folder",
+            FileField::Size => "file.size",
+            FileField::Mtime => "file.mtime",
+            FileField::Ctime => "file.ctime",
+            FileField::Ext => "file.ext",
+            FileField::Tags => "file.tags",
+            FileField::Links => "file.links",
+        }
+        .to_string(),
+    }
 }
 
 /// Jeton lexé.
@@ -321,6 +375,15 @@ enum Token {
     Geq,
     LParen,
     RParen,
+}
+
+/// Clause de fin de requête, dans l'ordre où elle apparaît.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Clause {
+    Sort,
+    Group,
+    Flatten,
+    Limit,
 }
 
 /// Jeton accompagné de sa position source.
@@ -546,11 +609,24 @@ impl<'a> Parser<'a> {
             .unwrap_or(self.eof)
     }
 
+    /// Clause de fin de requête reconnue au mot-clé courant.
+    fn peek_clause(&self) -> Option<Clause> {
+        match self.peek_word()? {
+            "SORT" => Some(Clause::Sort),
+            "GROUP" => Some(Clause::Group),
+            "FLATTEN" => Some(Clause::Flatten),
+            "LIMIT" => Some(Clause::Limit),
+            _ => None,
+        }
+    }
+
     fn parse_dql(&mut self) -> Result<ParsedDql, QueryError> {
         let mut parsed = ParsedDql {
             source: Source::All,
             condition: None,
             sort: None,
+            group_by: None,
+            flatten: None,
             limit: None,
         };
 
@@ -568,14 +644,45 @@ impl<'a> Parser<'a> {
             parsed.condition = Some(self.parse_expr()?);
         }
 
-        if self.peek_word() == Some("SORT") {
-            self.advance();
-            parsed.sort = Some(self.parse_sort()?);
-        }
-
-        if self.peek_word() == Some("LIMIT") {
-            self.advance();
-            parsed.limit = Some(self.parse_limit()?);
+        while let Some(clause) = self.peek_clause() {
+            let (line, column) = self.here();
+            match clause {
+                Clause::Sort => {
+                    if parsed.sort.is_some() {
+                        return Err(QueryError::at(line, column, "clause SORT en double"));
+                    }
+                    self.advance();
+                    parsed.sort = Some(self.parse_sort()?);
+                }
+                Clause::Group => {
+                    if parsed.group_by.is_some() {
+                        return Err(QueryError::at(line, column, "clause GROUP BY en double"));
+                    }
+                    self.advance();
+                    let (by_line, by_column) = self.here();
+                    let by = self.advance().ok_or_else(|| {
+                        QueryError::at(by_line, by_column, "BY attendu après GROUP")
+                    })?;
+                    if !matches!(&by.token, Token::Word(word) if word == "BY") {
+                        return Err(QueryError::at(by.line, by.column, "BY attendu après GROUP"));
+                    }
+                    parsed.group_by = Some(self.parse_clause_field("GROUP BY")?);
+                }
+                Clause::Flatten => {
+                    if parsed.flatten.is_some() {
+                        return Err(QueryError::at(line, column, "clause FLATTEN en double"));
+                    }
+                    self.advance();
+                    parsed.flatten = Some(self.parse_clause_field("FLATTEN")?);
+                }
+                Clause::Limit => {
+                    if parsed.limit.is_some() {
+                        return Err(QueryError::at(line, column, "clause LIMIT en double"));
+                    }
+                    self.advance();
+                    parsed.limit = Some(self.parse_limit()?);
+                }
+            }
         }
 
         if let Some(token) = self.peek() {
@@ -751,6 +858,15 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Champ attendu après une clause `GROUP BY` / `FLATTEN`.
+    fn parse_clause_field(&mut self, clause: &str) -> Result<FieldRef, QueryError> {
+        let (line, column) = self.here();
+        let spanned = self
+            .advance()
+            .ok_or_else(|| QueryError::at(line, column, format!("champ attendu après {clause}")))?;
+        Self::parse_field(spanned)
+    }
+
     fn parse_sort(&mut self) -> Result<SortSpec, QueryError> {
         let (fline, fcolumn) = self.here();
         let field_spanned = self
@@ -811,7 +927,8 @@ impl<'a> Parser<'a> {
 ///
 /// Retourne une erreur localisée (ligne/colonne) pour toute requête invalide :
 /// champ `file.*` inconnu, opérateur manquant, guillemet non fermé, nombre
-/// invalide pour `LIMIT`, ou clause inconnue.
+/// invalide pour `LIMIT`, clause `GROUP BY` / `FLATTEN` incomplète, clause
+/// répétée, ou clause inconnue.
 pub fn parse_dql(query: &str) -> Result<ParsedDql, QueryError> {
     let tokens = lex(query)?;
     let mut parser = Parser {
@@ -1013,18 +1130,33 @@ fn eval_expr(expr: &Expr, note: &Note) -> bool {
     }
 }
 
+/// Dossier de requête normalisé : séparateurs `/`, sans barre finale, en
+/// minuscules.
+fn normaliser_dossier(dossier: &str) -> String {
+    dossier
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_lowercase()
+}
+
 /// Vérifie qu'une note appartient à la source `FROM`.
+///
+/// La casse est ignorée, à la fois pour les tags (`#Projet` = `#projet`) et
+/// pour les dossiers (`"Proj"` = `"proj"`, barre finale tolérée).
 fn source_matches(source: &Source, note: &Note) -> bool {
     match source {
         Source::All => true,
-        Source::Tag(tag) => note
-            .metadata
-            .tags
-            .iter()
-            .any(|stored| stored == tag || stored.starts_with(&format!("{tag}/"))),
+        Source::Tag(tag) => {
+            let tag = tag.to_lowercase();
+            note.metadata.tags.iter().any(|stored| {
+                let stored = stored.to_lowercase();
+                stored == tag || stored.starts_with(&format!("{tag}/"))
+            })
+        }
         Source::Folder(folder) => {
-            let note_folder = folder_of(note);
-            note_folder == *folder || note_folder.starts_with(&format!("{folder}/"))
+            let folder = normaliser_dossier(folder);
+            let note_folder = folder_of(note).to_lowercase();
+            note_folder == folder || note_folder.starts_with(&format!("{folder}/"))
         }
     }
 }
@@ -1072,6 +1204,10 @@ fn sort_indices(notes: &[Note], sort: &SortSpec, indices: &mut [usize]) {
 ///
 /// Retourne les indices (dans `notes`) des notes qui satisfont la requête,
 /// dans l'ordre d'origine, puis triées (le cas échéant) et limitées.
+///
+/// Les clauses `GROUP BY` et `FLATTEN` ne modifient pas ce résultat (il reste
+/// une liste d'indices) : elles sont exploitées par [`evaluate_dql_grouped`] et
+/// [`flatten_rows`].
 pub fn evaluate_dql(notes: &[Note], parsed: &ParsedDql) -> Vec<usize> {
     let mut indices: Vec<usize> = notes
         .iter()
@@ -1101,6 +1237,152 @@ pub fn evaluate_dql(notes: &[Note], parsed: &ParsedDql) -> Vec<usize> {
 pub fn query_notes(notes: &[Note], query: &str) -> Result<Vec<usize>, QueryError> {
     let parsed = parse_dql(query)?;
     Ok(evaluate_dql(notes, &parsed))
+}
+
+/// Résultat d'une requête `GROUP BY` : une entrée par valeur distincte du
+/// champ de regroupement, dans l'ordre de première apparition dans le résultat
+/// trié.
+///
+/// Les notes qui ne possèdent pas le champ forment un groupe de clé vide
+/// (`""`), placé là où il apparaît.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroupedResult {
+    groups: Vec<(String, Vec<usize>)>,
+}
+
+impl GroupedResult {
+    /// Groupes `(clé, indices)`, dans l'ordre de première apparition.
+    pub fn groups(&self) -> &[(String, Vec<usize>)] {
+        &self.groups
+    }
+
+    /// Nombre de groupes.
+    pub fn len(&self) -> usize {
+        self.groups.len()
+    }
+
+    /// `true` si aucun groupe (résultat vide).
+    pub fn is_empty(&self) -> bool {
+        self.groups.is_empty()
+    }
+
+    /// Indices du groupe `key`, ou `None` si la clé est absente.
+    pub fn get(&self, key: &str) -> Option<&[usize]> {
+        self.groups
+            .iter()
+            .find(|(group, _)| group == key)
+            .map(|(_, indices)| indices.as_slice())
+    }
+
+    /// Tous les indices, groupe par groupe.
+    pub fn indices(&self) -> Vec<usize> {
+        self.groups
+            .iter()
+            .flat_map(|(_, indices)| indices.iter().copied())
+            .collect()
+    }
+}
+
+/// Évalue une requête en regroupant le résultat par la valeur du champ
+/// `GROUP BY`.
+///
+/// Le pipeline `FROM` → `WHERE` → `SORT` → `LIMIT` est appliqué d'abord (donc
+/// la limite porte sur les notes, pas sur les groupes). Sans clause
+/// `GROUP BY`, toutes les notes retenues forment un groupe unique de clé vide ;
+/// un résultat vide ne produit aucun groupe.
+pub fn evaluate_dql_grouped(notes: &[Note], parsed: &ParsedDql) -> GroupedResult {
+    let indices = evaluate_dql(notes, parsed);
+    let Some(field) = &parsed.group_by else {
+        let groups = if indices.is_empty() {
+            Vec::new()
+        } else {
+            vec![(String::new(), indices)]
+        };
+        return GroupedResult { groups };
+    };
+
+    let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+    let mut positions: HashMap<String, usize> = HashMap::new();
+    for index in indices {
+        let key = resolve_field(&notes[index], field)
+            .map(|value| text_of(&value))
+            .unwrap_or_default();
+        match positions.get(&key) {
+            Some(&position) => {
+                if let Some((_, indices)) = groups.get_mut(position) {
+                    indices.push(index);
+                }
+            }
+            None => {
+                positions.insert(key.clone(), groups.len());
+                groups.push((key, vec![index]));
+            }
+        }
+    }
+    GroupedResult { groups }
+}
+
+/// Parse puis évalue une requête regroupée (`GROUP BY`).
+pub fn query_grouped(notes: &[Note], query: &str) -> Result<GroupedResult, QueryError> {
+    let parsed = parse_dql(query)?;
+    Ok(evaluate_dql_grouped(notes, &parsed))
+}
+
+/// Une ligne de résultat après `FLATTEN` : la note d'origine et la valeur
+/// dépliée.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FlatRow {
+    /// Indice de la note dans la liste passée à l'évaluation.
+    pub index: usize,
+    /// Valeur dépliée, ou `None` si le champ est absent (ou sans `FLATTEN`).
+    pub value: Option<String>,
+}
+
+/// Évalue une requête en dépliant le champ `FLATTEN` en une ligne par élément.
+///
+/// Le pipeline `FROM` → `WHERE` → `SORT` → `LIMIT` est appliqué d'abord, et le
+/// dépliage porte sur chaque note retenue :
+///
+/// - champ liste non vide → une ligne par élément, dans l'ordre de la liste ;
+/// - champ liste vide → aucune ligne (comportement de `FLATTEN` en DQL) ;
+/// - champ scalaire → une ligne, valeur texte ;
+/// - champ absent → une ligne, `value = None` (la note reste visible).
+///
+/// Sans clause `FLATTEN`, une ligne par note avec `value = None`.
+pub fn flatten_rows(notes: &[Note], parsed: &ParsedDql) -> Vec<FlatRow> {
+    let indices = evaluate_dql(notes, parsed);
+    let Some(field) = &parsed.flatten else {
+        return indices
+            .into_iter()
+            .map(|index| FlatRow { index, value: None })
+            .collect();
+    };
+
+    let mut rows = Vec::new();
+    for index in indices {
+        match resolve_field(&notes[index], field) {
+            Some(DqlValue::List(items)) => {
+                for item in &items {
+                    rows.push(FlatRow {
+                        index,
+                        value: Some(text_of(item)),
+                    });
+                }
+            }
+            Some(value) => rows.push(FlatRow {
+                index,
+                value: Some(text_of(&value)),
+            }),
+            None => rows.push(FlatRow { index, value: None }),
+        }
+    }
+    rows
+}
+
+/// Parse puis déplie une requête (`FLATTEN`).
+pub fn query_flattened(notes: &[Note], query: &str) -> Result<Vec<FlatRow>, QueryError> {
+    let parsed = parse_dql(query)?;
+    Ok(flatten_rows(notes, &parsed))
 }
 
 #[cfg(test)]
@@ -1413,6 +1695,255 @@ mod tests {
                 &[Query::new("tags", FieldCmp::Contains("docs".into()))]
             ),
             vec![1]
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // DQL : GROUP BY, FLATTEN, sources insensibles à la casse
+    // -------------------------------------------------------------------
+
+    /// Complète une note avec des tags (le helper `note` ne les renseigne pas).
+    fn note_tags(path: &str, frontmatter: &str, tags: &[&str]) -> Note {
+        let mut built = note(path, frontmatter);
+        built.metadata.tags = tags.iter().map(|tag| tag.to_string()).collect();
+        built
+    }
+
+    #[test]
+    fn dql_group_by_regroupe_par_valeur() {
+        let notes = notes();
+        let grouped = query_grouped(&notes, "GROUP BY priority").expect("requête valide");
+        // Ordre de première apparition : 5 (a, c), 3 (b), champ absent (d),
+        // puis 10 (e).
+        assert_eq!(
+            grouped.groups(),
+            [
+                ("5".to_string(), vec![0, 2]),
+                ("3".to_string(), vec![1]),
+                (String::new(), vec![3]),
+                ("10".to_string(), vec![4]),
+            ]
+            .as_slice()
+        );
+        assert_eq!(grouped.get("5"), Some([0usize, 2].as_slice()));
+        assert_eq!(grouped.get("inexistant"), None);
+        assert_eq!(grouped.indices(), vec![0, 2, 1, 3, 4]);
+    }
+
+    #[test]
+    fn dql_sans_group_by_un_seul_groupe_cle_vide() {
+        let notes = notes();
+        let grouped = query_grouped(&notes, "LIMIT 3").expect("requête valide");
+        assert_eq!(grouped.len(), 1);
+        assert_eq!(grouped.get(""), Some([0usize, 1, 2].as_slice()));
+        assert_eq!(grouped.indices(), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn dql_group_by_resultat_vide_aucun_groupe() {
+        let notes = notes();
+        let grouped = query_grouped(&notes, "WHERE priority > 100 GROUP BY priority")
+            .expect("requête valide");
+        assert!(grouped.is_empty());
+        assert!(grouped.indices().is_empty());
+    }
+
+    #[test]
+    fn dql_group_by_limite_appliquee_avant_regroupement() {
+        let notes = notes();
+        let grouped = query_grouped(&notes, "GROUP BY priority LIMIT 2").expect("requête valide");
+        assert_eq!(
+            grouped.groups(),
+            [("5".to_string(), vec![0]), ("3".to_string(), vec![1]),].as_slice()
+        );
+    }
+
+    #[test]
+    fn dql_group_by_file_dossier() {
+        let notes = vec![
+            note_tags("proj/a.md", "priority: 1\n", &["projet"]),
+            note_tags("proj/b.md", "priority: 2\n", &["projet"]),
+            note_tags("racine.md", "priority: 3\n", &["projet"]),
+        ];
+        let grouped = query_grouped(&notes, "GROUP BY file.folder").expect("requête valide");
+        assert_eq!(
+            grouped.groups(),
+            [("proj".to_string(), vec![0, 1]), (String::new(), vec![2]),].as_slice()
+        );
+    }
+
+    #[test]
+    fn dql_flatten_file_tags_deplie_les_listes() {
+        let notes = vec![
+            note_tags("a.md", "priority: 1\n", &["projet", "urgent"]),
+            note_tags("b.md", "priority: 2\n", &["projet"]),
+            note_tags("c.md", "priority: 3\n", &[]),
+        ];
+        let rows = query_flattened(&notes, "FLATTEN file.tags").expect("requête valide");
+        // `c` n'a aucun tag : une liste vide ne produit aucune ligne.
+        assert_eq!(
+            rows,
+            vec![
+                FlatRow {
+                    index: 0,
+                    value: Some("projet".to_string()),
+                },
+                FlatRow {
+                    index: 0,
+                    value: Some("urgent".to_string()),
+                },
+                FlatRow {
+                    index: 1,
+                    value: Some("projet".to_string()),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn dql_flatten_champ_absent_une_ligne_sans_valeur() {
+        let notes = vec![
+            note("a.md", "priority: 5\n"),
+            note("b.md", "aliases: [x, y]\n"),
+        ];
+        let rows = query_flattened(&notes, "FLATTEN aliases").expect("requête valide");
+        assert_eq!(
+            rows,
+            vec![
+                FlatRow {
+                    index: 0,
+                    value: None,
+                },
+                FlatRow {
+                    index: 1,
+                    value: Some("x".to_string()),
+                },
+                FlatRow {
+                    index: 1,
+                    value: Some("y".to_string()),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn dql_flatten_liste_vide_aucune_ligne() {
+        let notes = vec![
+            note("a.md", "aliases: []\n"),
+            note("b.md", "aliases: [z]\n"),
+        ];
+        let rows = query_flattened(&notes, "FLATTEN aliases").expect("requête valide");
+        assert_eq!(
+            rows,
+            vec![FlatRow {
+                index: 1,
+                value: Some("z".to_string()),
+            }]
+        );
+    }
+
+    #[test]
+    fn dql_flatten_sans_clause_une_ligne_par_note() {
+        let notes = notes();
+        let rows = query_flattened(&notes, "LIMIT 2").expect("requête valide");
+        assert_eq!(
+            rows,
+            vec![
+                FlatRow {
+                    index: 0,
+                    value: None,
+                },
+                FlatRow {
+                    index: 1,
+                    value: None,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn dql_champs_de_groupement_et_depliage_exposes() {
+        let parsed =
+            parse_dql("GROUP BY file.folder FLATTEN file.tags LIMIT 5").expect("requête valide");
+        assert_eq!(parsed.group_field().as_deref(), Some("file.folder"));
+        assert_eq!(parsed.flatten_field().as_deref(), Some("file.tags"));
+        assert_eq!(parsed.limit(), Some(5));
+
+        let simple = parse_dql("WHERE title = \"x\"").expect("requête valide");
+        assert_eq!(simple.group_field(), None);
+        assert_eq!(simple.flatten_field(), None);
+        assert_eq!(simple.limit(), None);
+    }
+
+    #[test]
+    fn dql_ordre_des_clauses_sans_effet_sur_le_pipeline() {
+        let notes = notes();
+        // Le pipeline reste FROM → WHERE → SORT → LIMIT ; écrire LIMIT avant
+        // SORT ne change donc pas le résultat.
+        assert_eq!(
+            query_notes(&notes, "LIMIT 2 SORT priority DESC").expect("requête valide"),
+            query_notes(&notes, "SORT priority DESC LIMIT 2").expect("requête valide")
+        );
+    }
+
+    #[test]
+    fn dql_group_sans_by_erreur() {
+        let err = parse_dql("GROUP priority").unwrap_err();
+        assert!(err.to_string().contains("BY attendu"), "{err}");
+    }
+
+    #[test]
+    fn dql_group_by_sans_champ_erreur() {
+        let err = parse_dql("GROUP BY").unwrap_err();
+        assert!(err.to_string().contains("champ attendu"), "{err}");
+    }
+
+    #[test]
+    fn dql_clause_repetee_erreur() {
+        for query in [
+            "GROUP BY priority GROUP BY title",
+            "FLATTEN aliases FLATTEN tags",
+            "LIMIT 1 LIMIT 2",
+            "SORT priority SORT title",
+        ] {
+            let err = parse_dql(query).unwrap_err();
+            assert!(err.to_string().contains("en double"), "{query} → {err}");
+        }
+    }
+
+    #[test]
+    fn dql_from_tag_insensible_a_la_casse() {
+        let notes = vec![
+            note_tags("a.md", "", &["Projet"]),
+            note_tags("b.md", "", &["autre"]),
+        ];
+        assert_eq!(
+            query_notes(&notes, "FROM #projet").expect("requête valide"),
+            vec![0]
+        );
+        assert_eq!(
+            query_notes(&notes, "FROM #PROJET").expect("requête valide"),
+            vec![0]
+        );
+    }
+
+    #[test]
+    fn dql_from_dossier_insensible_a_la_casse_et_barre_finale() {
+        let notes = vec![
+            note_tags("Proj/sous/a.md", "", &[]),
+            note_tags("docs/b.md", "", &[]),
+        ];
+        assert_eq!(
+            query_notes(&notes, "FROM \"proj\"").expect("requête valide"),
+            vec![0]
+        );
+        assert_eq!(
+            query_notes(&notes, "FROM \"PROJ/\"").expect("requête valide"),
+            vec![0]
+        );
+        assert_eq!(
+            query_notes(&notes, "FROM \"DOSSIER\"").expect("requête valide"),
+            Vec::<usize>::new()
         );
     }
 }

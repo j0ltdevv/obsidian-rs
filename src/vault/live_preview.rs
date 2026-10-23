@@ -94,6 +94,9 @@ pub struct Segment {
     pub text: String,
     /// Ligne de départ (0-based).
     pub line: usize,
+    /// Cible brute d'un wikilink (`[[cible]]` ou `[[cible|alias]]`), sans
+    /// l'alias ni les crochets. `None` pour tous les autres styles.
+    pub target: Option<String>,
 }
 
 /// Rend un contenu Markdown en segments.
@@ -152,6 +155,7 @@ pub fn render_markdown(content: &str) -> Vec<Segment> {
                 style: SegmentStyle::MathDisplay,
                 text: m.source.clone(),
                 line: m.start_line,
+                target: None,
             });
             index = m.end_line + 1;
             continue;
@@ -195,6 +199,7 @@ fn push_code_block(
         style: SegmentStyle::CodeBlock,
         text: body.join("\n"),
         line: start,
+        target: None,
     });
 
     if index < lines.len() {
@@ -293,6 +298,7 @@ fn push_marqueur(style: SegmentStyle, line_no: usize, out: &mut Vec<Segment>) {
         style,
         text: String::new(),
         line: line_no,
+        target: None,
     });
 }
 
@@ -302,6 +308,7 @@ fn push_texte(style: SegmentStyle, texte: &str, line_no: usize, out: &mut Vec<Se
         style,
         text: texte.to_string(),
         line: line_no,
+        target: None,
     });
 }
 
@@ -687,7 +694,20 @@ fn push_inline(ligne: &str, line_no: usize, out: &mut Vec<Segment>) {
         if c == '[' && chars.get(i + 1) == Some(&'[') {
             if let Some((texte, fin)) = parse_wikilink(chars.as_slice(), i) {
                 vider_tampon(&mut tampon, line_no, out);
-                push_texte(SegmentStyle::Wikilink, &texte, line_no, out);
+                // Cible brute : contenu entre `[[` et `]]`, sans l'alias.
+                let brut: String = chars[i + 2..fin.saturating_sub(2)].iter().collect();
+                let cible = brut
+                    .split_once('|')
+                    .map(|(cible, _)| cible)
+                    .unwrap_or(&brut)
+                    .trim()
+                    .to_string();
+                out.push(Segment {
+                    style: SegmentStyle::Wikilink,
+                    text: texte,
+                    line: line_no,
+                    target: Some(cible),
+                });
                 i = fin;
                 continue;
             }
@@ -725,6 +745,7 @@ fn vider_tampon(tampon: &mut String, line_no: usize, out: &mut Vec<Segment>) {
         style: SegmentStyle::Plain,
         text: texte,
         line: line_no,
+        target: None,
     });
 }
 
@@ -901,6 +922,15 @@ mod tests {
             style,
             text: text.to_string(),
             line,
+            target: None,
+        }
+    }
+
+    /// Construit un `Segment` de wikilink avec sa cible brute.
+    fn seg_cible(style: SegmentStyle, text: &str, target: &str, line: usize) -> Segment {
+        Segment {
+            target: Some(target.to_string()),
+            ..seg(style, text, line)
         }
     }
 
@@ -1166,7 +1196,7 @@ mod tests {
     fn test_wikilink_avec_alias() {
         assert_eq!(
             render_markdown("[[cible|affichage]]"),
-            segs(&[("affichage", SegmentStyle::Wikilink, 0)])
+            vec![seg_cible(SegmentStyle::Wikilink, "affichage", "cible", 0)]
         );
     }
 
@@ -1174,7 +1204,12 @@ mod tests {
     fn test_wikilink_simple() {
         assert_eq!(
             render_markdown("[[Note cible]]"),
-            segs(&[("Note cible", SegmentStyle::Wikilink, 0)])
+            vec![seg_cible(
+                SegmentStyle::Wikilink,
+                "Note cible",
+                "Note cible",
+                0
+            )]
         );
     }
 
@@ -1468,12 +1503,12 @@ mod tests {
     fn test_embed_et_wikilink_dans_la_meme_ligne() {
         assert_eq!(
             render_markdown("avant ![[img.PNG]] après [[wiki]]"),
-            segs(&[
-                ("avant ", SegmentStyle::Plain, 0),
-                ("img.PNG", SegmentStyle::EmbedImage, 0),
-                (" après ", SegmentStyle::Plain, 0),
-                ("wiki", SegmentStyle::Wikilink, 0),
-            ])
+            vec![
+                seg(SegmentStyle::Plain, "avant ", 0),
+                seg(SegmentStyle::EmbedImage, "img.PNG", 0),
+                seg(SegmentStyle::Plain, " après ", 0),
+                seg_cible(SegmentStyle::Wikilink, "wiki", "wiki", 0),
+            ]
         );
     }
 
@@ -1524,11 +1559,7 @@ mod tests {
                 ("1 2", SegmentStyle::Table, 2)
             ]
             .iter()
-            .map(|(t, s, l)| Segment {
-                style: *s,
-                text: (*t).to_string(),
-                line: *l,
-            })
+            .map(|&(t, s, l)| seg(s, t, l))
             .collect::<Vec<_>>()
         );
     }

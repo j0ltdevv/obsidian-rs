@@ -43,6 +43,13 @@ tranches en cours et des mesures de RAM (rendu logiciel)._
 ### Complète
 - Ouvrir / créer / renommer / supprimer une note.
 - Tags.
+- Wikilinks : liens du **corps** de la prévisualisation cliquables (la cible
+  brute est conservée dans `Segment::target`, alias compris).
+- Bases/Dataview : moteur DQL (`FROM`, `WHERE`, `SORT`, `GROUP BY`, `FLATTEN`,
+  `LIMIT`) + vue requêtable (barre de saisie, erreurs, résultats triés).
+- Export PDF (`vault/pdf.rs`, encodage WinAnsi étendu aux caractères
+  typographiques) et publication statique (`vault/publish.rs`, liens internes
+  `.html` + section Backlinks par page).
 - Recherche globale (opérateurs path/tag/file/line/exclusion, remplacement global).
 - Graphe (local + profondeur, filtres, drag/zoom/pan persistés).
 - Propriétés / frontmatter éditable.
@@ -53,18 +60,18 @@ tranches en cours et des mesures de RAM (rendu logiciel)._
 | Fonctionnalité | Ce qui manque | Preuve |
 |---|---|---|
 | Édition + rendu Markdown | maths = texte mono coloré ; embeds = placeholders ; tableaux en mono sans grille ; listes sans indentation de niveau ; callouts non repliables ; code sans coloration syntaxique ; barré en gris | `src/ui/markdown.rs` |
-| Wikilinks | ceux du **corps** du preview ne sont pas cliquables, seuls ceux du bloc métadonnées le sont | `src/ui/mod.rs:1772` (`SegmentStyle::Wikilink`) |
 | Pièces jointes | inventaire + renommage + suppression, mais pas d'affichage des images, pas de glisser-déposer, pas de lecture audio/vidéo | `src/vault/attachments.rs` |
 | Canvas | cartes éditables, import/export JSON, mais planche générée automatiquement, pas de création manuelle de nœuds/arêtes | `src/ui/canvas_view.rs`, `src/vault/canvas_data.rs` |
-| Thème | dark/light + 21 variables, mais pas de thèmes CSS personnalisés complets | `src/vault/themes.rs` |
+| Thème | parseur de thèmes CSS livré (cascade base → `.theme-dark`/`.theme-light`, `!important`, audit des variables) mais pas encore appliqué à l'UI | `src/vault/themes.rs` |
 | Snippets CSS | 5 variables extraites, pas de CSS complet | `src/vault/css_snippets.rs` |
-| Bases/Dataview | tableau fixe de 4 colonnes, pas de langage de requête | `src/vault/dataview.rs` |
+| Bases/Dataview | langage de requête livré ; rendu tabulaire encore limité aux colonnes nom/tags/liens/propriété | `src/vault/dataview.rs`, `src/ui/dataview_view.rs` |
 | Historique | snapshots + restauration, pas de navigation temporelle | `src/vault/history.rs` |
 | Corbeille | les notes vont dans `.trash`, mais **aucune restauration ni vidage depuis l'interface** | `src/vault/trash.rs` |
 
 ### Absente
-- Export PDF.
-- Publication (site statique).
+- Navigation clavier complète (le keymap existe, le focus iced n'est pas câblé).
+- Chiffrement optionnel du vault.
+- i18n fr/en.
 
 ### Hors périmètre (AGENTS.md)
 - Plugins tiers, synchronisation multi-appareils.
@@ -80,6 +87,10 @@ tranches en cours et des mesures de RAM (rendu logiciel)._
 Ces tranches sont **en cours de développement**, pas terminées.
 
 ## Top 8 des écarts les plus visibles
+
+_Liste établie le 21 octobre. Depuis, les points 1 (wikilinks du corps), 3
+(export PDF), 4 (Dataview) et 7 (corbeille) sont traités : voir l'audit
+ci-dessus._
 
 Classés par impact décroissant pour un utilisateur.
 

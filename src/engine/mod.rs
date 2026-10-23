@@ -29,7 +29,14 @@
 //! | `GET` | `/backlinks?path=…` | `{"path":…,"backlinks":[{"from":…,"count":N}]}` |
 //! | `GET` | `/search?q=…&limit=N` | `{"results":[{"path":…,"line":N,"text":…}]}` |
 //! | `GET` | `/graph` | `{"nodes":[…],"edges":[…]}` |
+//! | `GET` | `/tags` | `{"tags":[{"tag":…,"count":N}]}` |
+//! | `GET` | `/outline?path=…` | `{"path":…,"outline":[{"level":N,"title":…,"line":N}]}` |
+//! | `GET` | `/tasks[?path=…]` | `{"tasks":[{"path":…,"line":N,"text":…,"done":bool}]}` |
+//! | `GET` | `/aliases` | `{"aliases":[{"alias":…,"path":…}]}` |
 //! | `POST` | `/sync` | `{"ok":true,"value":…}` ou `{"ok":false,"error":"…"}` |
+//!
+//! Les numéros de ligne exposés en JSON (`/outline`, `/tasks`, `/search`) sont
+//! **1-based**, comme dans un éditeur ; le vault manipule des indices 0-based.
 //!
 //! Les erreurs renvoient un statut HTTP et `{"error":"message"}` ; les
 //! messages sont en français.
@@ -47,18 +54,20 @@ pub mod json;
 pub mod paths;
 pub mod sync;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use crate::vault::aliases::extract_aliases;
 use crate::vault::index::NoteIndex;
 use crate::vault::note::Note;
 use crate::vault::ops::{create_note, write_note};
 use crate::vault::scan_vault;
 use crate::vault::search::{build_text_index, FullTextIndex};
 use crate::vault::search_ops::{filter_notes, parse_query};
+use crate::vault::tasks::{extract_tasks, TaskStatus};
 
 /// Port d'écoute par défaut du moteur.
 pub const DEFAULT_PORT: u16 = 27123;
@@ -128,6 +137,37 @@ pub struct GraphEdge {
     pub from: String,
     /// Chemin relatif de la note cible.
     pub to: String,
+}
+
+/// Tag du vault et nombre de notes qui le portent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TagCount {
+    /// Tag tel qu'écrit dans les notes (sans `#`).
+    pub tag: String,
+    /// Nombre de notes portant ce tag (au plus une fois par note).
+    pub count: usize,
+}
+
+/// Tâche (case à cocher) exposée par l'API JSON.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskEntry {
+    /// Chemin relatif de la note d'origine.
+    pub path: PathBuf,
+    /// Ligne (0-based) de la case dans la note.
+    pub line: usize,
+    /// Texte de la tâche, après la case.
+    pub text: String,
+    /// `true` si la case est cochée.
+    pub done: bool,
+}
+
+/// Alias déclaré dans le frontmatter d'une note.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AliasEntry {
+    /// Alias tel que déclaré (trimé, casse conservée).
+    pub alias: String,
+    /// Chemin relatif de la note cible.
+    pub path: PathBuf,
 }
 
 /// Le moteur : racine du vault, notes scannées et index de résolution.
@@ -373,6 +413,86 @@ impl Engine {
             });
         }
         (nodes, edges)
+    }
+
+    /// Tags du vault et nombre de notes qui les portent, triés par tag.
+    ///
+    /// Un tag n'est compté qu'une fois par note, même s'il y apparaît
+    /// plusieurs fois (corps et frontmatter fusionnés). La comparaison est
+    /// exacte (la casse est significative, comme dans le vault).
+    pub fn tags_data(&self) -> Vec<TagCount> {
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for note in &self.notes {
+            let mut seen: Vec<&str> = Vec::new();
+            for tag in &note.metadata.tags {
+                if seen.contains(&tag.as_str()) {
+                    continue;
+                }
+                seen.push(tag.as_str());
+                *counts.entry(tag.clone()).or_insert(0) += 1;
+            }
+        }
+        counts
+            .into_iter()
+            .map(|(tag, count)| TagCount { tag, count })
+            .collect()
+    }
+
+    /// Tâches de toutes les notes, triées par chemin puis par ligne.
+    ///
+    /// Une note illisible est ignorée (signalée sur la sortie d'erreur) : une
+    /// seule note cassée ne fait pas échouer `/tasks`.
+    pub fn tasks_data(&self) -> Vec<TaskEntry> {
+        let mut entries = Vec::new();
+        for note in &self.notes {
+            let path = self.root.join(&note.path);
+            let content = match fs::read_to_string(&path) {
+                Ok(content) => content,
+                Err(err) => {
+                    eprintln!(
+                        "[obsidian-engine] lecture impossible de {} : {err}",
+                        note.path.display()
+                    );
+                    continue;
+                }
+            };
+            for task in extract_tasks(&content, &note.path) {
+                entries.push(TaskEntry {
+                    path: note.path.clone(),
+                    line: task.line,
+                    text: task.text,
+                    done: task.status == TaskStatus::Done,
+                });
+            }
+        }
+        entries.sort_by(|left, right| {
+            left.path
+                .cmp(&right.path)
+                .then_with(|| left.line.cmp(&right.line))
+        });
+        entries
+    }
+
+    /// Alias déclarés par les notes, triés par alias (insensible à la casse)
+    /// puis par chemin.
+    pub fn aliases_data(&self) -> Vec<AliasEntry> {
+        let mut entries = Vec::new();
+        for note in &self.notes {
+            for alias in extract_aliases(&note.metadata.frontmatter) {
+                entries.push(AliasEntry {
+                    alias,
+                    path: note.path.clone(),
+                });
+            }
+        }
+        entries.sort_by(|left, right| {
+            left.alias
+                .to_lowercase()
+                .cmp(&right.alias.to_lowercase())
+                .then_with(|| left.alias.cmp(&right.alias))
+                .then_with(|| left.path.cmp(&right.path))
+        });
+        entries
     }
 }
 

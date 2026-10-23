@@ -73,8 +73,8 @@ La feuille de route complète (labels SEEN/INFERRED et phases) est dans
 Le « cœur » local d'Obsidian est couvert (noter, lier, chercher, graphe,
 canvas, plugins natifs, thèmes). Les éléments d'écosystème suivants ne sont
 pas livrés : la mobile, sync multi-appareils, compatibilité des plugins
-tiers JavaScript/CSS, export PDF, multi-fenêtres — ils nécessitent des
-décisions d'architecture à part (moteur JS, protocole de sync).
+tiers JavaScript/CSS, multi-fenêtres — ils nécessitent des décisions
+d'architecture à part (moteur JS, protocole de sync).
 
 ## Licence
 

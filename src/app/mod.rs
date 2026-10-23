@@ -20,6 +20,7 @@ use crate::plugins::registry::PluginRegistry;
 use crate::vault::aliases::AliasIndex;
 use crate::vault::canvas_data::{CanvasBoard, CardId};
 use crate::vault::commands::{default_commands, search_commands, Command};
+use crate::vault::dataview::query_notes;
 use crate::vault::graph::GraphFilters;
 use crate::vault::history::{list_snapshots, restore_snapshot};
 use crate::vault::index::NoteIndex;
@@ -42,6 +43,9 @@ const SEARCH_PANEL_LIMIT: usize = 50;
 
 /// Racine du vault de démonstration, relative à la racine du dépôt.
 const DEMO_VAULT: &str = "demo-vault";
+
+/// Requête DQL proposée par défaut dans la vue Dataview.
+const DEFAULT_DATAVIEW_QUERY: &str = "TABLE FROM *";
 
 /// Racine du vault de démonstration (publique, pour le binaire).
 pub const DEMO_VAULT_DIR: &str = DEMO_VAULT;
@@ -309,6 +313,10 @@ pub enum Message {
     TrashEmptyCancel,
     /// Confirme le vidage définitif de la corbeille.
     TrashEmptyConfirm,
+    /// Édite la requête DQL de la vue Dataview.
+    DataviewQueryChanged(String),
+    /// Exécute la requête DQL courante.
+    DataviewRun,
 }
 
 // Brouillon du dialogue d'export statique (site HTML).
@@ -509,6 +517,12 @@ pub struct App {
     pub show_history: bool,
     /// Affiche la vue Dataview-like à la place de la prévisualisation.
     pub show_dataview: bool,
+    /// Requête DQL saisie dans la vue Dataview.
+    pub dataview_query: String,
+    /// Erreur de la dernière exécution DQL.
+    pub dataview_error: Option<String>,
+    /// Indices des notes retenues par la dernière exécution DQL.
+    pub dataview_indices: Vec<usize>,
     /// Thème actuellement appliqué (nom, ex. "dark").
     pub current_theme: String,
     /// Snapshots de la note ouverte (chargés pour la vue historique).
@@ -898,6 +912,9 @@ pub fn boot() -> (App, Task<Message>) {
         show_themes: false,
         show_history: false,
         show_dataview: false,
+        dataview_query: DEFAULT_DATAVIEW_QUERY.to_string(),
+        dataview_error: None,
+        dataview_indices: Vec::new(),
         current_theme: settings.theme.clone(),
         history_snapshots: Vec::new(),
         show_canvas: false,
@@ -2501,8 +2518,13 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 app.show_themes = false;
                 app.show_history = false;
                 app.show_graph = false;
+                run_dataview(app);
             }
         }
+        Message::DataviewQueryChanged(query) => {
+            app.dataview_query = query;
+        }
+        Message::DataviewRun => run_dataview(app),
         Message::SelectTheme(name) => {
             app.current_theme = name.clone();
             app.settings.theme = name;
@@ -2715,6 +2737,27 @@ fn open_note_impl(app: &mut App, path: &Path, persist: bool) {
 }
 
 /// Vue racine : délègue le rendu au module `ui`.
+/// Exécute la requête DQL courante et met à jour les notes retenues.
+///
+/// L'erreur de requête est conservée telle quelle pour l'afficher sous la
+/// barre de saisie ; les résultats précédents sont alors effacés.
+fn run_dataview(app: &mut App) {
+    let outcome = match &app.notes {
+        Ok(notes) => query_notes(notes, &app.dataview_query).map_err(|error| error.to_string()),
+        Err(_) => Err("Vault indisponible.".to_string()),
+    };
+    match outcome {
+        Ok(indices) => {
+            app.dataview_indices = indices;
+            app.dataview_error = None;
+        }
+        Err(error) => {
+            app.dataview_indices.clear();
+            app.dataview_error = Some(error);
+        }
+    }
+}
+
 pub fn view(app: &App) -> Element<'_, Message> {
     crate::ui::view(app)
 }
