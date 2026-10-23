@@ -9,7 +9,7 @@ Ces contrats ont été déduits par lecture du bundle **avant** tout essai
 d'exécution. Ils sont conservés ici parce que le harnais qui les avait produits
 (spike Tauri) n'a jamais réussi à démarrer et a été supprimé.
 
-> ✅ **Statut : contrats confirmés par exécution le 2026-10-21** (ils
+> **Statut : contrats confirmés par exécution le 2026-10-21** (ils
 > étaient des déductions statiques jusqu'alors). Le renderer a été lancé sur la
 > box `hermes` : Electron 45 avec un processus principal de substitution →
 > **leur interface démarre** (explorateur peuplé, thème appliqué, 0

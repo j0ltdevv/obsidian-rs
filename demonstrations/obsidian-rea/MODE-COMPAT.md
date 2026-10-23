@@ -44,11 +44,11 @@ notre moteur**, `path`, `url`, `os`, `crypto`, `util`, `events`, `buffer` et
 
 | # | Porte | État |
 |---|---|---|
-| 1 | `sendSync('vault')` → `{id, path}` et `fs.existsSync(path)` vrai | ✅ le shim répond `{id, path, name, open}` ; `existsSync` passe par le moteur |
-| 2 | `sendSync('version')`, `remote.app.getVersion()`, `sendSync('policy')`, `remote.app.getPreferredSystemLanguages()` | ✅ |
-| 3 | `sendSync('terms')` = **exactement** la constante comparée par le renderer | ✅ lue **à l'exécution** dans l'ASAR, localisée **par la comparaison** (`"…" !== sendSync("terms")`) — jamais recopiée |
-| 4 | `process.platform === 'linux'`, `process.versions.electron`, `os.hostname()/version()/release()` | ✅ |
-| 5 | la liste des fichiers passe par l'adaptateur `fs` | ✅ via notre moteur |
+| 1 | `sendSync('vault')` → `{id, path}` et `fs.existsSync(path)` vrai | oui — le shim répond `{id, path, name, open}` ; `existsSync` passe par le moteur |
+| 2 | `sendSync('version')`, `remote.app.getVersion()`, `sendSync('policy')`, `remote.app.getPreferredSystemLanguages()` | oui |
+| 3 | `sendSync('terms')` = **exactement** la constante comparée par le renderer | oui — lue **à l'exécution** dans l'ASAR, localisée **par la comparaison** (`"…" !== sendSync("terms")`) — jamais recopiée |
+| 4 | `process.platform === 'linux'`, `process.versions.electron`, `os.hostname()/version()/release()` | oui |
+| 5 | la liste des fichiers passe par l'adaptateur `fs` | oui — via notre moteur |
 
 Le renderer exige aussi `require('@electron/remote')` (retiré d'Electron 45) :
 le shim sert cette surface.

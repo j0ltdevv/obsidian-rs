@@ -356,7 +356,7 @@ if app.show_graph {
 }
 ```
 
-### 4.3 ⚠️ Feature `canvas` — absente de `Cargo.toml`
+### 4.3 Attention : feature `canvas` — absente de `Cargo.toml`
 
 **Constat vérifié** : `Cargo.toml` déclare `iced = "0.14"` sans feature. Or
 dans iced 0.14 :

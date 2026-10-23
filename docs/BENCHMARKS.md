@@ -24,7 +24,7 @@ Chiffres **mesurés** sur cette machine, sauf mention contraire.
 - Lecture de `VmRSS` et `VmHWM` dans `/proc/<pid>/status`.
 - Vault de test : 5 000 notes générées (40 dossiers, frontmatter, tags, 6 wikilinks
   croisés par note, 20 Mo au total), hors du dépôt.
-- ⚠️ RSS n'est pas PSS : la mémoire partagée (driver GPU, polices) est comptée en
+- N.B. RSS n'est pas PSS : la mémoire partagée (driver GPU, polices) est comptée en
   entier dans le RSS du processus. À lire comme une borne haute.
 
 ## Résultats — obsy
@@ -71,7 +71,7 @@ code de l'application. D'où l'option `default-features = false` avec la feature
 | **Chromium** | page HTML **vide** | — | 843 Mo cumulé | RSS cumulé sur 7 processus (la mémoire partagée y est comptée plusieurs fois) — `ssss` |
 | Electron (Obsidian) | application réelle | — | 180-250 Mo | **rapport tiers**, non mesuré ici |
 
-⚠️ Nuance sur la ligne « 5 000 notes » : le banc charge **un** document dans
+N.B. Nuance sur la ligne « 5 000 notes » : le banc charge **un** document dans
 l'éditeur ; les 5 000 notes sont sur le disque (20 Mo), pas dans le DOM. La
 mesure dit donc « webview + un éditeur », pas « webview + 5 000 notes
 ouvertes ». Le coût dominant est le moteur de rendu, pas le contenu du vault.
@@ -133,8 +133,8 @@ processus principal mais dans `WebKitWebProcess`).
 
 | Front-end | Coût mesuré | RAM |
 |---|---|---|
-| **iced + tiny-skia (nôtre)** | 38,4 Mo (vide) / 83,8 Mo (5 000 notes) — 1 process | ✅ ÷ 2 à 6 vs Obsidian |
-| Tauri + WebKitGTK + CM6 | 395 Mo PSS / 576 Mo RSS — **arbre complet mesuré** | ❌ |
+| **iced + tiny-skia (nôtre)** | 38,4 Mo (vide) / 83,8 Mo (5 000 notes) — 1 process | ok : ÷ 2 à 6 vs Obsidian |
+| Tauri + WebKitGTK + CM6 | 395 Mo PSS / 576 Mo RSS — **arbre complet mesuré** | non |
 | Obsidian (Electron) | 180-250 Mo (vault léger) — **rapport tierce, process principal très probablement** | référence |
 | Obsidian (20k notes + plugins) | 6-10 Go —rapport tierce | — |
 

@@ -139,7 +139,7 @@ l'échec).
 Toutes les commandes se lancent sur la boîte `hermes`, avec `HOME` isolé
 (`/data/home/obsidian-rea/home`).
 
-### F — renderer réel dans Electron (procédure principale de substitution) ✅
+### F — renderer réel dans Electron (procédure principale de substitution)
 
 `tools/main-harness.js` + `tools/preload-harness.js` (code écrit pour ce
 diagnostic) remplacent le processus principal d'Obsidian : fenêtre avec
@@ -170,7 +170,7 @@ DOM              : 67 201 octets      exceptions : 0
 La chaîne d'acceptation est lue dans leur `main.js` **au moment de
 l'exécution** (regex sur le fichier), jamais recopiée dans le dépôt.
 
-### E — Chromium + shim + moteur Rust (voie « sans Electron ») ❌
+### E — Chromium + shim + moteur Rust (voie « sans Electron »)
 
 ```sh
 /data/home/obsidian-rea/bin/obsy-engine --root /data/home/obsidian-rea/vault --port 27123
@@ -186,7 +186,7 @@ correctement (`window.require`, `window.electron`, `window.process`,
 `platform: "linux"`), mais le boot s'arrête à la porte 1
 (`chemin absolu interdit`).
 
-### D — Chromium + shim + harnais de correction (quelques portes comblées) ⚠️
+### D — Chromium + shim + harnais de correction (quelques portes comblées)
 
 `asar-x1/boot-probe.js` (fichier de la boîte) : (1) traduit les chemins
 absolus du vault en chemins relatifs ; (2) extrait la chaîne d'acceptation du
@@ -219,7 +219,7 @@ Le harnais Electron (F) a révélé deux détails supplémentaires de la surface
 propriétés) et `nativeTheme.removeAllListeners("updated")` doit **retourner
 l'émetteur** (appel chaîné `.on("updated", …)`).
 
-### A — application Electron officielle (ASAR repacké) ⚠️
+### A — application Electron officielle (ASAR repacké)
 
 L'ASAR livré a un `package.json` dont `main` pointe vers `index.js` (absent de
 l'archive : l'entrée réelle est `main.js`). Après repack avec `main: "main.js"`,

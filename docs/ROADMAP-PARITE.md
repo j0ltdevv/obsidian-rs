@@ -12,31 +12,31 @@ tranches en cours et des mesures de RAM (rendu logiciel)._
 
 | Domaine | Statut | Preuve |
 |---|---|---|
-| Core vault (scan, frontmatter, tags, wikilinks, ops, index) | ✅ | tests (9 suites, 427+ lib) |
-| Moteur HTTP `obsy-engine` (`/health /files /file /metadata /backlinks /search /graph` + `POST /sync`, 23 opérations, chemins confinés) | ✅ | 21 tests |
-| Comportements Obsidian clean-room (wikilinks, frontmatter, tags) | ✅ | fixtures `tests/fixtures/comportements/` |
-| Édition + prévisualisation live + sauvegarde atomique | ✅ | `cargo test` vert |
-| Quick Switcher, palette de commandes, propriétés éditables | ✅ | `cargo test` vert |
-| Vague 2 : aliases, attachments, block_refs, bookmarks, callouts, embeds, math, tag_tree | ✅ | tests + specs |
-| Vues Plan / Recherche / Tâches câblées | ✅ | build + tests |
-| P1 : rendu callouts/math/embeds + résolution par alias | ✅ | segments + tests |
-| P2 : graphe local, filtres dossier/tag, groupes colorés, drag | ✅ | tests + canvas |
-| P3 : cartes éditables, groupes, auto-layout, export JSON (roundtrip) | ✅ | tests canvas_data |
-| P4 : opérateurs de recherche, extraits, remplacement global | ✅ | tests |
-| P5 : manifest plugins, UI toggle, snippets CSS (variables couleurs) | ✅ | tests |
-| P6 : app.json/hotkeys.json persistés, vue Réglages, thème/snippets appliqués (fond) | ✅ | tests roundtrip |
-| P6bis : renommage (préserve dossier), suppression confirmée, création dossier confinée | ✅ | build + tests |
-| P8a : commandes palette (create/daily/template), Ctrl+Shift+F, hotkeys affichés | ✅ | build + tests |
-| P8b partiel : notes récentes, clic tag → filtre graphe | ✅ | build + tests |
-| Thème du vault : 21 variables CSS d'Obsidian → palette iced | ✅ | 17 tests |
-| 19 raccourcis clavier au format Obsidian, remappables via `hotkeys.json` | ✅ | 12 tests |
-| Coloration de la source en 18 types de fragments + 15 constantes de typographie Obsidian | ✅ | 11 tests |
-| Nouveau module `src/ui/markdown.rs` : source Markdown colorée (Live Preview), bascule Lecture/Édition | ✅ | `src/ui/markdown.rs` |
-| Une note ouverte au démarrage (persistée en priorité, sinon la première), écriture atomique | ✅ | `cargo test` vert |
-| Correctifs d'interface : icônes ribbon visibles, onglets sidebar sur une ligne, un seul état vide par panneau, fenêtre 1400×900, barre d'outils compactée, plus de chevauchement | ✅ | fenêtre 1400×900 |
-| Rendu logiciel (tiny-skia) — voir section « Mesures » | ✅ | `docs/BENCHMARKS.md` |
-| Docs : ARCHITECTURE.md, ROADMAP, specs, MANUEL.md | ✅ | dépôt |
-| Smoke run | ⚠️ | binaire lancé 8 s sans crash ; capture brute produite, contenu visuel non vérifié |
+| Core vault (scan, frontmatter, tags, wikilinks, ops, index) | livré | tests (9 suites, 427+ lib) |
+| Moteur HTTP `obsy-engine` (`/health /files /file /metadata /backlinks /search /graph` + `POST /sync`, 23 opérations, chemins confinés) | livré | 21 tests |
+| Comportements Obsidian clean-room (wikilinks, frontmatter, tags) | livré | fixtures `tests/fixtures/comportements/` |
+| Édition + prévisualisation live + sauvegarde atomique | livré | `cargo test` vert |
+| Quick Switcher, palette de commandes, propriétés éditables | livré | `cargo test` vert |
+| Vague 2 : aliases, attachments, block_refs, bookmarks, callouts, embeds, math, tag_tree | livré | tests + specs |
+| Vues Plan / Recherche / Tâches câblées | livré | build + tests |
+| P1 : rendu callouts/math/embeds + résolution par alias | livré | segments + tests |
+| P2 : graphe local, filtres dossier/tag, groupes colorés, drag | livré | tests + canvas |
+| P3 : cartes éditables, groupes, auto-layout, export JSON (roundtrip) | livré | tests canvas_data |
+| P4 : opérateurs de recherche, extraits, remplacement global | livré | tests |
+| P5 : manifest plugins, UI toggle, snippets CSS (variables couleurs) | livré | tests |
+| P6 : app.json/hotkeys.json persistés, vue Réglages, thème/snippets appliqués (fond) | livré | tests roundtrip |
+| P6bis : renommage (préserve dossier), suppression confirmée, création dossier confinée | livré | build + tests |
+| P8a : commandes palette (create/daily/template), Ctrl+Shift+F, hotkeys affichés | livré | build + tests |
+| P8b partiel : notes récentes, clic tag → filtre graphe | livré | build + tests |
+| Thème du vault : 21 variables CSS d'Obsidian → palette iced | livré | 17 tests |
+| 19 raccourcis clavier au format Obsidian, remappables via `hotkeys.json` | livré | 12 tests |
+| Coloration de la source en 18 types de fragments + 15 constantes de typographie Obsidian | livré | 11 tests |
+| Nouveau module `src/ui/markdown.rs` : source Markdown colorée (Live Preview), bascule Lecture/Édition | livré | `src/ui/markdown.rs` |
+| Une note ouverte au démarrage (persistée en priorité, sinon la première), écriture atomique | livré | `cargo test` vert |
+| Correctifs d'interface : icônes ribbon visibles, onglets sidebar sur une ligne, un seul état vide par panneau, fenêtre 1400×900, barre d'outils compactée, plus de chevauchement | livré | fenêtre 1400×900 |
+| Rendu logiciel (tiny-skia) — voir section « Mesures » | livré | `docs/BENCHMARKS.md` |
+| Docs : ARCHITECTURE.md, ROADMAP, specs, MANUEL.md | livré | dépôt |
+| Smoke run | partiel | binaire lancé 8 s sans crash ; capture brute produite, contenu visuel non vérifié |
 
 ## Audit de parité (21 octobre 2026)
 

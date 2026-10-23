@@ -32,26 +32,26 @@ Occurrences de chaînes littérales dans `app.js` :
 
 Clusters d'offsets (fenêtre ±150 car., nœuds lexicaux voisins) — traduction fonctionnelle :
 
-### 1. Frontmatter ✅ (charge maximale pour obsy)
+### 1. Frontmatter (charge maximale pour obsy)
 Deux familles de zones :
 - **zone pipeline markdown** (~763 000 ; ~1 455 000) : nœuds voisins `addTransformer`, `hProperties`, `position`, `children`, `plugins`, `getInfo` → un *transformer* de pipeline remark/unified expose le frontmatter comme métadonnées structurées du document (descripteurs de propriétés, positions d'AST).
 - **zone éditeur HyperMD** (~2 143 000) : littéraux `FRONT_MATTER`, `FRONT_MATTER_END`, modalités d'état éditeur (`fallbackMode`, `exitChecker`, `startsWith`) → reconnaissance de la délimitation du bloc frontmatter dans l'éditeur (début/fin), mode de repli.
 - **zone décorations CodeMirror** (~1 719 000) : `frontmatterEnd`, `decorations`, `facet` → rendu masqué/plié de la frontière.
 
-### 2. Cache de métadonnées ✅
+### 2. Cache de métadonnées
 - Hub massif (~1 718 000–1 830 000, 44 hits) : `vault`, `fileCache`, `mtime`, `trigger`, `switch`, `toLowerCase` → index par fichier avec timestamp, invalidation/rafraîchissement événementiel.
 - **Tags** : littéraux `_cachedTags`, `fromFrontMatter`, `getProps`, `_cachedProps`, `getFileCache`, `basename` (~2 208 000) → déduction : les tags d'un fichier agrègent tags *du corps* et tags *issus du frontmatter* (concat), avec cache de propriétés.
 - **Résolution de liens** : `getFirstLinkpathDest` (plusieurs zones, notamment ~1 572 000 et ~1 686 000 avec `subpath`, `msgFileOrFolderNotFou...` = message « fichier/dossier non trouvé ») et `fileToLinktext`, `evaluateFormula`, `instanceof`, `concat` (~2 374 000) → les liens se **résolvent** depuis un *linkpath* vers une destination via le cache, le `subpath` porte l'ancre (titre/bloc) ; à l'inverse `fileToLinktext` produit le texte de lien pour un fichier donné.
 
-### 3. YAML ✅
+### 3. YAML
 - Concentré dans un seul grand bloc (~654 000–722 583, 76/87 hits) : `items`, `contents`, `offset`, `throw`, `typeof` → **un parseur YAML embarqué** (implémentation autonome, pas une dépendance externe visible) — style js-yaml.
 - Un micro-cluster (~12 800) évoque des types de liste mdast (`listItem`, `paragraph`, `strong`, `table`, `thematicBreak`, `definition`, `footnoteDefinition`) → zone parseur-markdown (micromark/mdast).
 
-### 4. Wikilinks ⚠ (moins direct)
+### 4. Wikilinks (moins direct)
 Pas de « cluster parseur wikilinks » sous ce nom : les 6 occurrences sont des zones **UI/commandes** (`insertWikilink`, `mobileToolbarCommands`, réglages `linkStyle`, `showFullPath`, `embed`, `heading`, `attach`).
 - Déduction : l'insertion wikilink est une commande d'éditeur ; la syntaxe elle-même est traitée au niveau des parseurs de liens génériques (les 2 033 littéraux `[[` incl. regex) et la résolution passe par `getFirstLinkpathDest`/`subpath` (cf. §2).
 
-### 5. Hashtags ⚠
+### 5. Hashtags
 - Zone HyperMD (~2 140 000–2 155 000) : `hmdLinkType`, `formatting`, `quote`, `header`, `inline` → les hashtags sont tokenisés comme des types de lien inline dans l'éditeur, avec formatage.
 
 ## Comportements déduits ( ras pour les tests de `src/vault/`)
@@ -82,7 +82,7 @@ Traces lancées sur la box à partir de la preuve authentifiée (`trace-applicat
 
 | Trace | Seed | Résultat |
 |---|---|---|
-| module-level | `module "app.js"` | ✅ **OK** : 197 modules matchés, 354 nœuds, 711 arêtes, 73 chemins terminaux (graphe app) |
+| module-level | `module "app.js"` | **OK** : 197 modules matchés, 354 nœuds, 711 arêtes, 73 chemins terminaux (graphe app) |
 | seed littéral | `"getFirstLinkpathDest"`, `"fromFrontMatter"`, `"fileCache"`, `"FRONT_MATTER"` (kind string) | `no-match` — le graphe **ne conserve pas les littéraux** ; le no-match ne prouve pas l'absence |
 | `Im` (frontmatter transformer) | semantic-node, callers + provenance | `partial` : **1 nœud (seed seul)**, 13 limitations → appelants/récipients inconnus |
 | `tg` (parseur YAML) | semantic-node, callers | `partial` : seed seul, relations inconnues |
