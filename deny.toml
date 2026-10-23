@@ -8,11 +8,23 @@ multiple-versions = "warn"
 wildcards = "deny"
 
 [licenses]
+# Licences permissives présentes dans l'arbre des dépendances
+# (BSD via aio/httparse, Zlib via miniz_oxide, NCSA via lld/rustc,
+# Unicode-3.0 via icu, bzip2 via zip 9, CC0/MIT-0 via adler…).
 allow = [
     "MIT",
+    "MIT-0",
     "Apache-2.0",
     "ISC",
     "OFL-1.1",
     "Unlicense",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "Zlib",
+    "CC0-1.0",
+    "Unicode-3.0",
+    "NCSA",
+    "bzip2-1.0.6",
 ]
 confidence-threshold = 0.8
