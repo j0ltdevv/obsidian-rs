@@ -160,3 +160,19 @@ fn relative_luminance(color: Color) -> f32 {
     }
     0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b)
 }
+
+/// Thème iced construit depuis les variables du thème actif du vault
+/// (CSS du thème + snippets, valeurs intégrées en repli).
+pub fn theme_from_vars(vars: &ThemeVars) -> iced::Theme {
+    iced::Theme::custom(
+        "obsidian".to_string(),
+        iced::theme::Palette {
+            background: vars.background_primary,
+            text: vars.text_normal,
+            primary: vars.text_accent,
+            success: iced::Color::from_rgb8(46, 160, 67),
+            warning: iced::Color::from_rgb8(230, 150, 30),
+            danger: iced::Color::from_rgb8(214, 69, 69),
+        },
+    )
+}
