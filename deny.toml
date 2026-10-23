@@ -28,3 +28,18 @@ allow = [
     "bzip2-1.0.6",
 ]
 confidence-threshold = 0.8
+
+[advisories]
+# Crates non maintenues tirées par nos dépendances (iced, serde_yaml,
+# zbus) : hors de notre contrôle, aucune vulnérabilité connue au
+# 24/10/2026. À retirer de la liste dès qu'une alternative est livrée
+# par la dépendance qui les porte.
+ignore = [
+    "RUSTSEC-2024-0436", # paste (iced -> strum)
+    "RUSTSEC-2026-0206", # rustybuzz (iced tiny-skia, mise en forme de police)
+    "RUSTSEC-2026-0192", # ttf-parser (iced tiny-skia)
+    "RUSTSEC-2024-0449", # unsafe-libyaml (serde_yaml)
+    "RUSTSEC-2026-0371", # zbus_names (iced linux-theme-detection)
+    "RUSTSEC-2026-0370", # zvariant (iced linux-theme-detection)
+    "RUSTSEC-2026-0372", # zvariant_derive (iced linux-theme-detection)
+]
