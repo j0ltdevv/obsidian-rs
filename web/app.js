@@ -97,6 +97,26 @@ function cacheDom() {
     workspace: 'workspace',
     splitter: 'splitter',
     leftDock: 'left-dock',
+    navBack: 'nav-back',
+    navForward: 'nav-forward',
+    toggleLeftDock: 'toggle-left-dock',
+    modalVeil: 'modal-veil',
+    modalInput: 'modal-input',
+    modalList: 'modal-list',
+    graphOverlay: 'graph-overlay',
+    graphCanvas: 'graph-canvas',
+    graphClose: 'graph-close',
+    calPrev: 'cal-prev',
+    calNext: 'cal-next',
+    calTitle: 'cal-title',
+    calGrid: 'calendar-grid',
+    ribbonQuick: 'ribbon-quick',
+    ribbonGraph: 'ribbon-graph',
+    ribbonCanvas: 'ribbon-canvas',
+    ribbonDaily: 'ribbon-daily',
+    ribbonTemplate: 'ribbon-template',
+    ribbonCommand: 'ribbon-command',
+    ribbonBase: 'ribbon-base',
   };
   for (const [key, id] of Object.entries(ids)) {
     // Les cibles sont repérées par `data-testid` (unique dans la page).
@@ -882,12 +902,12 @@ function updateStatus() {
   dom.statusWords.textContent = `${words} mot${words > 1 ? 's' : ''}`;
   dom.statusLines.textContent = `${lines} ligne${lines > 1 ? 's' : ''}`;
   dom.statusPath.textContent = state.activePath || '—';
-  dom.statusTheme.textContent = 'Sombre';
+  dom.statusTheme.textContent = state.theme === 'light' ? 'Clair' : 'Sombre';
 }
 
 /* ============================ Ouverture d'une note ============================ */
 
-async function openNote(path) {
+async function openNote(path, opts) {
   if (!path) return;
   try {
     if (!state.contents.has(path)) {
@@ -897,6 +917,8 @@ async function openNote(path) {
     state.activePath = path;
     if (!state.openTabs.includes(path)) state.openTabs.push(path);
     state.dirty = false;
+    if (!(opts && opts.fromHistory)) pushHistory(path);
+    touchRecent(path);
 
     const content = state.contents.get(path) || '';
     setEditorContent(content);
@@ -993,6 +1015,7 @@ function selectLeftView(view) {
   if (view === 'tags') loadTags();
   if (view === 'attachments') renderAttachments();
   if (view === 'backlinks') renderLeftBacklinksFromState();
+  if (view === 'calendar') renderCalendar();
 }
 
 function renderLeftBacklinks(entries) {
@@ -1197,6 +1220,7 @@ async function refreshFiles() {
     state.tree = buildTree(state.files);
     buildLinkIndex(state.files);
     renderTree();
+    renderCalendar();
   } catch (error) {
     showError(`coffre illisible : ${error.message}`);
   }
@@ -1251,12 +1275,7 @@ function wireEvents() {
   dom.newFolder.addEventListener('click', createFolder);
   dom.saveNote.addEventListener('click', saveNote);
   dom.deleteNote.addEventListener('click', deleteNote);
-  dom.togglePreview.addEventListener('click', () => {
-    const previewPane = dom.workspace.querySelector('.preview-pane');
-    const hidden = previewPane.style.display === 'none';
-    previewPane.style.display = hidden ? 'flex' : 'none';
-    dom.splitter.style.display = hidden ? 'block' : 'none';
-  });
+  dom.togglePreview.addEventListener('click', togglePreviewView);
 
   dom.searchInput.addEventListener('input', () => {
     if (searchTimer) window.clearTimeout(searchTimer);
@@ -1329,3 +1348,731 @@ function wireSplitter() {
   dom.splitter.addEventListener('pointerup', stop);
   dom.splitter.addEventListener('pointercancel', stop);
 }
+
+/* ============================ Thème clair / sombre ============================ */
+
+state.theme = (() => {
+  try { return window.localStorage.getItem('obsidian-rs:theme') === 'light' ? 'light' : 'dark'; }
+  catch (_) { return 'dark'; }
+})();
+
+function applyTheme(theme) {
+  state.theme = theme === 'light' ? 'light' : 'dark';
+  document.body.classList.toggle('theme-light', state.theme === 'light');
+  document.body.classList.toggle('theme-dark', state.theme === 'dark');
+  if (dom.statusTheme) dom.statusTheme.textContent = state.theme === 'light' ? 'Clair' : 'Sombre';
+  try { window.localStorage.setItem('obsidian-rs:theme', state.theme); } catch (_) { /* stockage refusé */ }
+}
+
+function toggleTheme() {
+  applyTheme(state.theme === 'light' ? 'dark' : 'light');
+}
+
+/* ============================ Historique de navigation ============================ */
+
+state.history = [];
+state.historyIndex = -1;
+
+function pushHistory(path) {
+  if (state.history[state.historyIndex] === path) return;
+  state.history = state.history.slice(0, state.historyIndex + 1);
+  state.history.push(path);
+  state.historyIndex = state.history.length - 1;
+  updateNavButtons();
+}
+
+function goHistory(delta) {
+  const target = state.historyIndex + delta;
+  if (target < 0 || target >= state.history.length) return;
+  state.historyIndex = target;
+  updateNavButtons();
+  openNote(state.history[target], { fromHistory: true });
+}
+
+function updateNavButtons() {
+  if (dom.navBack) dom.navBack.disabled = state.historyIndex <= 0;
+  if (dom.navForward) dom.navForward.disabled = state.historyIndex >= state.history.length - 1;
+}
+
+/* ============================ Notes récentes ============================ */
+
+state.recent = (() => {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem('obsidian-rs:recent') || '[]');
+    return Array.isArray(parsed) ? parsed.filter((p) => typeof p === 'string') : [];
+  } catch (_) { return []; }
+})();
+
+function touchRecent(path) {
+  state.recent = [path].concat(state.recent.filter((p) => p !== path)).slice(0, 20);
+  try { window.localStorage.setItem('obsidian-rs:recent', JSON.stringify(state.recent)); } catch (_) { /* stockage refusé */ }
+}
+
+/* ============================ Lecture / édition ============================ */
+
+function togglePreviewView() {
+  if (!dom.workspace) return;
+  const previewPane = dom.workspace.querySelector('.preview-pane');
+  if (!previewPane) return;
+  const hidden = previewPane.style.display === 'none';
+  previewPane.style.display = hidden ? 'flex' : 'none';
+  if (dom.splitter) dom.splitter.style.display = hidden ? 'block' : 'none';
+}
+
+/* ============================ Recherche globale (focus) ============================ */
+
+function focusGlobalSearch() {
+  selectLeftView('search');
+  if (dom.searchInput) {
+    dom.searchInput.focus();
+    dom.searchInput.select();
+  }
+}
+
+/* ============================ Invite : sélecteur rapide / palette ============================ */
+
+const promptState = { mode: null, items: [], index: 0 };
+
+/** Score de filtrage approximatif (sous-séquence, bonus débuts de mot et suites). */
+function fuzzyScore(query, text) {
+  if (!query) return 1;
+  const q = query.toLowerCase();
+  const t = text.toLowerCase();
+  let qi = 0;
+  let score = 0;
+  let streak = 0;
+  let last = -2;
+  for (let ti = 0; ti < t.length && qi < q.length; ti += 1) {
+    if (t[ti] === q[qi]) {
+      streak = ti === last + 1 ? streak + 1 : 1;
+      const wordStart = ti === 0 || /[\s\-_/]/.test(t[ti - 1]);
+      score += 1 + streak * 2 + (wordStart ? 4 : 0);
+      last = ti;
+      qi += 1;
+    }
+  }
+  return qi === q.length ? score : -1;
+}
+
+const COMMANDS = [
+  { name: 'Nouvelle note', kbd: 'Ctrl+N', icon: 'file-plus', run: () => createNote() },
+  { name: 'Nouveau dossier', icon: 'folder-plus', run: () => createFolder() },
+  { name: 'Note quotidienne', icon: 'daily', run: () => openDailyNote() },
+  { name: 'Sélecteur rapide…', kbd: 'Ctrl+K', icon: 'search', run: () => openPrompt('switcher') },
+  { name: 'Vue graphique', kbd: 'Ctrl+G', icon: 'graph', run: () => openGraph() },
+  { name: 'Basculer lecture / édition', icon: 'edit', run: () => togglePreviewView() },
+  { name: 'Basculer thème clair / sombre', icon: 'panel', run: () => toggleTheme() },
+  { name: 'Enregistrer la note', kbd: 'Ctrl+S', icon: 'check', run: () => saveNote() },
+  { name: 'Supprimer la note', icon: 'trash', run: () => deleteNote() },
+  { name: 'Recherche globale', kbd: 'Ctrl+Shift+F', icon: 'search', run: () => focusGlobalSearch() },
+];
+
+/** Entrées du sélecteur rapide : notes récentes d'abord, puis ordre alphabétique. */
+function switcherItems() {
+  const notes = state.files.filter((file) => file.path.endsWith('.md'));
+  const rank = new Map(state.recent.map((path, index) => [path, index]));
+  return notes
+    .map((file) => ({
+      icon: 'file',
+      title: titleOf(file.path),
+      meta: file.path,
+      kbd: '',
+      run: () => openNote(file.path),
+      sort: rank.has(file.path) ? rank.get(file.path) - 1000 : 0,
+    }))
+    .sort((left, right) => left.sort - right.sort || left.title.localeCompare(right.title, 'fr'));
+}
+
+function commandItems() {
+  return COMMANDS.map((command) => ({
+    icon: command.icon,
+    title: command.name,
+    meta: '',
+    kbd: command.kbd || '',
+    run: command.run,
+  }));
+}
+
+function openPrompt(mode) {
+  if (!dom.modalVeil || !dom.modalInput) return;
+  promptState.mode = mode;
+  promptState.index = 0;
+  dom.modalVeil.hidden = false;
+  dom.modalInput.value = '';
+  dom.modalInput.placeholder = mode === 'switcher' ? 'Aller à un fichier…' : 'Exécuter une commande…';
+  renderPrompt('');
+  dom.modalInput.focus();
+}
+
+function closePrompt() {
+  promptState.mode = null;
+  if (dom.modalVeil) dom.modalVeil.hidden = true;
+}
+
+function promptResults(query) {
+  const base = promptState.mode === 'switcher' ? switcherItems() : commandItems();
+  if (!query) return base.slice(0, 12);
+  return base
+    .map((item) => ({
+      item,
+      score: Math.max(fuzzyScore(query, item.title), fuzzyScore(query, item.meta || item.title)),
+    }))
+    .filter((entry) => entry.score >= 0)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 12)
+    .map((entry) => entry.item);
+}
+
+function renderPrompt(query) {
+  if (!dom.modalList) return;
+  promptState.items = promptResults(query);
+  promptState.index = Math.min(promptState.index, Math.max(promptState.items.length - 1, 0));
+  const list = dom.modalList;
+  list.textContent = '';
+  if (!promptState.items.length) {
+    const empty = document.createElement('li');
+    empty.className = 'modal-empty';
+    empty.textContent = promptState.mode === 'switcher' ? 'Aucune note.' : 'Aucune commande.';
+    list.appendChild(empty);
+    return;
+  }
+  promptState.items.forEach((item, index) => {
+    const li = document.createElement('li');
+    li.className = `modal-item${index === promptState.index ? ' is-active' : ''}`;
+    li.dataset.testid = 'modal-item';
+    li.innerHTML = iconUse(item.icon)
+      + `<span class="modal-item-title">${esc(item.title)}</span>`
+      + (item.meta ? `<span class="modal-item-meta">${esc(item.meta)}</span>` : '')
+      + (item.kbd ? `<span class="modal-item-meta">${esc(item.kbd)}</span>` : '');
+    li.addEventListener('click', () => runPromptItem(index));
+    li.addEventListener('pointermove', () => {
+      if (promptState.index !== index) {
+        promptState.index = index;
+        highlightPrompt();
+      }
+    });
+    list.appendChild(li);
+  });
+}
+
+function highlightPrompt() {
+  if (!dom.modalList) return;
+  Array.from(dom.modalList.children).forEach((li, index) => {
+    li.classList.toggle('is-active', index === promptState.index);
+  });
+}
+
+function runPromptItem(index) {
+  const item = promptState.items[index];
+  if (!item) return;
+  closePrompt();
+  item.run();
+}
+
+function wirePrompt() {
+  if (!dom.modalInput || !dom.modalVeil) return;
+  dom.modalInput.addEventListener('input', () => {
+    promptState.index = 0;
+    renderPrompt(dom.modalInput.value);
+  });
+  dom.modalInput.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      promptState.index = Math.min(promptState.index + 1, promptState.items.length - 1);
+      highlightPrompt();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      promptState.index = Math.max(promptState.index - 1, 0);
+      highlightPrompt();
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      runPromptItem(promptState.index);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      closePrompt();
+    }
+  });
+  dom.modalVeil.addEventListener('pointerdown', (event) => {
+    if (event.target === dom.modalVeil) closePrompt();
+  });
+}
+
+/* ============================ Vue graphique ============================
+   Canvas 2D, simulation force-dirigée (répulsion / ressorts / centrage).
+   Les nœuds sont colorés par dossier de premier niveau, comme la vue
+   iced. Molette : zoom · glisser fond : pan · glisser nœud : réorganiser
+   · clic nœud : ouvrir la note.                                        */
+
+const graphState = {
+  running: false,
+  raf: 0,
+  alpha: 0,
+  nodes: [],
+  edges: [],
+  byPath: new Map(),
+  view: { x: 0, y: 0, scale: 1 },
+  hover: null,
+  drag: null,
+  panning: false,
+  pointer: null,
+  moved: false,
+};
+
+const GRAPH_PALETTE = ['#A68AF9', '#4EC9B0', '#E5C07B', '#E06C75', '#61AFEF', '#C678DD', '#98C379', '#E9973F'];
+
+function folderOf(path) {
+  const parts = String(path).split('/');
+  return parts.length > 1 ? parts[0] : '';
+}
+
+function folderColor(path) {
+  let h = 5381;
+  for (const ch of folderOf(path)) h = ((h << 5) + h + ch.charCodeAt(0)) | 0;
+  return GRAPH_PALETTE[(h >>> 0) % GRAPH_PALETTE.length];
+}
+
+async function openGraph() {
+  if (!dom.graphOverlay) return;
+  let payload;
+  try {
+    payload = await api.graph();
+  } catch (error) {
+    showError(`graphe indisponible : ${error.message}`);
+    return;
+  }
+  const nodes = (payload && payload.nodes) || [];
+  const edges = (payload && payload.edges) || [];
+  const radius = Math.max(80, Math.sqrt(Math.max(nodes.length, 1)) * 60);
+  graphState.nodes = nodes.map((node, index) => {
+    const angle = (index / Math.max(nodes.length, 1)) * Math.PI * 2;
+    return {
+      path: node.path,
+      title: titleOf(node.path),
+      links: node.links || 0,
+      color: folderColor(node.path),
+      x: Math.cos(angle) * radius + (Math.random() - 0.5) * 40,
+      y: Math.sin(angle) * radius + (Math.random() - 0.5) * 40,
+      vx: 0,
+      vy: 0,
+    };
+  });
+  graphState.byPath = new Map(graphState.nodes.map((node) => [node.path, node]));
+  graphState.edges = edges
+    .map((edge) => ({ a: graphState.byPath.get(edge.from), b: graphState.byPath.get(edge.to) }))
+    .filter((edge) => edge.a && edge.b);
+  graphState.view = { x: 0, y: 0, scale: 1 };
+  graphState.alpha = 0.5;
+  graphState.hover = null;
+  graphState.drag = null;
+  dom.graphOverlay.hidden = false;
+  if (!graphState.running) {
+    graphState.running = true;
+    graphState.raf = window.requestAnimationFrame(graphFrame);
+  }
+}
+
+function closeGraph() {
+  graphState.running = false;
+  if (graphState.raf) window.cancelAnimationFrame(graphState.raf);
+  graphState.raf = 0;
+  if (dom.graphOverlay) dom.graphOverlay.hidden = true;
+}
+
+function stepGraphPhysics() {
+  const nodes = graphState.nodes;
+  const count = nodes.length;
+  if (!count) return;
+  const a = graphState.alpha;
+  const REP = 3200;
+  const SPRING = 0.02;
+  const LEN = 92;
+  // La répulsion est en O(n²) : au-delà de ~400 nœuds on la saute (les
+  // ressorts et le centrage suffisent à étaler le graphe).
+  if (count <= 400) {
+    for (let i = 0; i < count; i += 1) {
+      const p = nodes[i];
+      for (let j = i + 1; j < count; j += 1) {
+        const q = nodes[j];
+        let dx = q.x - p.x;
+        let dy = q.y - p.y;
+        let d2 = dx * dx + dy * dy;
+        if (d2 < 1) {
+          dx = Math.random() - 0.5;
+          dy = Math.random() - 0.5;
+          d2 = 1;
+        }
+        const d = Math.sqrt(d2);
+        const f = (REP / (d2 + 40)) * a;
+        const fx = (dx / d) * f;
+        const fy = (dy / d) * f;
+        p.vx -= fx;
+        p.vy -= fy;
+        q.vx += fx;
+        q.vy += fy;
+      }
+    }
+  }
+  for (const edge of graphState.edges) {
+    const dx = edge.b.x - edge.a.x;
+    const dy = edge.b.y - edge.a.y;
+    const d = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+    const f = (d - LEN) * SPRING * a;
+    const fx = (dx / d) * f;
+    const fy = (dy / d) * f;
+    edge.a.vx += fx;
+    edge.a.vy += fy;
+    edge.b.vx -= fx;
+    edge.b.vy -= fy;
+  }
+  for (const node of nodes) {
+    node.vx -= node.x * 0.002 * a;
+    node.vy -= node.y * 0.002 * a;
+    if (graphState.drag === node) {
+      node.vx = 0;
+      node.vy = 0;
+      continue;
+    }
+    node.vx *= 0.85;
+    node.vy *= 0.85;
+    node.x += Math.max(-12, Math.min(12, node.vx));
+    node.y += Math.max(-12, Math.min(12, node.vy));
+  }
+}
+
+function graphFrame() {
+  if (!graphState.running) return;
+  if (graphState.alpha > 0.008 || graphState.drag) {
+    stepGraphPhysics();
+    graphState.alpha *= 0.994;
+    if (graphState.drag) graphState.alpha = Math.max(graphState.alpha, 0.25);
+  }
+  drawGraph();
+  graphState.raf = window.requestAnimationFrame(graphFrame);
+}
+
+function drawGraph() {
+  const canvas = dom.graphCanvas;
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+  }
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const view = graphState.view;
+  const toScreenX = (node) => (node.x - view.x) * view.scale + w / 2;
+  const toScreenY = (node) => (node.y - view.y) * view.scale + h / 2;
+
+  ctx.strokeStyle = 'rgba(140, 140, 160, 0.28)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (const edge of graphState.edges) {
+    ctx.moveTo(toScreenX(edge.a), toScreenY(edge.a));
+    ctx.lineTo(toScreenX(edge.b), toScreenY(edge.b));
+  }
+  ctx.stroke();
+
+  const labelColor = state.theme === 'light' ? 'rgba(60, 60, 60, 0.85)' : 'rgba(178, 178, 178, 0.9)';
+  const showLabels = view.scale > 0.45 || graphState.nodes.length <= 40;
+  ctx.textAlign = 'center';
+  ctx.font = '11px Inter, system-ui, sans-serif';
+  for (const node of graphState.nodes) {
+    const sx = toScreenX(node);
+    const sy = toScreenY(node);
+    const r = 3.5 + Math.sqrt(node.links) * 1.7;
+    if (sx < -60 || sx > w + 60 || sy < -60 || sy > h + 60) continue;
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.fillStyle = node.color;
+    ctx.globalAlpha = 0.9;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    if (node === graphState.hover) {
+      ctx.strokeStyle = state.theme === 'light' ? '#222222' : '#FAFAFA';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    if (showLabels || node === graphState.hover) {
+      ctx.fillStyle = labelColor;
+      ctx.fillText(node.title, sx, sy + r + 13);
+    }
+  }
+}
+
+function graphNodeAt(mx, my) {
+  const canvas = dom.graphCanvas;
+  if (!canvas) return null;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  const view = graphState.view;
+  let best = null;
+  let bestD = Infinity;
+  for (const node of graphState.nodes) {
+    const sx = (node.x - view.x) * view.scale + w / 2;
+    const sy = (node.y - view.y) * view.scale + h / 2;
+    const r = 3.5 + Math.sqrt(node.links) * 1.7 + 4;
+    const d = (mx - sx) * (mx - sx) + (my - sy) * (my - sy);
+    if (d <= r * r && d < bestD) {
+      best = node;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+function wireGraph() {
+  const canvas = dom.graphCanvas;
+  if (!canvas) return;
+  if (dom.graphClose) dom.graphClose.addEventListener('click', closeGraph);
+
+  canvas.addEventListener('pointerdown', (event) => {
+    canvas.setPointerCapture(event.pointerId);
+    const rect = canvas.getBoundingClientRect();
+    graphState.moved = false;
+    graphState.pointer = { x: event.clientX, y: event.clientY };
+    const node = graphNodeAt(event.clientX - rect.left, event.clientY - rect.top);
+    if (node) graphState.drag = node;
+    else graphState.panning = true;
+    canvas.classList.add('is-dragging');
+  });
+
+  canvas.addEventListener('pointermove', (event) => {
+    const rect = canvas.getBoundingClientRect();
+    if (graphState.drag) {
+      graphState.moved = true;
+      graphState.drag.x += (event.clientX - graphState.pointer.x) / graphState.view.scale;
+      graphState.drag.y += (event.clientY - graphState.pointer.y) / graphState.view.scale;
+      graphState.pointer = { x: event.clientX, y: event.clientY };
+      graphState.alpha = Math.max(graphState.alpha, 0.25);
+    } else if (graphState.panning) {
+      if (Math.abs(event.clientX - graphState.pointer.x) + Math.abs(event.clientY - graphState.pointer.y) > 3) {
+        graphState.moved = true;
+      }
+      graphState.view.x -= (event.clientX - graphState.pointer.x) / graphState.view.scale;
+      graphState.view.y -= (event.clientY - graphState.pointer.y) / graphState.view.scale;
+      graphState.pointer = { x: event.clientX, y: event.clientY };
+    } else {
+      const node = graphNodeAt(event.clientX - rect.left, event.clientY - rect.top);
+      if (node !== graphState.hover) {
+        graphState.hover = node;
+        canvas.style.cursor = node ? 'pointer' : 'grab';
+      }
+    }
+  });
+
+  canvas.addEventListener('pointerup', (event) => {
+    if (!graphState.moved) {
+      const rect = canvas.getBoundingClientRect();
+      const node = graphNodeAt(event.clientX - rect.left, event.clientY - rect.top);
+      if (node) {
+        closeGraph();
+        openNote(node.path);
+        return;
+      }
+    }
+    graphState.drag = null;
+    graphState.panning = false;
+    canvas.classList.remove('is-dragging');
+  });
+
+  canvas.addEventListener('pointercancel', () => {
+    graphState.drag = null;
+    graphState.panning = false;
+    if (dom.graphCanvas) dom.graphCanvas.classList.remove('is-dragging');
+  });
+
+  canvas.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const view = graphState.view;
+    const mx = event.clientX - rect.left - canvas.clientWidth / 2;
+    const my = event.clientY - rect.top - canvas.clientHeight / 2;
+    const wx = view.x + mx / view.scale;
+    const wy = view.y + my / view.scale;
+    const factor = Math.exp(-event.deltaY * 0.0016);
+    view.scale = Math.min(4, Math.max(0.12, view.scale * factor));
+    view.x = wx - mx / view.scale;
+    view.y = wy - my / view.scale;
+  }, { passive: false });
+}
+
+/* ============================ Calendrier / note quotidienne ============================ */
+
+const CAL_MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+const CAL_WEEKDAYS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+
+function pad2(value) {
+  return String(value).padStart(2, '0');
+}
+
+function isoDate(year, month, day) {
+  return `${year}-${pad2(month + 1)}-${pad2(day)}`;
+}
+
+function todayIso() {
+  const now = new Date();
+  return isoDate(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+state.calMonth = (() => {
+  const now = new Date();
+  return { y: now.getFullYear(), m: now.getMonth() };
+})();
+
+function dailyNotePath(dateStr) {
+  const wanted = `${dateStr}.md`;
+  const exact = state.files.find((file) => file.path === wanted);
+  if (exact) return exact.path;
+  const byName = state.files.find((file) => basename(file.path) === wanted);
+  return byName ? byName.path : wanted;
+}
+
+function renderCalendar() {
+  const grid = dom.calGrid;
+  if (!grid) return;
+  const { y, m } = state.calMonth;
+  if (dom.calTitle) dom.calTitle.textContent = `${CAL_MONTHS[m]} ${y}`;
+  grid.textContent = '';
+  for (const weekday of CAL_WEEKDAYS) {
+    const cell = document.createElement('div');
+    cell.className = 'cal-weekday';
+    cell.textContent = weekday;
+    grid.appendChild(cell);
+  }
+  const startOffset = (new Date(y, m, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const today = todayIso();
+  const known = new Set(state.files.map((file) => basename(file.path)));
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const dateStr = isoDate(y, m, day);
+    const cell = document.createElement('div');
+    cell.className = 'calendar-cell';
+    cell.dataset.testid = 'calendar-cell';
+    cell.dataset.date = dateStr;
+    cell.textContent = String(day);
+    if (dateStr === today) cell.classList.add('is-today');
+    if (known.has(`${dateStr}.md`)) {
+      cell.classList.add('has-note');
+      const dot = document.createElement('span');
+      dot.className = 'cal-dot';
+      cell.appendChild(dot);
+    }
+    cell.addEventListener('click', () => openDaily(dateStr));
+    grid.appendChild(cell);
+  }
+  for (let i = 0; i < startOffset; i += 1) {
+    const cell = document.createElement('div');
+    cell.className = 'calendar-cell';
+    grid.insertBefore(cell, grid.children[CAL_WEEKDAYS.length]);
+  }
+}
+
+function shiftCalendar(delta) {
+  let { y, m } = state.calMonth;
+  m += delta;
+  if (m < 0) { m = 11; y -= 1; }
+  else if (m > 11) { m = 0; y += 1; }
+  state.calMonth = { y, m };
+  renderCalendar();
+}
+
+async function openDaily(dateStr) {
+  const exists = state.files.some((file) => basename(file.path) === `${dateStr}.md`);
+  const path = dailyNotePath(dateStr);
+  if (exists) {
+    openNote(path);
+    return;
+  }
+  try {
+    await api.write(path, `# ${dateStr}\n\n`);
+    await refreshFiles();
+    await openNote(path);
+  } catch (error) {
+    showError(`note quotidienne impossible : ${error.message}`);
+  }
+}
+
+function openDailyNote() {
+  openDaily(todayIso());
+}
+
+/* ============================ Raccourcis globaux ============================ */
+
+function wireGlobalKeys() {
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      if (promptState.mode) {
+        closePrompt();
+        event.preventDefault();
+      } else if (graphState.running) {
+        closeGraph();
+        event.preventDefault();
+      }
+      return;
+    }
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+    const key = event.key.toLowerCase();
+    if (key === 'k') {
+      event.preventDefault();
+      openPrompt('switcher');
+    } else if (key === 'p') {
+      event.preventDefault();
+      openPrompt('palette');
+    } else if (key === 'g') {
+      event.preventDefault();
+      if (graphState.running) closeGraph();
+      else openGraph();
+    } else if (key === 'n' && !event.shiftKey) {
+      event.preventDefault();
+      createNote();
+    } else if (key === 'f' && event.shiftKey) {
+      event.preventDefault();
+      focusGlobalSearch();
+    }
+  });
+}
+
+/* ============================ Ruban, navigation, crochets divers ============================ */
+
+function wireExtras() {
+  if (dom.ribbonQuick) dom.ribbonQuick.addEventListener('click', () => openPrompt('switcher'));
+  if (dom.ribbonGraph) dom.ribbonGraph.addEventListener('click', () => {
+    if (graphState.running) closeGraph();
+    else openGraph();
+  });
+  if (dom.ribbonCommand) dom.ribbonCommand.addEventListener('click', () => openPrompt('palette'));
+  if (dom.ribbonDaily) dom.ribbonDaily.addEventListener('click', openDailyNote);
+  if (dom.ribbonCanvas) dom.ribbonCanvas.addEventListener('click', () => showError('Canvas : à venir dans le front web.'));
+  if (dom.ribbonTemplate) dom.ribbonTemplate.addEventListener('click', () => showError('Modèles : à venir dans le front web.'));
+  if (dom.ribbonBase) dom.ribbonBase.addEventListener('click', () => showError('Bases : à venir dans le front web.'));
+  if (dom.navBack) dom.navBack.addEventListener('click', () => goHistory(-1));
+  if (dom.navForward) dom.navForward.addEventListener('click', () => goHistory(1));
+  if (dom.toggleLeftDock) {
+    dom.toggleLeftDock.addEventListener('click', () => {
+      document.querySelector('.app').classList.toggle('no-left-dock');
+    });
+  }
+  if (dom.statusTheme) {
+    dom.statusTheme.classList.add('is-clickable');
+    dom.statusTheme.title = 'Basculer le thème';
+    dom.statusTheme.addEventListener('click', toggleTheme);
+  }
+  if (dom.calPrev) dom.calPrev.addEventListener('click', () => shiftCalendar(-1));
+  if (dom.calNext) dom.calNext.addEventListener('click', () => shiftCalendar(1));
+}
+
+/* ============================ Initialisation des ajouts ============================ */
+
+document.addEventListener('DOMContentLoaded', () => {
+  applyTheme(state.theme);
+  wirePrompt();
+  wireGraph();
+  wireExtras();
+  wireGlobalKeys();
+  updateNavButtons();
+});

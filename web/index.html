@@ -129,10 +129,12 @@
 
     <section class="view view-calendar" data-view="calendar">
       <header class="view-header">
-        <span class="view-title">Calendrier</span>
+        <button class="icon-btn" data-testid="cal-prev" title="Mois précédent" aria-label="Mois précédent"><svg class="icon cal-flip"><use href="#i-chevron"/></svg></button>
+        <span class="view-title cal-title" data-testid="cal-title">—</span>
+        <button class="icon-btn" data-testid="cal-next" title="Mois suivant" aria-label="Mois suivant"><svg class="icon"><use href="#i-chevron"/></svg></button>
       </header>
       <div class="view-body">
-        <p class="empty-state" data-testid="calendar-empty">Aucun article à afficher.</p>
+        <div class="calendar-grid" data-testid="calendar-grid"></div>
       </div>
     </section>
 
@@ -212,6 +214,24 @@
     <span class="status-item" data-testid="status-theme">Sombre</span>
   </footer>
 
+</div>
+
+<!-- Invite (sélecteur rapide Ctrl+K / palette de commandes Ctrl+P). -->
+<div class="modal-veil" data-testid="modal-veil" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <input type="text" class="modal-input" data-testid="modal-input" placeholder="" autocomplete="off" spellcheck="false">
+    <ul class="modal-list" data-testid="modal-list"></ul>
+  </div>
+</div>
+
+<!-- Vue graphique plein cadre (Ctrl+G). -->
+<div class="graph-overlay" data-testid="graph-overlay" hidden>
+  <header class="graph-header">
+    <span class="view-title">Graphe</span>
+    <span class="graph-hint">molette : zoom · glisser fond : déplacer · glisser nœud : réorganiser · clic : ouvrir</span>
+    <button class="icon-btn" data-testid="graph-close" title="Fermer (Échap)" aria-label="Fermer le graphe"><svg class="icon"><use href="#i-close"/></svg></button>
+  </header>
+  <canvas class="graph-canvas" data-testid="graph-canvas"></canvas>
 </div>
 
 <script src="app.js"></script>

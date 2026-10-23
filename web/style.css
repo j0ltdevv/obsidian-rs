@@ -93,6 +93,10 @@
 
 * { box-sizing: border-box; }
 
+/* `display` auteur bat la règle UA de [hidden] : sans ce rappel, un
+   `display:flex` sur un élément porteur de `hidden` resterait visible. */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   padding: 0;
@@ -843,3 +847,191 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.status-item.is-clickable { cursor: pointer; border: 0; background: transparent; font-family: inherit; font-size: inherit; color: inherit; }
+.status-item.is-clickable:hover { background: var(--background-modifier-hover); }
+
+/* ============================ Thème clair ============================
+   Mêmes jetons publics, valeurs claires ; les accents (violet) ne
+   changent pas — c'est aussi le comportement d'Obsidian. */
+
+body.theme-light {
+  --background-primary: #FFFFFF;
+  --background-secondary: #F6F6F6;
+  --background-modifier-border: #DCDCDC;
+  --background-modifier-hover: rgba(0, 0, 0, 0.045);
+  --background-modifier-border-hover: #C8C8C8;
+  --background-modifier-border-focus: #999999;
+  --background-modifier-box-shadow: rgba(0, 0, 0, 0.12);
+  --text-normal: #222222;
+  --text-muted: #5C5C5C;
+  --text-faint: #999999;
+  --code-background: #F4F4F4;
+  --code-border-color: #E0E0E0;
+  --divider-color: #E0E0E0;
+  --checkbox-border-color: #9A9A9A;
+  --menu-background: #FFFFFF;
+  --menu-border-color: #E0E0E0;
+  --modal-background: #FFFFFF;
+  --prompt-background: #FFFFFF;
+  --prompt-border-color: #E0E0E0;
+  --tooltip-background: rgba(255, 255, 255, 0.95);
+  --tooltip-color: #222222;
+  --status-bar-background: #F6F6F6;
+  --status-bar-text-color: #5C5C5C;
+  --ribbon-background: #F6F6F6;
+  --tab-container-background: #F6F6F6;
+  --tab-background-active: #FFFFFF;
+  --tab-text-color: #999999;
+  --tab-text-color-active: #5C5C5C;
+}
+
+body.theme-light ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.12); }
+body.theme-light ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.22); }
+body.theme-light .editor-input::selection { background: rgba(138, 92, 245, 0.25); }
+
+/* Dock gauche replié (bouton du bandeau). */
+.app.no-left-dock { grid-template-columns: var(--ribbon-width) 0 minmax(280px, 1fr) var(--sidebar-width); }
+.app.no-left-dock .left-dock { display: none; }
+
+/* ============================ Invite (switcher / palette) ============================ */
+
+.modal-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 14vh;
+}
+
+.modal {
+  width: min(540px, calc(100vw - 48px));
+  background: var(--prompt-background);
+  border: 1px solid var(--prompt-border-color);
+  border-radius: var(--radius-l);
+  box-shadow: 0 8px 40px var(--background-modifier-box-shadow);
+  overflow: hidden;
+}
+
+.modal-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-bottom: 1px solid var(--prompt-border-color);
+  background: transparent;
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: var(--font-ui-medium);
+}
+
+.modal-input:focus { outline: none; }
+
+.modal-list { list-style: none; margin: 0; padding: 6px; max-height: 46vh; overflow: auto; }
+
+.modal-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-m);
+  color: var(--text-muted);
+  font-size: var(--font-ui-medium);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.modal-item.is-active { background: var(--background-modifier-hover); color: var(--text-normal); }
+.modal-item .icon { flex: 0 0 auto; }
+.modal-item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-normal); }
+.modal-item-meta { color: var(--text-faint); font-size: var(--font-ui-smaller); }
+
+.modal-empty { padding: 16px; color: var(--text-faint); font-size: var(--font-ui-small); text-align: center; }
+
+/* ============================ Vue graphique ============================ */
+
+.graph-overlay {
+  position: fixed;
+  top: var(--tab-container-height);
+  bottom: var(--status-bar-height);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  background: var(--background-primary);
+  display: flex;
+  flex-direction: column;
+}
+
+.graph-header {
+  height: var(--view-header-height);
+  flex: 0 0 var(--view-header-height);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.graph-hint { flex: 1; text-align: center; color: var(--text-faint); font-size: var(--font-ui-smaller); }
+
+.graph-canvas {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: block;
+  cursor: grab;
+  touch-action: none;
+}
+
+.graph-canvas.is-dragging { cursor: grabbing; }
+
+/* ============================ Calendrier ============================ */
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  padding: 0 12px 12px;
+}
+
+.cal-title { flex: 1; text-align: center; }
+.cal-flip { transform: rotate(180deg); }
+
+.cal-weekday {
+  text-align: center;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  padding: 4px 0;
+}
+
+.calendar-cell {
+  position: relative;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-s);
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.calendar-cell:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.calendar-cell.is-today { color: var(--text-accent); font-weight: 700; border-color: var(--accent); }
+
+.calendar-cell .cal-dot {
+  position: absolute;
+  bottom: 4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.icon-btn:disabled { opacity: 0.35; cursor: default; }
+.icon-btn:disabled:hover { background: transparent; color: var(--text-muted); }
