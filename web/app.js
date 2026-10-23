@@ -117,6 +117,12 @@ function cacheDom() {
     ribbonTemplate: 'ribbon-template',
     ribbonCommand: 'ribbon-command',
     ribbonBase: 'ribbon-base',
+    findBar: 'find-bar',
+    findInput: 'find-input',
+    findCount: 'find-count',
+    findNext: 'find-next',
+    findPrev: 'find-prev',
+    findClose: 'find-close',
   };
   for (const [key, id] of Object.entries(ids)) {
     // Les cibles sont repérées par `data-testid` (unique dans la page).
@@ -556,6 +562,61 @@ function renderInline(text) {
   return out;
 }
 
+/** Une ligne de liste : indentation (2 espaces par niveau), marqueur, contenu. */
+function parseListItem(line) {
+  const match = line.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/);
+  if (!match) return null;
+  return {
+    level: Math.floor(match[1].length / 2),
+    ordered: /\d/.test(match[2]),
+    text: match[3],
+  };
+}
+
+/**
+ * Liste (éventuellement imbriquée) à partir de `start`.
+ * Renvoie `{ html, next }` ou null si la ligne n'ouvre pas une liste.
+ */
+function renderListBlock(lines, start) {
+  const first = parseListItem(lines[start]);
+  if (!first) return null;
+  const base = first.level;
+  let index = start;
+  const items = [];
+  while (index < lines.length) {
+    const item = parseListItem(lines[index]);
+    if (!item || item.level !== base) break;
+    const node = { text: item.text, children: [] };
+    index += 1;
+    while (index < lines.length) {
+      const peek = parseListItem(lines[index]);
+      if (peek && peek.level > base) {
+        const sub = renderListBlock(lines, index);
+        if (!sub) break;
+        node.children.push(sub.html);
+        index = sub.next;
+      } else {
+        break;
+      }
+    }
+    items.push(node);
+  }
+  const tag = first.ordered ? 'ol' : 'ul';
+  const lis = items.map((node) => {
+    const task = node.text.match(/^\[([ xX])\]\s*(.*)$/);
+    let inner;
+    if (task) {
+      const done = task[1].toLowerCase() === 'x';
+      inner = `<li class="task${done ? ' is-done' : ''}"><span class="task-checkbox">${done ? '✓' : ''}</span><span class="task-label">${renderInline(task[2])}</span>`;
+    } else {
+      inner = `<li>${renderInline(node.text)}`;
+    }
+    if (node.children.length) inner += node.children.join('');
+    return `${inner}</li>`;
+  });
+  return { html: `<${tag}>${lis.join('')}</${tag}>`, next: index };
+}
+
 /** Rendu Markdown complet pour l'aperçu. */
 function renderMarkdown(source) {
   const lines = String(source).split('\n');
@@ -639,23 +700,10 @@ function renderMarkdown(source) {
       continue;
     }
 
-    if (/^\s*([-*+]|\d+[.)])\s+/.test(line)) {
-      const ordered = /^\s*\d+[.)]\s+/.test(line);
-      const items = [];
-      while (index < lines.length) {
-        const item = lines[index].match(/^\s*([-*+]|\d+[.)])\s+(.*)$/);
-        if (!item) break;
-        const task = item[2].match(/^\[([ xX])\]\s*(.*)$/);
-        if (task) {
-          const done = task[1].toLowerCase() === 'x';
-          items.push(`<li class="task${done ? ' is-done' : ''}"><span class="task-checkbox">${done ? '✓' : ''}</span><span class="task-label">${renderInline(task[2])}</span></li>`);
-        } else {
-          items.push(`<li>${renderInline(item[2])}</li>`);
-        }
-        index += 1;
-      }
-      const tag = ordered ? 'ol' : 'ul';
-      blocks.push(`<${tag}>${items.join('')}</${tag}>`);
+    const list = renderListBlock(lines, index);
+    if (list) {
+      blocks.push(list.html);
+      index = list.next;
       continue;
     }
 
@@ -1465,6 +1513,8 @@ const COMMANDS = [
   { name: 'Enregistrer la note', kbd: 'Ctrl+S', icon: 'check', run: () => saveNote() },
   { name: 'Supprimer la note', icon: 'trash', run: () => deleteNote() },
   { name: 'Recherche globale', kbd: 'Ctrl+Shift+F', icon: 'search', run: () => focusGlobalSearch() },
+  { name: 'Rechercher dans la note', kbd: 'Ctrl+F', icon: 'search', run: () => openFindBar() },
+  { name: 'Insérer un modèle', icon: 'template', run: () => chooseTemplate() },
 ];
 
 /** Entrées du sélecteur rapide : notes récentes d'abord, puis ordre alphabétique. */
@@ -1510,6 +1560,16 @@ function closePrompt() {
 }
 
 function promptResults(query) {
+  if (promptState.mode === 'templates') {
+    const base = promptState.templateBase || [];
+    if (!query) return base.slice(0, 12);
+    return base
+      .map((item) => ({ item, score: Math.max(fuzzyScore(query, item.title), fuzzyScore(query, item.meta || '')) }))
+      .filter((entry) => entry.score >= 0)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 12)
+      .map((entry) => entry.item);
+  }
   const base = promptState.mode === 'switcher' ? switcherItems() : commandItems();
   if (!query) return base.slice(0, 12);
   return base
@@ -2033,6 +2093,9 @@ function wireGlobalKeys() {
     } else if (key === 'f' && event.shiftKey) {
       event.preventDefault();
       focusGlobalSearch();
+    } else if (key === 'f' && !event.shiftKey) {
+      event.preventDefault();
+      openFindBar();
     }
   });
 }
@@ -2048,7 +2111,7 @@ function wireExtras() {
   if (dom.ribbonCommand) dom.ribbonCommand.addEventListener('click', () => openPrompt('palette'));
   if (dom.ribbonDaily) dom.ribbonDaily.addEventListener('click', openDailyNote);
   if (dom.ribbonCanvas) dom.ribbonCanvas.addEventListener('click', () => showError('Canvas : à venir dans le front web.'));
-  if (dom.ribbonTemplate) dom.ribbonTemplate.addEventListener('click', () => showError('Modèles : à venir dans le front web.'));
+  if (dom.ribbonTemplate) dom.ribbonTemplate.addEventListener('click', chooseTemplate);
   if (dom.ribbonBase) dom.ribbonBase.addEventListener('click', () => showError('Bases : à venir dans le front web.'));
   if (dom.navBack) dom.navBack.addEventListener('click', () => goHistory(-1));
   if (dom.navForward) dom.navForward.addEventListener('click', () => goHistory(1));
@@ -2072,7 +2135,197 @@ document.addEventListener('DOMContentLoaded', () => {
   applyTheme(state.theme);
   wirePrompt();
   wireGraph();
+  wireFind();
   wireExtras();
   wireGlobalKeys();
   updateNavButtons();
 });
+
+/* ============================ Recherche dans la note (Ctrl+F) ============================ */
+
+const findState = { query: '', marks: [], index: -1 };
+
+function openFindBar() {
+  if (!dom.findBar) return;
+  dom.findBar.hidden = false;
+  if (dom.findInput) {
+    dom.findInput.focus();
+    dom.findInput.select();
+  }
+}
+
+function closeFindBar() {
+  if (!dom.findBar) return;
+  findState.query = '';
+  findState.marks = [];
+  findState.index = -1;
+  dom.findBar.hidden = true;
+  clearFindMarks();
+  if (dom.findCount) dom.findCount.textContent = '0/0';
+}
+
+function clearFindMarks() {
+  if (!dom.previewContent) return;
+  for (const mark of dom.previewContent.querySelectorAll('mark.find-hit')) {
+    const parent = mark.parentNode;
+    if (!parent) continue;
+    parent.replaceChild(document.createTextNode(mark.textContent), mark);
+    parent.normalize();
+  }
+}
+
+/** Entoure les occurrences de la requête dans l'aperçu (nœuds texte uniquement). */
+function applyFindMarks(query) {
+  clearFindMarks();
+  findState.marks = [];
+  findState.index = -1;
+  if (!query || query.length < 1 || !dom.previewContent) return;
+  const needle = query.toLowerCase();
+  const walker = document.createTreeWalker(dom.previewContent, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const targets = [];
+  let current = walker.nextNode();
+  while (current) {
+    targets.push(current);
+    current = walker.nextNode();
+  }
+  for (const node of targets) {
+    const text = node.nodeValue;
+    const lower = text.toLowerCase();
+    let from = 0;
+    let at = lower.indexOf(needle, from);
+    if (at === -1) continue;
+    const fragment = document.createDocumentFragment();
+    let last = 0;
+    while (at !== -1) {
+      fragment.appendChild(document.createTextNode(text.slice(last, at)));
+      const mark = document.createElement('mark');
+      mark.className = 'find-hit';
+      mark.textContent = text.slice(at, at + needle.length);
+      fragment.appendChild(mark);
+      findState.marks.push(mark);
+      last = at + needle.length;
+      from = last;
+      at = lower.indexOf(needle, from);
+    }
+    fragment.appendChild(document.createTextNode(text.slice(last)));
+    if (node.parentNode) node.parentNode.replaceChild(fragment, node);
+  }
+}
+
+function gotoFindMark(step) {
+  if (!findState.marks.length) return;
+  findState.index = (findState.index + step + findState.marks.length) % findState.marks.length;
+  for (const mark of findState.marks) mark.classList.remove('find-current');
+  const mark = findState.marks[findState.index];
+  mark.classList.add('find-current');
+  mark.scrollIntoView({ block: 'center' });
+  if (dom.findCount) dom.findCount.textContent = `${findState.index + 1}/${findState.marks.length}`;
+}
+
+function runFind(query) {
+  findState.query = query;
+  applyFindMarks(query);
+  if (dom.findCount) dom.findCount.textContent = `0/${findState.marks.length}`;
+  if (findState.marks.length) gotoFindMark(1);
+}
+
+function wireFind() {
+  if (!dom.findBar) return;
+  if (dom.findInput) {
+    dom.findInput.addEventListener('input', () => runFind(dom.findInput.value));
+    dom.findInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        gotoFindMark(event.shiftKey ? -1 : 1);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        closeFindBar();
+      }
+    });
+  }
+  if (dom.findNext) dom.findNext.addEventListener('click', () => gotoFindMark(1));
+  if (dom.findPrev) dom.findPrev.addEventListener('click', () => gotoFindMark(-1));
+  if (dom.findClose) dom.findClose.addEventListener('click', closeFindBar);
+}
+
+/* ============================ Modèles (templates) ============================ */
+
+function templateFiles() {
+  return state.files.filter((file) => {
+    const dir = file.path.toLowerCase().split('/')[0];
+    return (dir === 'templates' || dir === 'modèles') && file.path.endsWith('.md');
+  });
+}
+
+async function insertTemplate(file) {
+  const path = file.path;
+  try {
+    const source = await api.read(path);
+    const now = new Date();
+    const date = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+    const body = source
+      .replaceAll('{{title}}', state.activePath ? titleOf(state.activePath) : '')
+      .replaceAll('{{date}}', date);
+    const input = dom.editorInput;
+    if (!input) return;
+    const at = input.selectionStart !== undefined ? input.selectionStart : input.value.length;
+    input.value = input.value.slice(0, at) + body + input.value.slice(at);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    state.dirty = true;
+    updateHighlight();
+    schedulePreviewRefresh();
+    clearError();
+  } catch (error) {
+    showError(`modèle illisible : ${error.message}`);
+  }
+}
+
+function chooseTemplate() {
+  const files = templateFiles();
+  if (!files.length) {
+    showError('Aucun modèle : créez un dossier « templates » à la racine du coffre.');
+    return;
+  }
+  openTemplatePrompt(files);
+}
+
+/** Invite dédiée aux modèles : réutilise la modale mais avec sa propre liste. */
+function openTemplatePrompt(files) {
+  if (!dom.modalVeil || !dom.modalInput || !dom.modalList) return;
+  promptState.mode = 'templates';
+  promptState.index = 0;
+  promptState.items = files.map((file) => ({
+    icon: 'template',
+    title: titleOf(file.path),
+    meta: file.path,
+    kbd: '',
+    run: () => insertTemplate(file),
+  }));
+  promptState.templateBase = promptState.items.slice();
+  dom.modalVeil.hidden = false;
+  dom.modalInput.value = '';
+  dom.modalInput.placeholder = 'Insérer un modèle…';
+  const list = dom.modalList;
+  list.textContent = '';
+  if (!promptState.items.length) {
+    const empty = document.createElement('li');
+    empty.className = 'modal-empty';
+    empty.textContent = 'Aucun modèle.';
+    list.appendChild(empty);
+    return;
+  }
+  promptState.items.forEach((item, index) => {
+    const li = document.createElement('li');
+    li.className = `modal-item${index === promptState.index ? ' is-active' : ''}`;
+    li.dataset.testid = 'modal-item';
+    li.innerHTML = `${iconUse(item.icon)}<span class="modal-item-title">${esc(item.title)}</span><span class="modal-item-meta">${esc(item.meta)}</span>`;
+    li.addEventListener('click', () => runPromptItem(index));
+    list.appendChild(li);
+  });
+  dom.modalInput.focus();
+}

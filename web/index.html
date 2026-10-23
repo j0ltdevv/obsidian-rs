@@ -173,6 +173,14 @@
       </div>
     </header>
 
+    <div class="find-bar" data-testid="find-bar" hidden>
+      <input type="search" class="find-input" data-testid="find-input" placeholder="Trouver dans la note" aria-label="Trouver dans la note">
+      <span class="find-count" data-testid="find-count">0/0</span>
+      <button class="icon-btn" data-testid="find-prev" title="Occurrence précédente" aria-label="Occurrence précédente"><svg class="icon cal-flip"><use href="#i-chevron"/></svg></button>
+      <button class="icon-btn" data-testid="find-next" title="Occurrence suivante" aria-label="Occurrence suivante"><svg class="icon"><use href="#i-chevron"/></svg></button>
+      <button class="icon-btn" data-testid="find-close" title="Fermer (Échap)" aria-label="Fermer la recherche"><svg class="icon"><use href="#i-close"/></svg></button>
+    </div>
+
     <div class="workspace" data-testid="workspace">
       <section class="pane editor-pane" data-testid="editor" aria-label="Éditeur">
         <div class="pane-scroll" data-testid="editor-scroll">

@@ -1035,3 +1035,49 @@ body.theme-light .editor-input::selection { background: rgba(138, 92, 245, 0.25)
 
 .icon-btn:disabled { opacity: 0.35; cursor: default; }
 .icon-btn:disabled:hover { background: transparent; color: var(--text-muted); }
+
+/* ============================ Recherche dans la note ============================ */
+
+.find-bar {
+  height: 36px;
+  flex: 0 0 36px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.find-input {
+  width: 260px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: var(--font-ui-small);
+}
+
+.find-input:focus { outline: none; border-color: var(--background-modifier-border-focus); }
+
+.find-count {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  min-width: 44px;
+  text-align: center;
+}
+
+.preview-content mark.find-hit {
+  background: rgba(229, 192, 123, 0.35);
+  color: inherit;
+  border-radius: 2px;
+}
+
+.preview-content mark.find-current {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
