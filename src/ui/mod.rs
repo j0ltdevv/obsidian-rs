@@ -871,7 +871,22 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
             .collect();
         let canvas = canvas_board_view(&app.canvas, &report);
 
+        let relier_libelle = if app.canvas_link_source.is_some() {
+            "Relier : cliquez la cible"
+        } else {
+            "Relier"
+        };
         let toolbar = row![
+            button(text("+ Carte"))
+                .on_press(Message::CanvasAddCard)
+                .style(primary_button_style),
+            button(text(relier_libelle))
+                .on_press(Message::CanvasLinkToggle)
+                .style(if app.canvas_link_source.is_some() {
+                    primary_button_style
+                } else {
+                    ghost_button_style
+                }),
             button(text("Auto-layout"))
                 .on_press(Message::CanvasAutoLayout)
                 .style(ghost_button_style),

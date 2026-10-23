@@ -207,6 +207,10 @@ pub enum Message {
     FindPrev,
     /// Sélectionne une carte du canvas (clic).
     CanvasSelect(CardId),
+    /// Crée une carte vide et la sélectionne.
+    CanvasAddCard,
+    /// Arme ou désarme le mode liaison (source = carte sélectionnée).
+    CanvasLinkToggle,
     /// Édite le titre d'une carte du canvas.
     CanvasEditTitle { id: CardId, text: String },
     /// Édite le contenu d'une carte du canvas.
@@ -576,6 +580,8 @@ pub struct App {
     pub find: Option<FindState>,
     /// Carte du canvas actuellement sélectionnée.
     pub canvas_selected: Option<CardId>,
+    /// Source armée du mode liaison canvas (`Relier`), si actif.
+    pub canvas_link_source: Option<CardId>,
     /// Paramètres persistés (app.json).
     pub settings: AppSettings,
     /// Affiche la vue Réglages.
@@ -944,6 +950,7 @@ pub fn boot() -> (App, Task<Message>) {
         graph_program: None,
         find: None,
         canvas_selected: None,
+        canvas_link_source: None,
         new_note: None,
         css_snippets: crate::vault::css_snippets::load_snippets(Path::new(DEMO_VAULT)),
         settings,
@@ -1863,7 +1870,40 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             focus_current_occurrence(app);
         }
         Message::CanvasSelect(id) => {
+            // Mode liaison armé : le clic sur une autre carte crée l'arête.
+            if let Some(from) = app.canvas_link_source {
+                if from != id {
+                    match app.canvas.connect(from, id) {
+                        Ok(()) => {
+                            app.canvas_link_source = None;
+                            if let Err(error) = save_canvas_board(app) {
+                                app.error = Some(error);
+                            }
+                        }
+                        Err(error) => {
+                            app.error = Some(format!("Liaison impossible : {error}"));
+                        }
+                    }
+                }
+            }
             app.canvas_selected = Some(id);
+        }
+        Message::CanvasAddCard => {
+            let id = app.canvas.add_card("Nouvelle carte");
+            app.canvas_selected = Some(id);
+            app.canvas_link_source = None;
+            if let Err(error) = save_canvas_board(app) {
+                app.error = Some(error);
+            }
+        }
+        Message::CanvasLinkToggle => {
+            app.canvas_link_source = match app.canvas_link_source {
+                Some(_) => None,
+                None => app.canvas_selected,
+            };
+            if app.canvas_link_source.is_none() && app.canvas_selected.is_none() {
+                app.error = Some("Sélectionnez d'abord la carte source de la liaison.".to_string());
+            }
         }
         Message::CanvasEditTitle { id, text } => {
             if let Some(card) = app.canvas.card_mut(id) {
@@ -1996,6 +2036,10 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             app.canvas.remove_card(id);
             if app.canvas_selected == Some(id) {
                 app.canvas_selected = None;
+            }
+            app.canvas_link_source = None;
+            if let Err(error) = save_canvas_board(app) {
+                app.error = Some(error);
             }
         }
         Message::CanvasCancelRemoveCard => {
@@ -2754,6 +2798,22 @@ fn open_note_impl(app: &mut App, path: &Path, persist: bool) {
 ///
 /// L'erreur de requête est conservée telle quelle pour l'afficher sous la
 /// barre de saisie ; les résultats précédents sont alors effacés.
+/// Sauvegarde la planche canvas dans `.obsidian/canvas.json`
+/// (écriture atomique temp + rename).
+fn save_canvas_board(app: &mut App) -> Result<(), String> {
+    let json = app
+        .canvas
+        .to_json()
+        .map_err(|error| format!("Export canvas impossible : {error}"))?;
+    let dir = app.vault_root.join(".obsidian");
+    std::fs::create_dir_all(&dir).map_err(|error| format!("Export canvas impossible : {error}"))?;
+    let target = dir.join("canvas.json");
+    let tmp = dir.join("canvas.json.tmp");
+    std::fs::write(&tmp, &json)
+        .and_then(|_| std::fs::rename(&tmp, &target))
+        .map_err(|error| format!("Export canvas impossible : {error}"))
+}
+
 fn run_dataview(app: &mut App) {
     let outcome = match &app.notes {
         Ok(notes) => parse_dql(&app.dataview_query)
