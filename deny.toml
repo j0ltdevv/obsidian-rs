@@ -1,7 +1,7 @@
 [advisories]
 # Échoue sur toute vulnérabilité de niveau élevé.
-severity = "high"
-unmaintained = "warn"
+severity-threshold = "high"
+unmaintained = "all"
 
 [bans]
 multiple-versions = "warn"
@@ -15,4 +15,4 @@ allow = [
     "OFL-1.1",
     "Unlicense",
 ]
-confidence = 0.8
+confidence-threshold = 0.8
