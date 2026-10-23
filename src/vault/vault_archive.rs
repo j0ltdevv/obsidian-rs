@@ -132,7 +132,10 @@ pub fn import_vault_zip(zip_path: &Path, vault_root: &Path) -> Result<usize> {
         let mut entry = archive
             .by_index(i)
             .with_context(|| format!("entrée {} de l'archive", i))?;
-        let raw_name = entry.name();
+        // zip 9 : `name()` renvoie un `Result<Cow<str>>` (encodage mangled possible).
+        let raw_name = entry
+            .name()
+            .with_context(|| format!("entrée {} de l'archive", i))?;
         let is_dir = raw_name.ends_with('/');
         let name = raw_name.trim_end_matches('/');
         let rel = confine_zip_entry(name)?;
@@ -314,7 +317,14 @@ mod tests {
         let file = File::open(&dest).expect("ouverture archive");
         let mut archive = zip::ZipArchive::new(file).expect("lecture archive");
         let names: Vec<String> = (0..archive.len())
-            .map(|i| archive.by_index(i).expect("entrée").name().to_string())
+            .map(|i| {
+                archive
+                    .by_index(i)
+                    .expect("entrée")
+                    .name()
+                    .expect("nom")
+                    .to_string()
+            })
             .collect();
         assert!(
             names.contains(&"notes/".to_string()),

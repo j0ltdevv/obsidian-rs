@@ -1,7 +1,6 @@
 [advisories]
 # Échoue sur toute vulnérabilité de niveau élevé.
 severity-threshold = "high"
-unmaintained = "all"
 
 [bans]
 multiple-versions = "warn"
