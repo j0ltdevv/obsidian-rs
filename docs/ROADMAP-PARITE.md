@@ -55,18 +55,26 @@ tranches en cours et des mesures de RAM (rendu logiciel)._
 - Propriétés / frontmatter éditable.
 - Interface multi-onglets, raccourcis, onglets de sidebar (6).
 
-### Partielle
+### Partielle (état réel au 24 octobre 2026)
 
 | Fonctionnalité | Ce qui manque | Preuve |
 |---|---|---|
-| Édition + rendu Markdown | maths = texte mono coloré ; embeds = placeholders ; tableaux en mono sans grille ; listes sans indentation de niveau ; callouts non repliables ; code sans coloration syntaxique ; barré en gris | `src/ui/markdown.rs` |
-| Pièces jointes | inventaire + renommage + suppression, mais pas d'affichage des images, pas de glisser-déposer, pas de lecture audio/vidéo | `src/vault/attachments.rs` |
-| Canvas | cartes éditables, import/export JSON, mais planche générée automatiquement, pas de création manuelle de nœuds/arêtes | `src/ui/canvas_view.rs`, `src/vault/canvas_data.rs` |
-| Thème | parseur de thèmes CSS livré (cascade base → `.theme-dark`/`.theme-light`, `!important`, audit des variables) mais pas encore appliqué à l'UI | `src/vault/themes.rs` |
-| Snippets CSS | 5 variables extraites, pas de CSS complet | `src/vault/css_snippets.rs` |
-| Bases/Dataview | langage de requête livré ; rendu tabulaire encore limité aux colonnes nom/tags/liens/propriété | `src/vault/dataview.rs`, `src/ui/dataview_view.rs` |
-| Historique | snapshots + restauration, pas de navigation temporelle | `src/vault/history.rs` |
-| Corbeille | les notes vont dans `.trash`, mais **aucune restauration ni vidage depuis l'interface** | `src/vault/trash.rs` |
+| Édition + rendu Markdown | maths = texte mono coloré ; blocs de code sans coloration syntaxique par langue ; embeds de notes transcluses en placeholder | `src/ui/markdown.rs`, `src/vault/live_preview.rs` |
+| Pièces jointes | images affichées dans le preview (`EmbedImage`), mais pas de glisser-déposer ni de lecture audio/vidéo | `src/ui/embed_view.rs` |
+| Snippets CSS | variables extraites et fusionnées dans le thème appliqué à l'UI ; CSS arbitraire non interprété | `src/ui/theme_vars.rs` |
+| Historique | snapshots + restauration branchés (`RestoreSnapshot`) ; pas de curseur de navigation avant/arrière dans le temps | `src/vault/history.rs` |
+
+Livré depuis l'audit du 21 octobre (à sortir de cette liste) :
+tableaux à grille, listes indentées, callouts repliables, barré réel,
+création manuelle de cartes et d'arêtes canvas, projection `SELECT`
+Dataview, thème du vault appliqué à l'UI, corbeille (restauration +
+vidage confirmé), publication HTML.
+
+### Absente
+- Navigation clavier complète (keymap + raccourcis globaux branchés ;
+  le focus par tabulation entre panneaux iced reste à câbler).
+- Chiffrement optionnel du vault.
+- i18n fr/en.
 
 ### Absente
 - Navigation clavier complète (le keymap existe, le focus iced n'est pas câblé).
@@ -76,32 +84,20 @@ tranches en cours et des mesures de RAM (rendu logiciel)._
 ### Hors périmètre (AGENTS.md)
 - Plugins tiers, synchronisation multi-appareils.
 
-## En cours (tranches en développement)
+## En cours
 
-| Tranche | Périmètre exact | Fichier | Capacité apportée |
-|---|---|---|
-| Embeds / images | Résolution et rendu des embeds (note/image/pdf) : extraction, classification par type, résolution vers l'index, dimensions d'images | `src/vault/embeds.rs` | Affichage réel des images, notes transcluses et PDF dans le preview |
-| Publication HTML | Génération d'un site statique à partir du vault | module `publish` en cours | Export de la note courante / du vault en HTML |
-| Corbeille avec restauration | Lister la corbeille, restaurer et vider depuis l'interface, avec confinement des chemins | `src/vault/trash.rs` | Restauration et vidage fonctionnels depuis l'UI (fonctions `restore_trash`/`empty_trash` présentes) |
-
-Ces tranches sont **en cours de développement**, pas terminées.
+Aucune tranche ouverte au 24 octobre 2026 : embeds/images, publication
+HTML et corbeille avec restauration sont livrées et vérifiées.
 
 ## Top 8 des écarts les plus visibles
 
-_Liste établie le 21 octobre. Depuis, les points 1 (wikilinks du corps), 3
-(export PDF), 4 (Dataview) et 7 (corbeille) sont traités : voir l'audit
-ci-dessus._
-
-Classés par impact décroissant pour un utilisateur.
-
-1. **Wikilinks du corps non cliquables** — ce qui manque : rendre cliquables les liens du corps du preview (comme ceux du bloc métadonnées). Taille : moyen. Fichier : `src/ui/mod.rs` (branche `SegmentStyle::Wikilink`, ligne 1772). Proposition : brancher la navigation `[[note]]` sur le clic d'un segment Wikilink du corps.
-2. **Maths et embeds non rendus** — pas d'image affichée, pas de PDF, pas de note transcluse. Taille : gros. Fichier : `src/ui/markdown.rs`, `src/vault/embeds.rs`. Proposition : raccorder le module `embeds.rs` au rendu (afficher les images, insérer les notes transcluses, placeholders PDF).
-3. **Pas d'export PDF** — Taille : moyen. Fichier : absent. Proposition : tranche d'export PDF de la note courante.
-4. **Dataview figé** — tableau fixe de 4 colonnes, pas de langage de requête. Taille : moyen. Fichier : `src/vault/dataview.rs`. Proposition : mini-langage de requête Dataview (type `TABLE`, `WHERE`).
-5. **Rendu pauvre des tableaux et des listes imbriquées** — tableaux en mono sans grille, listes sans indentation de niveau. Taille : moyen. Fichier : `src/ui/markdown.rs`. Proposition : rendu HTML/CSS des tableaux + indentation multi-niveau des listes.
-6. **Canvas automatique** — pas de création libre de nœuds/arêtes. Taille : moyen. Fichier : `src/ui/canvas_view.rs`. Proposition : ajouter la création manuelle de nœuds et d'arêtes.
-7. **Corbeille sans restauration ni vidage** — Taille : petit. Fichier : `src/vault/trash.rs`. Proposition : brancher l'UI sur `restore_trash`/`empty_trash`.
-8. **Toggles vim / orthographe persistés mais sans effet fonctionnel** — Taille : petit. Fichier : réglages. Proposition : implémenter l'effet vim/orthographe.
+_Liste du 21 octobre : les huit points ont été traités ou remplacés au
+24 octobre._ 1 (wikilinks corps), 2 (embeds/images), 3 (export PDF),
+4 (Dataview `SELECT` + DQL), 5 (tableaux/listes), 6 (canvas manuel),
+7 (corbeille) : livrés. 8 (toggles vim/orthographe sans effet) :
+toujours sans effet fonctionnel, resté en liste pour une tranche
+dédiée (vim en mode édition requiert un éditeur modal, hors périmètre
+iced `text_editor`).
 
 ## Mesures (RSS, processus unique)
 
