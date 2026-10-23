@@ -1,6 +1,7 @@
-[advisories]
-# Échoue sur toute vulnérabilité de niveau élevé.
-severity-threshold = "high"
+# cargo-deny : configuration minimale.
+# Depuis la PR EmbarkStudios/cargo-deny#611, [advisories] n'accepte plus
+# ni severity-threshold ni unmaintained : les vulnérabilités sont
+# refusées par défaut, les informatives sont de simples avertissements.
 
 [bans]
 multiple-versions = "warn"
