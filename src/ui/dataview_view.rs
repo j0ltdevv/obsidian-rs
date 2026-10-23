@@ -6,6 +6,7 @@
 use iced::widget::{button, container, row, scrollable, text, text_input, Column};
 use iced::{Alignment, Background, Color, Element, Length};
 
+use super::ghost_button_style;
 use crate::app::Message;
 use crate::vault::note::Note;
 
@@ -48,7 +49,7 @@ pub fn dataview_view<'a>(
     on_run: Message,
     on_open: impl Fn(usize) -> Message + 'a,
 ) -> Element<'a, Message> {
-    let input = text_input("TABLE … FROM … WHERE …", query)
+    let input = text_input("SELECT … FROM … WHERE …", query)
         .on_input(on_query_change)
         .on_submit(on_run.clone())
         .padding(6)
@@ -194,6 +195,52 @@ fn display_value(value: &serde_yaml::Value) -> String {
             .map(|serialized| serialized.trim().to_string())
             .unwrap_or_else(|_| format!("{other:?}")),
     }
+}
+
+/// Vue d'un tableau projeté par `SELECT …` : colonnes arbitraires, une
+/// ligne par note résultat, cliquable pour ouvrir la note.
+pub fn dataview_columns_view(
+    columns: Vec<String>,
+    lignes: Vec<(String, Vec<String>)>,
+    on_open: impl Fn(String) -> Message + 'static,
+) -> Element<'static, Message> {
+    let mut content = Column::new()
+        .spacing(6)
+        .padding(12)
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+    let mut head = row!()
+        .spacing(ESPACEMENT_COLONNES)
+        .align_y(Alignment::Center);
+    for colonne in &columns {
+        head = head.push(
+            text(colonne.clone())
+                .size(12)
+                .color(COULEUR_ATTENUEE)
+                .width(Length::FillPortion(1)),
+        );
+    }
+    content = content.push(container(head).padding(MARGE_LIGNE).width(Length::Fill));
+
+    let mut table = Column::new().spacing(2).width(Length::Fill);
+    for (chemin, cellules) in &lignes {
+        let mut ligne = row!()
+            .spacing(ESPACEMENT_COLONNES)
+            .align_y(Alignment::Center);
+        for cellule in cellules {
+            ligne = ligne.push(text(cellule.clone()).size(13).width(Length::FillPortion(1)));
+        }
+        table = table.push(
+            button(container(ligne).padding(MARGE_LIGNE).width(Length::Fill))
+                .padding(0)
+                .style(ghost_button_style)
+                .on_press(on_open(chemin.clone()))
+                .width(Length::Fill),
+        );
+    }
+
+    content.push(scrollable(table).height(Length::Fill)).into()
 }
 
 #[cfg(test)]

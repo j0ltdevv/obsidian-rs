@@ -319,6 +319,8 @@ struct SortSpec {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedDql {
     source: Source,
+    /// Projection explicite (`SELECT a, b`) : vide = colonnes par défaut.
+    select: Vec<FieldRef>,
     condition: Option<Expr>,
     sort: Option<SortSpec>,
     group_by: Option<FieldRef>,
@@ -340,6 +342,53 @@ impl ParsedDql {
     /// Limite de résultats (`LIMIT`), si elle est présente.
     pub fn limit(&self) -> Option<usize> {
         self.limit
+    }
+
+    /// La requête projette-t-elle des colonnes explicites (`SELECT …`) ?
+    pub fn has_select(&self) -> bool {
+        !self.select.is_empty()
+    }
+
+    /// Noms de colonnes projetés (`SELECT file.name, priority`).
+    /// Requête sans projection : vecteur vide.
+    pub fn select_columns(&self) -> Vec<String> {
+        self.select.iter().map(field_name).collect()
+    }
+
+    /// Valeurs projetées d'une note, dans l'ordre du `SELECT`.
+    /// Champ absent : tiret cadratin.
+    pub fn project_cells(&self, note: &Note) -> Vec<String> {
+        self.select
+            .iter()
+            .map(|field| format_cell(note, field))
+            .collect()
+    }
+}
+
+/// Formate la valeur d'un champ pour l'affichage (listes jointes par
+/// « , », nombres sans décimales superflues, absence = « — »).
+fn format_cell(note: &Note, field: &FieldRef) -> String {
+    match resolve_field(note, field) {
+        None => "—".to_string(),
+        Some(DqlValue::Text(texte)) => texte,
+        Some(DqlValue::Number(nombre)) => {
+            if (nombre - nombre.trunc()).abs() < f64::EPSILON {
+                format!("{}", nombre as i64)
+            } else {
+                format!("{nombre}")
+            }
+        }
+        Some(DqlValue::Bool(vrai)) => vrai.to_string(),
+        Some(DqlValue::List(items)) => items
+            .iter()
+            .map(|item| match item {
+                DqlValue::Text(texte) => texte.clone(),
+                DqlValue::Number(nombre) => format!("{nombre}"),
+                DqlValue::Bool(vrai) => vrai.to_string(),
+                DqlValue::List(_) => String::new(),
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
     }
 }
 
@@ -367,6 +416,7 @@ fn field_name(field: &FieldRef) -> String {
 enum Token {
     Word(String),
     Quoted(String),
+    Comma,
     Eq,
     Neq,
     Lt,
@@ -380,6 +430,7 @@ enum Token {
 /// Clause de fin de requête, dans l'ordre où elle apparaît.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Clause {
+    Select,
     Sort,
     Group,
     Flatten,
@@ -442,6 +493,15 @@ fn lex(input: &str) -> Result<Vec<Spanned>, QueryError> {
             ')' => {
                 tokens.push(Spanned {
                     token: Token::RParen,
+                    line,
+                    column,
+                });
+                i += 1;
+                column += 1;
+            }
+            ',' => {
+                tokens.push(Spanned {
+                    token: Token::Comma,
                     line,
                     column,
                 });
@@ -548,7 +608,9 @@ fn lex(input: &str) -> Result<Vec<Spanned>, QueryError> {
                 let mut word = String::new();
                 while i < chars.len() {
                     let d = chars[i];
-                    if d.is_whitespace() || matches!(d, '(' | ')' | '"' | '=' | '<' | '>' | '!') {
+                    if d.is_whitespace()
+                        || matches!(d, '(' | ')' | '"' | '=' | '<' | '>' | '!' | ',')
+                    {
                         break;
                     }
                     word.push(d);
@@ -612,6 +674,7 @@ impl<'a> Parser<'a> {
     /// Clause de fin de requête reconnue au mot-clé courant.
     fn peek_clause(&self) -> Option<Clause> {
         match self.peek_word()? {
+            "SELECT" => Some(Clause::Select),
             "SORT" => Some(Clause::Sort),
             "GROUP" => Some(Clause::Group),
             "FLATTEN" => Some(Clause::Flatten),
@@ -623,12 +686,29 @@ impl<'a> Parser<'a> {
     fn parse_dql(&mut self) -> Result<ParsedDql, QueryError> {
         let mut parsed = ParsedDql {
             source: Source::All,
+            select: Vec::new(),
             condition: None,
             sort: None,
             group_by: None,
             flatten: None,
             limit: None,
         };
+
+        if self.peek_word() == Some("SELECT") {
+            self.advance();
+            loop {
+                let (line, column) = self.here();
+                let champ = self
+                    .advance()
+                    .ok_or_else(|| QueryError::at(line, column, "champ attendu après SELECT"))?;
+                parsed.select.push(Self::parse_field(champ)?);
+                if matches!(self.peek().map(|s| &s.token), Some(Token::Comma)) {
+                    self.advance();
+                    continue;
+                }
+                break;
+            }
+        }
 
         if self.peek_word() == Some("FROM") {
             self.advance();
@@ -647,6 +727,13 @@ impl<'a> Parser<'a> {
         while let Some(clause) = self.peek_clause() {
             let (line, column) = self.here();
             match clause {
+                Clause::Select => {
+                    return Err(QueryError::at(
+                        line,
+                        column,
+                        "clause SELECT en double (elle doit précéder FROM)",
+                    ));
+                }
                 Clause::Sort => {
                     if parsed.sort.is_some() {
                         return Err(QueryError::at(line, column, "clause SORT en double"));
@@ -911,6 +998,7 @@ impl<'a> Parser<'a> {
         match token {
             Token::Word(word) => word.clone(),
             Token::Quoted(_) => "\"...\"".to_string(),
+            Token::Comma => ",".to_string(),
             Token::Eq => "=".to_string(),
             Token::Neq => "!=".to_string(),
             Token::Lt => "<".to_string(),
@@ -1387,9 +1475,10 @@ pub fn query_flattened(notes: &[Note], query: &str) -> Result<Vec<FlatRow>, Quer
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use std::path::{Path, PathBuf};
 
-    use super::*;
     use crate::vault::frontmatter::parse_frontmatter;
     use crate::vault::note::NoteMetadata;
 

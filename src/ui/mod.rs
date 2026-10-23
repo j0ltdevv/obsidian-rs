@@ -44,7 +44,7 @@ mod themes_view;
 pub mod trash_view;
 
 use self::canvas_view::canvas_board_view;
-use self::dataview_view::dataview_view;
+use self::dataview_view::{dataview_columns_view, dataview_view};
 use self::embed_view::embed_image_element;
 use self::graph::graph_view;
 use self::history_view::history_view;
@@ -991,18 +991,35 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
     }
 
     if app.show_dataview {
-        let dview = dataview_view(
-            notes,
-            &app.dataview_indices,
-            &app.dataview_query,
-            app.dataview_error.as_deref(),
-            Message::DataviewQueryChanged,
-            Message::DataviewRun,
-            |i| {
-                let path = notes.get(i).map(|n| n.path.clone()).unwrap_or_default();
-                Message::OpenNote(path)
-            },
-        );
+        let dview = match (&app.dataview_parsed, &app.notes) {
+            (Some(parsed), Ok(notes)) if parsed.has_select() => {
+                let colonnes = parsed.select_columns();
+                let lignes: Vec<(String, Vec<String>)> = app
+                    .dataview_indices
+                    .iter()
+                    .filter_map(|i| {
+                        notes
+                            .get(*i)
+                            .map(|n| (n.path.display().to_string(), parsed.project_cells(n)))
+                    })
+                    .collect();
+                dataview_columns_view(colonnes, lignes, |chemin| {
+                    Message::OpenNote(std::path::PathBuf::from(chemin))
+                })
+            }
+            _ => dataview_view(
+                notes,
+                &app.dataview_indices,
+                &app.dataview_query,
+                app.dataview_error.as_deref(),
+                Message::DataviewQueryChanged,
+                Message::DataviewRun,
+                |i| {
+                    let path = notes.get(i).map(|n| n.path.clone()).unwrap_or_default();
+                    Message::OpenNote(path)
+                },
+            ),
+        };
         return row![
             left_el,
             container(dview)

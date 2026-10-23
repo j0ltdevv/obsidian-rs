@@ -20,7 +20,7 @@ use crate::plugins::registry::PluginRegistry;
 use crate::vault::aliases::AliasIndex;
 use crate::vault::canvas_data::{CanvasBoard, CardId};
 use crate::vault::commands::{default_commands, search_commands, Command};
-use crate::vault::dataview::query_notes;
+use crate::vault::dataview::{evaluate_dql, parse_dql};
 use crate::vault::graph::GraphFilters;
 use crate::vault::history::{list_snapshots, restore_snapshot};
 use crate::vault::index::NoteIndex;
@@ -654,6 +654,8 @@ pub struct App {
     pub trash_empty_confirm: bool,
     /// Lignes de début des callouts repliés dans le preview.
     pub callout_folded: std::collections::HashSet<usize>,
+    /// Dernière requête Dataview parsée (pour la projection `SELECT`).
+    pub dataview_parsed: Option<crate::vault::dataview::ParsedDql>,
     /// Dialogue d'export statique ouvert (destination), si présent.
     pub publish_dialog: Option<PublishDraft>,
     /// Message d'état du dernier export statique (succès), affiché en barre
@@ -973,6 +975,7 @@ pub fn boot() -> (App, Task<Message>) {
         attachments: Vec::new(),
         trash_entries: Vec::new(),
         callout_folded: std::collections::HashSet::new(),
+        dataview_parsed: None,
         trash_error: None,
         trash_empty_confirm: false,
         publish_dialog: None,
@@ -2753,16 +2756,23 @@ fn open_note_impl(app: &mut App, path: &Path, persist: bool) {
 /// barre de saisie ; les résultats précédents sont alors effacés.
 fn run_dataview(app: &mut App) {
     let outcome = match &app.notes {
-        Ok(notes) => query_notes(notes, &app.dataview_query).map_err(|error| error.to_string()),
+        Ok(notes) => parse_dql(&app.dataview_query)
+            .map(|parsed| {
+                let indices = evaluate_dql(notes, &parsed);
+                (parsed, indices)
+            })
+            .map_err(|error| error.to_string()),
         Err(_) => Err("Vault indisponible.".to_string()),
     };
     match outcome {
-        Ok(indices) => {
+        Ok((parsed, indices)) => {
             app.dataview_indices = indices;
+            app.dataview_parsed = Some(parsed);
             app.dataview_error = None;
         }
         Err(error) => {
             app.dataview_indices.clear();
+            app.dataview_parsed = None;
             app.dataview_error = Some(error);
         }
     }

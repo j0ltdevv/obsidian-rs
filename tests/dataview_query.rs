@@ -5,7 +5,7 @@
 //! `file.ctime` sont donc absents ici, car les chemins n'existent pas sur
 //! disque).
 
-use obsy::vault::dataview::query_notes;
+use obsy::vault::dataview::{parse_dql, query_notes};
 use obsy::vault::note::{Note, NoteMetadata, Wikilink};
 use std::path::{Path, PathBuf};
 
@@ -333,4 +333,46 @@ fn clause_inconnue_erreur() {
     let notes = notes();
     let err = query_notes(&notes, "FILTRE title = \"x\"").unwrap_err();
     assert!(err.to_string().contains("jeton inattendu"), "{err}");
+}
+
+#[test]
+fn select_parse_et_projete_les_colonnes() {
+    let parsed = parse_dql("SELECT file.name, priority FROM #projet").expect("requête");
+    assert!(parsed.has_select());
+    assert_eq!(
+        parsed.select_columns(),
+        vec!["file.name".to_string(), "priority".to_string()]
+    );
+}
+
+#[test]
+fn select_sans_from_projet_toutes_les_notes() {
+    let parsed = parse_dql("SELECT file.name, priority").expect("requête");
+    let notes = [
+        note("A.md", Some("priority: 2"), &[], &[]),
+        note("B.md", None, &[], &[]),
+    ];
+    let cellules: Vec<Vec<String>> = notes.iter().map(|n| parsed.project_cells(n)).collect();
+    assert_eq!(cellules[0], vec!["A".to_string(), "2".to_string()]);
+    // Champ absent : tiret cadratin.
+    assert_eq!(cellules[1], vec!["B".to_string(), "—".to_string()]);
+}
+
+#[test]
+fn select_liste_jointe_par_des_virgules() {
+    let parsed = parse_dql("SELECT file.tags").expect("requête");
+    let n = note("T.md", None, &["a", "b"], &[]);
+    assert_eq!(parsed.project_cells(&n), vec!["a, b".to_string()]);
+}
+
+#[test]
+fn select_en_double_refuse() {
+    let erreur = parse_dql("SELECT a SELECT b").expect_err("rejet attendu");
+    assert!(format!("{erreur}").contains("SELECT en double"));
+}
+
+#[test]
+fn select_virgule_finale_sans_champ_refuse() {
+    let erreur = parse_dql("SELECT a,").expect_err("rejet attendu");
+    assert!(format!("{erreur}").contains("champ attendu"));
 }
