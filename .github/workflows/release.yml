@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  builds:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            cible: x86_64-unknown-linux-gnu
+            artefact: obsy-linux-x64
+            archive: tar.gz
+          - os: macos-latest
+            cible: aarch64-apple-darwin
+            artefact: obsy-macos-arm64
+            archive: tar.gz
+          - os: macos-latest
+            cible: x86_64-apple-darwin
+            artefact: obsy-macos-x64
+            archive: tar.gz
+          - os: windows-latest
+            cible: x86_64-pc-windows-msvc
+            artefact: obsy-windows-x64
+            archive: zip
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.cible }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.cible }}
+
+      - name: Dépendances système (Linux uniquement)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev
+
+      - name: Build release
+        run: cargo build --release --target ${{ matrix.cible }} --bin obsy
+
+      - name: Archive (unix)
+        if: matrix.archive != 'zip'
+        run: |
+          mkdir -p paquet/${{ matrix.artefact }}
+          cp target/${{ matrix.cible }}/release/obsy paquet/${{ matrix.artefact }}/
+          cp README.md paquet/${{ matrix.artefact }}/
+          tar -czf ${{ matrix.artefact }}.tar.gz -C paquet ${{ matrix.artefact }}
+      - name: Archive (windows)
+        if: matrix.archive == 'zip'
+        shell: bash
+        run: |
+          mkdir -p paquet/${{ matrix.artefact }}
+          cp target/${{ matrix.cible }}/release/obsy.exe paquet/${{ matrix.artefact }}/
+          cp README.md paquet/${{ matrix.artefact }}/
+          7z a ${{ matrix.artefact }}.zip ./paquet/${{ matrix.artefact }}
+
+      - name: Checksum
+        shell: bash
+        run: |
+          cd paquet/.. ; sha256sum ${{ matrix.artefact }}.tar.gz > ${{ matrix.artefact }}.sha256 || sha256sum ${{ matrix.artefact }}.zip > ${{ matrix.artefact }}.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artefact }}
+          path: |
+            obsy-*.tar.gz
+            obsy-*.zip
+            obsy-*.sha256
+
+  publication:
+    needs: builds
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/obsy-*.tar.gz
+            dist/obsy-*.zip
+            dist/obsy-*.sha256
+          generate_release_notes: true
