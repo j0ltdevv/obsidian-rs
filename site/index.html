@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>obsy — vos notes Markdown, sans le poids</title>
+<meta name="description" content="Prise de notes locale façon Obsidian, écrite en Rust. 22 Mo de mémoire au repos, vos fichiers restent des fichiers Markdown.">
+<style>
+  :root {
+    --fond: #16131F;
+    --fond-secondaire: #1D1929;
+    --texte: #dadada;
+    --texte-attenué: #9a94a8;
+    --texte-faible: #6b6578;
+    --accent: #8A5CF5;
+    --accent-clair: #A68AF9;
+    --bordure: #2A2438;
+    --max: 980px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--fond);
+    color: var(--texte);
+    font-family: Inter, system-ui, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+  }
+  a { color: var(--accent-clair); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .conteneur { max-width: var(--max); margin: 0 auto; padding: 0 24px; }
+
+  header { padding: 72px 0 56px; text-align: center; }
+  .marque { display: flex; align-items: center; justify-content: center; gap: 20px; }
+  .marque h1 { font-size: 64px; font-weight: 700; letter-spacing: -0.03em; color: #FAFAFA; }
+  .tagline { font-size: 24px; color: var(--texte-attenué); margin-top: 16px; }
+  .tagline b { color: var(--accent-clair); font-weight: 600; }
+  .liens-cta { margin-top: 32px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .cta {
+    display: inline-block; padding: 12px 26px; border-radius: 10px;
+    font-size: 17px; font-weight: 600;
+  }
+  .cta-principal { background: var(--accent); color: #fff; }
+  .cta-principal:hover { background: var(--accent-clair); text-decoration: none; }
+  .cta-secondaire { border: 1px solid var(--bordure); color: var(--texte); }
+  .cta-secondaire:hover { border-color: var(--accent); text-decoration: none; }
+
+  section { padding: 48px 0; }
+  h2 { font-size: 28px; color: #FAFAFA; margin-bottom: 28px; letter-spacing: -0.01em; }
+  h2 .num { color: var(--accent); font-variant-numeric: tabular-nums; margin-right: 10px; }
+
+  .démonstration img { width: 100%; border-radius: 12px; border: 1px solid var(--bordure); display: block; }
+
+  .memoire-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
+  @media (max-width: 760px) { .memoire-grid { grid-template-columns: 1fr; } }
+  .barre-ligne { margin-bottom: 22px; }
+  .barre-libelle { display: flex; justify-content: space-between; font-size: 16px; margin-bottom: 6px; }
+  .barre-libelle .val { color: #FAFAFA; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .barre-libelle .val.reference { color: var(--texte-faible); font-weight: 400; }
+  .barre { height: 16px; border-radius: 8px; background: var(--fond-secondaire); overflow: hidden; }
+  .barre > div { height: 100%; border-radius: 8px; }
+  .b-obsy { width: 9%; background: var(--accent); }
+  .b-web { width: 47%; background: #584d70; }
+  .b-obsidian { width: 100%; background: #3a3350; }
+  .memoire-note { font-size: 14px; color: var(--texte-faible); margin-top: 18px; }
+
+  .fonctions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  @media (max-width: 760px) { .fonctions { grid-template-columns: 1fr; } }
+  .fonction {
+    background: var(--fond-secondaire);
+    border: 1px solid var(--bordure);
+    border-radius: 12px;
+    padding: 22px;
+  }
+  .fonction h3 { font-size: 17px; color: #FAFAFA; margin-bottom: 8px; }
+  .fonction p { font-size: 15px; color: var(--texte-attenué); }
+
+  .captures { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 760px) { .captures { grid-template-columns: 1fr; } }
+  .captures img { width: 100%; border-radius: 12px; border: 1px solid var(--bordure); display: block; }
+  .capture-legende { font-size: 14px; color: var(--texte-faible); margin-top: 8px; text-align: center; }
+
+  .principe { border-left: 3px solid var(--accent); padding-left: 22px; font-size: 18px; color: var(--texte-attenué); }
+  .principe p + p { margin-top: 12px; }
+
+  footer {
+    border-top: 1px solid var(--bordure);
+    padding: 36px 0 48px;
+    color: var(--texte-faible);
+    font-size: 14px;
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+  }
+</style>
+</head>
+<body>
+
+<header class="conteneur">
+  <div class="marque">
+    <svg width="76" height="76" viewBox="0 0 64 64" aria-hidden="true">
+      <polygon points="34,3 55,22 49,61 22,58 8,30" fill="#8A5CF5"/>
+      <polygon points="34,3 55,22 36,26" fill="#A68AF9"/>
+      <polygon points="8,30 34,3 36,26" fill="#6D3FE0"/>
+      <polygon points="49,61 22,58 36,26" fill="#7B49E8"/>
+    </svg>
+    <h1>obsy</h1>
+  </div>
+  <p class="tagline">Vos notes Markdown, le graphe, les rétroliens. <b>Sans le poids.</b></p>
+  <div class="liens-cta">
+    <a class="cta cta-principal" href="https://github.com/j0ltdevv/obsidian-rs/releases">Télécharger</a>
+    <a class="cta cta-secondaire" href="https://github.com/j0ltdevv/obsidian-rs">Code source</a>
+  </div>
+</header>
+
+<section class="conteneur démonstration">
+  <img src="img/obsy-demo.gif" alt="Démonstration : sélecteur rapide, graphe, thème clair, recherche dans la note" width="880" height="566">
+</section>
+
+<section class="conteneur">
+  <h2><span class="num">01</span>Dix fois moins de mémoire</h2>
+  <div class="memoire-grid">
+    <div>
+      <div class="barre-ligne">
+        <div class="barre-libelle"><span>obsy (interface native)</span><span class="val">22 Mo</span></div>
+        <div class="barre"><div class="b-obsy"></div></div>
+      </div>
+      <div class="barre-ligne">
+        <div class="barre-libelle"><span>obsy (interface web fidèle)</span><span class="val">127 Mo</span></div>
+        <div class="barre"><div class="b-web"></div></div>
+      </div>
+      <div class="barre-ligne">
+        <div class="barre-libelle"><span>Obsidian (Electron)</span><span class="val reference">180 à 250 Mo</span></div>
+        <div class="barre"><div class="b-obsidian"></div></div>
+      </div>
+    </div>
+    <div>
+      <p>Mesuré, pas annoncé : mémoire au repos d'un processus complet, rendu logiciel, méthode publique et reproductible.</p>
+      <p class="memoire-note">Sur un coffre de 5 000 notes, obsy reste sous 71 Mo, sans pic. Tous les détails et le protocole : docs/BENCHMARKS.md du dépôt.</p>
+    </div>
+  </div>
+</section>
+
+<section class="conteneur">
+  <h2><span class="num">02</span>Ce que vous utilisez tous les jours</h2>
+  <div class="fonctions">
+    <div class="fonction"><h3>Éditer et lier</h3><p>Éditeur avec coloration de la source, wikilinks cliquables, propriétés YAML, tâches, tableaux, callouts, tags.</p></div>
+    <div class="fonction"><h3>Trouver</h3><p>Sélecteur rapide (Ctrl+K), palette de commandes (Ctrl+P), recherche globale avec opérateurs, recherche dans la note (Ctrl+F).</p></div>
+    <div class="fonction"><h3>Relier</h3><p>Graphe interactif (zoom, déplacement, groupes colorés), rétroliens et liens sortants, plan de la note.</p></div>
+    <div class="fonction"><h3>Organiser</h3><p>Multi-onglets, calendrier et notes quotidiennes, modèles, corbeille, thème clair et sombre.</p></div>
+    <div class="fonction"><h3>Emporter</h3><p>Export PDF, publication en site statique, export du coffre. Le Markdown reste du Markdown.</p></div>
+    <div class="fonction"><h3>Étendre</h3><p>Moteur HTTP local documenté, palette de greffons natifs, thèmes et extraits CSS du coffre.</p></div>
+  </div>
+</section>
+
+<section class="conteneur">
+  <h2><span class="num">03</span>Deux interfaces, un moteur</h2>
+  <div class="captures">
+    <figure>
+      <img src="img/capture-appui.png" alt="Interface web : dock, arbre de fichiers, éditeur et aperçu" loading="lazy">
+      <figcaption class="capture-legende">Interface web (Ultralight, 127 Mo) : fidélité CSS, thèmes du coffre</figcaption>
+    </figure>
+    <figure>
+      <img src="img/capture-graphe.png" alt="Vue graphique du coffre" loading="lazy">
+      <figcaption class="capture-legende">Graphe force-dirigé, nœuds colorés par dossier</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="conteneur">
+  <h2><span class="num">04</span>Le principe</h2>
+  <div class="principe">
+    <p>Votre coffre est un dossier de fichiers Markdown. Aucun format fermé, aucune base de données, aucun service en ligne : ouvrez le même dossier avec un autre outil demain, il fonctionne.</p>
+    <p>obsy est écrit en Rust, du moteur d'indexation au rendu. Un seul processus, pas de navigateur embarqué, pas de runtime tiers. Réécriture indépendante : aucune ligne de code d'Obsidian.</p>
+  </div>
+</section>
+
+<footer class="conteneur">
+  <span>obsy — Rust, iced, MIT. Polices et icônes sous leurs licences respectives (Inter OFL, Lucide ISC).</span>
+  <span><a href="https://github.com/j0ltdevv/obsidian-rs">GitHub</a></span>
+</footer>
+
+</body>
+</html>

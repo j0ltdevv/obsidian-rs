@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- obsy : éclat d'obsidienne, taillé fin -->
+  <polygon points="34,3 55,22 49,61 22,58 8,30" fill="#8A5CF5"/>
+  <polygon points="34,3 55,22 36,26" fill="#A68AF9"/>
+  <polygon points="8,30 34,3 36,26" fill="#6D3FE0"/>
+  <polygon points="49,61 22,58 36,26" fill="#7B49E8"/>
+  <polyline points="34,3 36,26 49,61" fill="none" stroke="#1C1C1C" stroke-width="1.6" stroke-linejoin="round" opacity="0.35"/>
+</svg>
