@@ -51,7 +51,7 @@ via `hotkeys.json`.
 ## Installer
 
 Binaires Linux (x64), macOS (x64, arm64) et Windows (x64) sur la page
-[Releases](https://github.com/j0ltdevv/obsidian-rs/releases).
+[Releases](https://github.com/j0ltdevv/obsy/releases).
 
 Depuis les sources (Rust 1.75+) :
 
