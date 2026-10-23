@@ -5,7 +5,7 @@ Documenter les versions locales (snapshots) des notes du vault.
 ## Comportements
 
 1. Les snapshots sont stockés dans un dossier caché à la racine du vault,
-   `<root>/.obsidian-rs-history`, donc ignoré par le scan du vault. —
+   `<root>/.obsy-history`, donc ignoré par le scan du vault. —
    INFERRED
 2. Chaque note possède son propre sous-dossier, reflétant son arborescence
    relative : `dossier/note.md/`. — INFERRED

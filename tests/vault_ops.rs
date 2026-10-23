@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use obsidian_rs::vault::ops::{create_note, move_note, write_note};
+use obsy::vault::ops::{create_note, move_note, write_note};
 
 /// Génère un suffixe unique par vault (pid + compteur atomique).
 fn unique_suffix() -> String {
@@ -23,7 +23,7 @@ struct TempVault {
 
 impl TempVault {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!("obsidian-rs-vault-ops-{}", unique_suffix()));
+        let root = std::env::temp_dir().join(format!("obsy-vault-ops-{}", unique_suffix()));
         fs::create_dir_all(&root).expect("création du vault temporaire");
         Self { root }
     }
@@ -176,8 +176,7 @@ fn create_note_contenu_vide_cree_fichier_vide() -> anyhow::Result<()> {
 ///    sans panique et sans effet de bord.
 #[test]
 fn operations_echouent_proprement_sur_root_inexistant() {
-    let root =
-        std::env::temp_dir().join(format!("obsidian-rs-vault-ops-absente-{}", unique_suffix()));
+    let root = std::env::temp_dir().join(format!("obsy-vault-ops-absente-{}", unique_suffix()));
     assert!(!root.exists());
 
     assert!(create_note(&root, Path::new("note.md"), "contenu").is_err());

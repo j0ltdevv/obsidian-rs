@@ -1,5 +1,5 @@
 [package]
-name = "obsidian-rs"
+name = "obsy"
 version = "0.2.0"
 edition = "2021"
 description = "Client Obsidian-like en Rust + iced (clean-room)"

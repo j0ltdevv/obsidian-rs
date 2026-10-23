@@ -1,7 +1,7 @@
 //! Tests d'intégration de la résolution des embeds (`![[...]]`) et de la
 //! lecture des dimensions d'une image.
 
-use obsidian_rs::vault::embeds::{
+use obsy::vault::embeds::{
     image_dimensions, resolve_embed_target, EmbedType, ImageDimensions, ResolveOutcome,
 };
 use std::path::PathBuf;
@@ -13,7 +13,7 @@ fn temp_dir(tag: &str) -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|t| t.as_nanos())
         .unwrap_or(0);
-    d.push(format!("obsidian-rs-embeds-{tag}-{unique}"));
+    d.push(format!("obsy-embeds-{tag}-{unique}"));
     std::fs::create_dir_all(&d).unwrap();
     d
 }

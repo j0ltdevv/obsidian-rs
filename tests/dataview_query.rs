@@ -5,8 +5,8 @@
 //! `file.ctime` sont donc absents ici, car les chemins n'existent pas sur
 //! disque).
 
-use obsidian_rs::vault::dataview::query_notes;
-use obsidian_rs::vault::note::{Note, NoteMetadata, Wikilink};
+use obsy::vault::dataview::query_notes;
+use obsy::vault::note::{Note, NoteMetadata, Wikilink};
 use std::path::{Path, PathBuf};
 
 /// Construit une note synthétique.

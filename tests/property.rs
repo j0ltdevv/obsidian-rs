@@ -3,9 +3,9 @@
 
 use proptest::prelude::*;
 
-use obsidian_rs::vault::frontmatter::parse_frontmatter;
-use obsidian_rs::vault::search_ops::parse_query;
-use obsidian_rs::vault::wikilinks::parse_wikilinks;
+use obsy::vault::frontmatter::parse_frontmatter;
+use obsy::vault::search_ops::parse_query;
+use obsy::vault::wikilinks::parse_wikilinks;
 
 /// Toute chaîne Unicode (y compris vide, émojis, sauts de ligne).
 fn texte_arbitraire() -> impl Strategy<Value = String> {

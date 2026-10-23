@@ -1,4 +1,4 @@
-# Suite du projet obsidian-rs — avance jusqu'au bout, supervise tes agents
+# Suite du projet obsy — avance jusqu'au bout, supervise tes agents
 
 ## 1. GIT — commit immédiat
 

@@ -206,7 +206,7 @@ mod tests {
         fn nouveau() -> Self {
             let compte = COMPTEUR.fetch_add(1, Ordering::SeqCst);
             let chemin = std::env::temp_dir().join(format!(
-                "obsidian-rs-plugins-manifest-{}-{}",
+                "obsy-plugins-manifest-{}-{}",
                 std::process::id(),
                 compte
             ));

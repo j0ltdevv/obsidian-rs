@@ -1,7 +1,7 @@
 //! Tests de golden files : chaque fixture `tests/fixtures/*.md` doit produire
 //! exactement les segments attendus dans `tests/fixtures/*.json`.
 
-use obsidian_rs::vault::live_preview::{render_markdown, SegmentStyle};
+use obsy::vault::live_preview::{render_markdown, SegmentStyle};
 
 #[derive(serde::Deserialize)]
 struct SegmentAttendu {

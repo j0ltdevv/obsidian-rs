@@ -11,7 +11,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use obsidian_rs::engine::{serve, Engine};
+use obsy::engine::{serve, Engine};
 use serde_json::{json, Value};
 
 /// Génère un suffixe unique par vault (pid + compteur atomique).
@@ -28,7 +28,7 @@ struct TempVault {
 
 impl TempVault {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!("obsidian-rs-engine-{}", unique_suffix()));
+        let root = std::env::temp_dir().join(format!("obsy-engine-{}", unique_suffix()));
         fs::create_dir_all(&root).expect("création du vault temporaire");
         Self { root }
     }
@@ -330,8 +330,7 @@ fn chemin_hors_du_vault_refuse() {
 fn lien_symbolique_hors_du_vault_refuse() {
     let vault = TempVault::new();
     vault.write("Note.md", "# Note\n");
-    let outside =
-        std::env::temp_dir().join(format!("obsidian-rs-engine-secret-{}", unique_suffix()));
+    let outside = std::env::temp_dir().join(format!("obsy-engine-secret-{}", unique_suffix()));
     fs::write(&outside, "secret\n").expect("écriture du fichier hors vault");
     std::os::unix::fs::symlink(&outside, vault.join("Evasion.md"))
         .expect("création du lien symbolique");

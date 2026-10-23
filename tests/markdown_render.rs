@@ -1,6 +1,6 @@
 //! Tests du rendu Markdown coloré (`src/ui/markdown.rs`).
 //!
-//! L'API testée est celle de `obsidian_rs::ui::markdown` : `styled_lines`
+//! L'API testée est celle de `obsy::ui::markdown` : `styled_lines`
 //! découpe une source en lignes de fragments colorés (`StyledSpan`), et
 //! `token_color` associe une couleur stable à chaque `SourceKind`.
 //!
@@ -13,8 +13,8 @@
 //!    `WikiLink`/`Tag`/`Link`/`Plain`, et les frontmatters sont atténués
 //!    (même couleur, différente de `Plain`).
 
-use obsidian_rs::ui::markdown::{styled_lines, token_color, StyledSpan};
-use obsidian_rs::vault::editor::SourceKind;
+use obsy::ui::markdown::{styled_lines, token_color, StyledSpan};
+use obsy::vault::editor::SourceKind;
 
 /// Source représentative couvrant frontmatter, titre, paragraphe, liste,
 /// wikilink, tag, code inline, bloc de code et citation.

@@ -1,5 +1,5 @@
 /*!
- * Shim navigateur pour le moteur obsidian-rs.
+ * Shim navigateur pour le moteur obsy.
  *
  * Le renderer d'Obsidian (ASAR 1.14.4, `app.js`) suppose un `nodeIntegration`
  * actif : il appelle directement `window.require(...)`, `window.process` et
@@ -77,7 +77,7 @@
       xhr.open('POST', ENDPOINT, false);
     } catch (err) {
       throw engineError(
-        'moteur obsidian-rs injoignable (' + ENDPOINT + ') : ' + err.message,
+        'moteur obsy injoignable (' + ENDPOINT + ') : ' + err.message,
         'unreachable'
       );
     }
@@ -88,7 +88,7 @@
       // Moteur arrêté ou port fermé : l'erreur réseau du navigateur est
       // convertie en message explicite.
       throw engineError(
-        'moteur obsidian-rs injoignable (' + ENDPOINT + ') : ' + err.message,
+        'moteur obsy injoignable (' + ENDPOINT + ') : ' + err.message,
         'unreachable'
       );
     }
@@ -607,7 +607,7 @@
     },
     scrypt: function () {
       throw engineError(
-        'crypto.scrypt n’est pas implémenté par le moteur obsidian-rs',
+        'crypto.scrypt n’est pas implémenté par le moteur obsy',
         'unsupported'
       );
     }
@@ -1525,7 +1525,7 @@
     if (Object.prototype.hasOwnProperty.call(MODULES, name)) {
       return MODULES[name];
     }
-    throw new Error('module non supporté par le shim obsidian-rs : ' + name);
+    throw new Error('module non supporté par le shim obsy : ' + name);
   }
 
   /* ------------------------------------------------------------------ */

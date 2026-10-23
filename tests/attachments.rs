@@ -1,6 +1,6 @@
 //! Tests d'intégration des pièces jointes (scan, renommage, suppression).
 
-use obsidian_rs::vault::attachments::scan_attachments;
+use obsy::vault::attachments::scan_attachments;
 
 #[test]
 fn scan_detecte_les_pieces_jointes_et_ignore_les_notes() {
@@ -9,7 +9,7 @@ fn scan_detecte_les_pieces_jointes_et_ignore_les_notes() {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    dir.push(format!("obsidian-rs-att-{unique}"));
+    dir.push(format!("obsy-att-{unique}"));
     std::fs::create_dir_all(dir.join("attachments")).unwrap();
     std::fs::write(dir.join("note.md"), "# t").unwrap();
     std::fs::write(dir.join("attachments/photo.png"), "png").unwrap();

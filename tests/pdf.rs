@@ -2,7 +2,7 @@
 //!
 //! Tous les tests écrivent uniquement dans `std::env::temp_dir()`.
 
-use obsidian_rs::vault::pdf::{ecrire_pdf_atomique, note_to_pdf};
+use obsy::vault::pdf::{ecrire_pdf_atomique, note_to_pdf};
 
 /// Lit la table xref et retourne le tableau des décalages d'objets.
 ///

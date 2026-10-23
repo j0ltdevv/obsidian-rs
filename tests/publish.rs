@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use obsidian_rs::vault::publish::{html_filename, publish_site};
+use obsy::vault::publish::{html_filename, publish_site};
 
 /// Crée un répertoire temporaire unique pour un test.
 fn temp_dir(tag: &str) -> PathBuf {

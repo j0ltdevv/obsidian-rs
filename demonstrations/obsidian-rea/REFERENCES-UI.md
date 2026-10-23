@@ -4,7 +4,7 @@
 **Question à laquelle ce document répond :** quelle architecture d'éditeur et de runtime adopter pour que notre UI cesse d'être « laide » tout en tenant le budget RAM.
 
 > **Avertissement clean-room (à lire avant toute citation).**
-> Verso est **GPL-3.0**. SilverBullet est **MIT**. Ce document **n'a repris aucun code, aucun CSS, aucun identifiant** de l'un ou l'autre : uniquement des décisions d'architecture, des noms de bibliothèques et des chiffres publiés, avec leur URL. Les techniques listées en §6 sont décrites en behaviour, à réimplémenter par nous. `obsidian-rs` reste MIT et clean-room vis-à-vis d'Obsidian (règle inchangée).
+> Verso est **GPL-3.0**. SilverBullet est **MIT**. Ce document **n'a repris aucun code, aucun CSS, aucun identifiant** de l'un ou l'autre : uniquement des décisions d'architecture, des noms de bibliothèques et des chiffres publiés, avec leur URL. Les techniques listées en §6 sont décrites en behaviour, à réimplémenter par nous. `obsy` reste MIT et clean-room vis-à-vis d'Obsidian (règle inchangée).
 
 ---
 
@@ -75,7 +75,7 @@ C'est un point à assumer franchement :
 ### 2.5 Licence GPL-3.0 — conséquences concrètes pour nous
 
 - Ce que nous pouvons faire : **étudier** l'architecture, lire le code pour comprendre une technique, s'inspirer des choix (Tiptap pour le WYSIWYG, Tantivy pour la recherche, `assets/` pour les pièces jointes, convention du dossier de configuration). Les *idées* et les *choix d'architecture* ne sont pas protégés par le droit d'auteur ; le README et la documentation de Verso sont utilisables comme sources de citation.
-- Ce que nous ne pouvons pas faire : **copier** du code Rust, du TypeScript/React, du CSS, ni transposer un fichier de Verso dans notre projet en « réécriture » — une traduction/adaptation reste une œuvre dérivée GPL-3.0. Transposer une expression régulière, une fonction de parsing ou un bloc CSS de Verso dans `obsidian-rs` (MIT) contaminerait notre licence.
+- Ce que nous ne pouvons pas faire : **copier** du code Rust, du TypeScript/React, du CSS, ni transposer un fichier de Verso dans notre projet en « réécriture » — une traduction/adaptation reste une œuvre dérivée GPL-3.0. Transposer une expression régulière, une fonction de parsing ou un bloc CSS de Verso dans `obsy` (MIT) contaminerait notre licence.
 - Ce qui est **sans risque** : utiliser directement les **bibliothèques** que Verso utilise, car leurs licences sont indépendantes — Tiptap (MIT), CodeMirror 6 (MIT), Tantivy (Apache-2.0), Tauri (MIT/Apache-2.0), React (MIT), lowlight (MIT). Nous n'héritons d'aucune obligation GPL en consommant Tiptap ou Tantivy.
 - **Règle de conduite proposée** : Verso reste une **source de lecture**. Toute technique transposée est réécrite à partir de la **documentation publique de la bibliothèque** (Tiptap/CM6/Tantivy), pas à partir du code de Verso. En cas de doute : on ne transpose pas, on réinvente.
 

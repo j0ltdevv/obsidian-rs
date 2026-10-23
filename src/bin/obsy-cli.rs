@@ -1,23 +1,23 @@
-//! CLI compagnon d'obsidian-rs : commandes rapides sur un vault depuis le
-//! terminal (`obsidian-cli notes|grep|stats <vault>`).
+//! CLI compagnon d'obsy : commandes rapides sur un vault depuis le
+//! terminal (`obsy-cli notes|grep|stats <vault>`).
 //!
 //! Exemples :
 //! ```sh
-//! obsidian-cli notes demo-vault
-//! obsidian-cli grep demo-vault "TODO"
-//! obsidian-cli stats demo-vault
+//! obsy-cli notes demo-vault
+//! obsy-cli grep demo-vault "TODO"
+//! obsy-cli stats demo-vault
 //! ```
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 fn usage() -> ! {
-    eprintln!("Usage : obsidian-cli <notes|grep|stats> <vault> [motif]");
+    eprintln!("Usage : obsy-cli <notes|grep|stats> <vault> [motif]");
     std::process::exit(2);
 }
 
 fn cmd_notes(vault: &std::path::Path) -> ExitCode {
-    match obsidian_rs::vault::scan_vault(vault) {
+    match obsy::vault::scan_vault(vault) {
         Ok(notes) => {
             for note in &notes {
                 println!("{}\t{}", note.path.display(), note.name);
@@ -32,7 +32,7 @@ fn cmd_notes(vault: &std::path::Path) -> ExitCode {
 }
 
 fn cmd_grep(vault: &std::path::Path, pattern: &str) -> ExitCode {
-    let Ok(notes) = obsidian_rs::vault::scan_vault(vault) else {
+    let Ok(notes) = obsy::vault::scan_vault(vault) else {
         eprintln!("Impossible de scanner le vault.");
         return ExitCode::FAILURE;
     };
@@ -54,7 +54,7 @@ fn cmd_grep(vault: &std::path::Path, pattern: &str) -> ExitCode {
 }
 
 fn cmd_stats(vault: &std::path::Path) -> ExitCode {
-    match obsidian_rs::vault::scan_vault(vault) {
+    match obsy::vault::scan_vault(vault) {
         Ok(notes) => {
             let mut total_lines = 0usize;
             let mut tags: std::collections::BTreeMap<String, usize> = Default::default();

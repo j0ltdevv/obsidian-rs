@@ -1,6 +1,6 @@
-# Handoff — obsidian-rs
+# Handoff — obsy
 
-Fiche de reprise compacte. **Source de vérité : ce dépôt local** (`/home/jolt/obsidian-rs`, git).
+Fiche de reprise compacte. **Source de vérité : ce dépôt local** (`/home/jolt/obsy`, git).
 La copie dans Instabox est un bac à sable jetable : ne jamais y éditer.
 
 ## État
@@ -31,13 +31,13 @@ Instabox `hermes` fournit un agent **OpenCode v2.1.2** avec **vision gratuite** 
 # 1. copier le dépôt (bac à sable)
 tar czf /tmp/repo.tgz --exclude=target --exclude=.git -C . . \
   && instabox ssh hermes -- 'cat > /tmp/repo.tgz' < /tmp/repo.tgz \
-  && instabox ssh hermes -- 'mkdir -p /data/home/obsidian-rs && tar xzf /tmp/repo.tgz -C /data/home/obsidian-rs'
+  && instabox ssh hermes -- 'mkdir -p /data/home/obsy && tar xzf /tmp/repo.tgz -C /data/home/obsy'
 
 # 2. build (SSH : pas de limite de temps ; `exec` coupe à 60 s)
-instabox ssh hermes -- 'cd /data/home/obsidian-rs && cargo build --locked'
+instabox ssh hermes -- 'cd /data/home/obsy && cargo build --locked'
 
 # 3. lancer sous Xvfb + capturer
-instabox ssh hermes -- 'Xvfb :99 -screen 0 1280x800x24 & sleep 2; DISPLAY=:99 /data/home/obsidian-rs/target/debug/obsidian-rs & sleep 8; WID=$(DISPLAY=:99 xdotool search --onlyvisible --name . | head -1); DISPLAY=:99 import -window $WID /tmp/cap.png'
+instabox ssh hermes -- 'Xvfb :99 -screen 0 1280x800x24 & sleep 2; DISPLAY=:99 /data/home/obsy/target/debug/obsy & sleep 8; WID=$(DISPLAY=:99 xdotool search --onlyvisible --name . | head -1); DISPLAY=:99 import -window $WID /tmp/cap.png'
 
 # 4. décrire la capture (modèle gratuit AVEC vision)
 instabox ssh hermes -- 'cd /tmp && opencode run -m opencode/minimax-m3.1-flash-free "Décris cette UI: @cap.png"'
@@ -65,7 +65,7 @@ Bloqués (décision d'architecture, hors solo) :
 
 ## Pièges connus
 
-- `cargo run` est ambigu (2 binaires) → `cargo run --bin obsidian-rs`.
+- `cargo run` est ambigu (2 binaires) → `cargo run --bin obsy`.
 - `iced::time::every` exige la feature `tokio` (non activée).
 - `Content::text()` renvoie `String` → passer `&…`.
 - `text_editor::Cursor` est une **struct** (`position`, `selection`), pas l'enum souris.

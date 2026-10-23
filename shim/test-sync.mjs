@@ -222,8 +222,8 @@ function findEngineBinary() {
     return process.env.OBSIDIAN_ENGINE_BIN;
   }
   const candidates = [
-    join(REPO, 'target', 'release', 'obsidian-engine'),
-    join(REPO, 'target', 'debug', 'obsidian-engine')
+    join(REPO, 'target', 'release', 'obsy-engine'),
+    join(REPO, 'target', 'debug', 'obsy-engine')
   ];
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
@@ -231,7 +231,7 @@ function findEngineBinary() {
     }
   }
   throw new Error(
-    'binaire obsidian-engine introuvable (construisez-le avec `cargo build --bin obsidian-engine`, ou settez OBSIDIAN_ENGINE_BIN)'
+    'binaire obsy-engine introuvable (construisez-le avec `cargo build --bin obsy-engine`, ou settez OBSIDIAN_ENGINE_BIN)'
   );
 }
 
@@ -293,7 +293,7 @@ async function waitForHealth(port) {
 /* ------------------------------------------------------------------ */
 
 const binary = findEngineBinary();
-const vault = mkdtempSync(join(tmpdir(), 'obsidian-rs-shim-'));
+const vault = mkdtempSync(join(tmpdir(), 'obsy-shim-'));
 mkdirSync(join(vault, 'dossier'), { recursive: true });
 writeFileSync(join(vault, 'Note.md'), '# Note\n\ncontenu de la note\n');
 writeFileSync(join(vault, 'dossier', 'Autre.md'), '# Autre\n');

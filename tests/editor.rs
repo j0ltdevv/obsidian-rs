@@ -1,17 +1,17 @@
 //! Tests de la coloration de la **source** Markdown et des constantes
 //! typographiques de l'éditeur.
 //!
-//! L'API testée est celle de `obsidian_rs::vault::editor` : les fragments
+//! L'API testée est celle de `obsy::vault::editor` : les fragments
 //! colorés, la région de frontmatter, la position du curseur et les
 //! constantes typographiques. Ces tests n'`unwrap()` que sur des valeurs
 //! construites dans le test, jamais sur une lecture de fichier.
 
-use obsidian_rs::vault::editor::{
+use obsy::vault::editor::{
     colorize_source, cursor_line_col, frontmatter_region, heading_level, heading_style, typography,
     SourceKind, SourceToken,
 };
-use obsidian_rs::vault::frontmatter::parse_frontmatter;
-use obsidian_rs::vault::live_preview::{render_markdown, SegmentStyle};
+use obsy::vault::frontmatter::parse_frontmatter;
+use obsy::vault::live_preview::{render_markdown, SegmentStyle};
 
 /// Kinds des fragments, dans l'ordre du document.
 fn kinds(tokens: &[SourceToken]) -> Vec<SourceKind> {

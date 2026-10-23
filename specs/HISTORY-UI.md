@@ -9,7 +9,7 @@ dossier caché qui les stocke.
 ### 1. Stockage (dossier caché)
 
 1. Les snapshots sont stockés dans un dossier caché à la racine du vault,
-   `<root>/.obsidian-rs-history`, donc ignoré par le scan du vault (les dossiers
+   `<root>/.obsy-history`, donc ignoré par le scan du vault (les dossiers
    dont le nom commence par `.` sont ignorés). — INFERRED
 2. Chaque note possède son propre sous-dossier, reflétant son arborescence
    relative : `dossier/note.md/`. — INFERRED

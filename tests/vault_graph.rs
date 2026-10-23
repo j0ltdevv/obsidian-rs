@@ -2,9 +2,9 @@
 
 use std::path::PathBuf;
 
-use obsidian_rs::vault::graph::{build_graph, Graph};
-use obsidian_rs::vault::index::NoteIndex;
-use obsidian_rs::vault::{Note, NoteMetadata, Wikilink};
+use obsy::vault::graph::{build_graph, Graph};
+use obsy::vault::index::NoteIndex;
+use obsy::vault::{Note, NoteMetadata, Wikilink};
 
 /// Construit une note de test avec ses wikilinks (cible, alias).
 fn note(name: &str, links: &[(&str, Option<&str>)]) -> Note {

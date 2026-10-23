@@ -30,7 +30,7 @@ CSS cités sont ceux de l'API de thématisation publique d'Obsidian, déjà réf
 
 - **[M]** *mesuré* — relevée sur l'application en fonctionnement (chiffre exact ou valeur
   CSS résolue par le moteur) ;
-- **[R]** *dépôt* — reprise telle quelle d'un fichier existant de `obsidian-rs`
+- **[R]** *dépôt* — reprise telle quelle d'un fichier existant de `obsy`
   (`src/ui/theme_vars.rs`, `src/vault/themes.rs`, `src/vault/editor.rs`) ;
 - **[I]** *inféré* — déduit de plusieurs mesures, ou déduit d'une version antérieure ;
   **à revérifier** avant d'en faire une référence.
@@ -477,7 +477,7 @@ Mêmes valeurs de base que l'édition, avec en plus :
 ### 5.1 Constantes du dépôt qui ne correspondent pas aux mesures
 
 Toutes les valeurs ci-dessous ont été **mesurées** sur Obsidian 1.14.4 ; la colonne
-« dépôt » indique ce que `obsidian-rs` utilise aujourd'hui.
+« dépôt » indique ce que `obsy` utilise aujourd'hui.
 
 | Sujet | Mesuré (Obsidian 1.14.4) | Dépôt (`src/…`) | Écart |
 | --- | --- | --- | --- |

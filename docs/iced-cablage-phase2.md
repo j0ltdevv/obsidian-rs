@@ -1,7 +1,7 @@
 # Câblage iced 0.14 — Intégration UI Phase 2
 
 Guide de référence pour le câblage de la Phase 2 (recherche rapide, édition du
-frontmatter, vue graphe, raccourcis clavier) sur le projet `obsidian-rs`
+frontmatter, vue graphe, raccourcis clavier) sur le projet `obsy`
 (Rust + iced `0.14`).
 
 > **API vérifiée** : toutes les signatures ci-dessous sont extraites des sources
@@ -113,7 +113,7 @@ Enchaînement dans `main` :
 
 ```rust
 iced::application(app::boot, app::update, app::view)
-    .title("obsidian-rs")
+    .title("obsy")
     .window_size((720, 480))
     .centered()
     .subscription(app::subscription)

@@ -1,4 +1,4 @@
-# Feuille de route — Parité Obsidian (obsidian-rs)
+# Feuille de route — Parité Obsidian (obsy)
 
 Objectif officiel : **réécrire Obsidian en Rust (iced), clean-room**, jusqu'à
 parité fonctionnelle complète. Chaque item est livré avec un critère
@@ -13,7 +13,7 @@ tranches en cours et des mesures de RAM (rendu logiciel)._
 | Domaine | Statut | Preuve |
 |---|---|---|
 | Core vault (scan, frontmatter, tags, wikilinks, ops, index) | ✅ | tests (9 suites, 427+ lib) |
-| Moteur HTTP `obsidian-engine` (`/health /files /file /metadata /backlinks /search /graph` + `POST /sync`, 23 opérations, chemins confinés) | ✅ | 21 tests |
+| Moteur HTTP `obsy-engine` (`/health /files /file /metadata /backlinks /search /graph` + `POST /sync`, 23 opérations, chemins confinés) | ✅ | 21 tests |
 | Comportements Obsidian clean-room (wikilinks, frontmatter, tags) | ✅ | fixtures `tests/fixtures/comportements/` |
 | Édition + prévisualisation live + sauvegarde atomique | ✅ | `cargo test` vert |
 | Quick Switcher, palette de commandes, propriétés éditables | ✅ | `cargo test` vert |

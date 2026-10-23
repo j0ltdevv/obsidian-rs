@@ -7,9 +7,9 @@
 
 use std::fs;
 
-use obsidian_rs::vault::tags::parse_tags;
-use obsidian_rs::vault::wikilinks::parse_wikilinks;
-use obsidian_rs::vault::Wikilink;
+use obsy::vault::tags::parse_tags;
+use obsy::vault::wikilinks::parse_wikilinks;
+use obsy::vault::Wikilink;
 
 /// Lit une fixture du sandbox (chemin relatif à
 /// `tests/fixtures/obsidian-sandbox/`).

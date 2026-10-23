@@ -1,7 +1,7 @@
 //! Versions locales (snapshots) des notes.
 //!
 //! Les snapshots sont stockés dans un dossier caché à la racine du vault
-//! (`<root>/.obsidian-rs-history`), donc ignorés par le scan du vault. Chaque
+//! (`<root>/.obsy-history`), donc ignorés par le scan du vault. Chaque
 //! note possède son propre sous-dossier, avec la même arborescence relative
 //! que la note : `dossier/note.md/`. Les snapshots ne sont jamais supprimés.
 //!
@@ -20,10 +20,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{bail, Context, Result};
 
 /// Nom du dossier caché contenant les snapshots.
-const HISTORY_DIR: &str = ".obsidian-rs-history";
+const HISTORY_DIR: &str = ".obsy-history";
 
 /// Retourne le dossier racine des snapshots pour le vault `root`
-/// (`<root>/.obsidian-rs-history`), sans le créer.
+/// (`<root>/.obsy-history`), sans le créer.
 pub fn snapshot_root(root: &Path) -> PathBuf {
     root.join(HISTORY_DIR)
 }
@@ -255,11 +255,8 @@ mod tests {
     impl TempVault {
         fn new() -> Self {
             let count = COUNTER.fetch_add(1, Ordering::SeqCst);
-            let path = std::env::temp_dir().join(format!(
-                "obsidian-rs-history-{}-{}",
-                std::process::id(),
-                count
-            ));
+            let path =
+                std::env::temp_dir().join(format!("obsy-history-{}-{}", std::process::id(), count));
             let _ = fs::remove_dir_all(&path);
             fs::create_dir_all(&path).expect("création du vault temporaire");
             TempVault(path)
@@ -411,7 +408,7 @@ mod tests {
             snapshot_root(vault.path())
                 .file_name()
                 .and_then(|name| name.to_str()),
-            Some(".obsidian-rs-history")
+            Some(".obsy-history")
         );
         snapshot_note(vault.path(), Path::new("note.md"), "contenu").expect("création du snapshot");
 

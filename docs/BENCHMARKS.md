@@ -1,4 +1,4 @@
-# Benchmarks — obsidian-rs
+# Benchmarks — obsy
 
 Mesures reproductibles de consommation mémoire et de temps de compilation.
 Chiffres **mesurés** sur cette machine, sauf mention contraire.
@@ -17,7 +17,7 @@ Chiffres **mesurés** sur cette machine, sauf mention contraire.
 ## Méthode de mesure mémoire
 
 - Binaire **release** (`cargo build --release`), lancé sous `Xvfb` en **X11 forcé** :
-  `env -u WAYLAND_DISPLAY DISPLAY=:NN ./target/release/obsidian-rs`
+  `env -u WAYLAND_DISPLAY DISPLAY=:NN ./target/release/obsy`
   → sans `env -u WAYLAND_DISPLAY`, l'application se connecte au compositeur Wayland
   réel et la capture/mesure sous Xvfb est fausse (écran noir).
 - Attente de 12 s (à vide) ou 20 s (vault 5 000 notes) avant lecture.
@@ -27,7 +27,7 @@ Chiffres **mesurés** sur cette machine, sauf mention contraire.
 - ⚠️ RSS n'est pas PSS : la mémoire partagée (driver GPU, polices) est comptée en
   entier dans le RSS du processus. À lire comme une borne haute.
 
-## Résultats — obsidian-rs
+## Résultats — obsy
 
 | Configuration | À vide | Vault 5 000 notes | Libs GL/Vulkan mappées |
 |---|---|---|---|
@@ -85,8 +85,8 @@ donc un webview, mais pas deux moteurs.
 
 | Configuration | RSS | PSS | Libs GL mappées |
 |---|---|---|---|
-| **obsidian-rs** (iced + tiny-skia, release) | **22,0 Mo** | — | 0 |
-| **obsidian-rs** (iced + tiny-skia, debug, 5 000 notes) | **70,7 Mo** | — | 0 |
+| **obsy** (iced + tiny-skia, release) | **22,0 Mo** | — | 0 |
+| **obsy** (iced + tiny-skia, debug, 5 000 notes) | **70,7 Mo** | — | 0 |
 | Obsidian 1.7.3 (vault léger) — **rapport tiers, non mesuré ici** | 180-250 Mo | — | oui |
 
 Comparaison hétérogène (notre chiffre = 1 process, celui d'Obsidian = rapport
@@ -174,6 +174,6 @@ processus principal mais dans `WebKitWebProcess`).
 ```sh
 cargo build --release
 Xvfb :95 -screen 0 1400x900x24 & sleep 2
-env -u WAYLAND_DISPLAY DISPLAY=:95 ./target/release/obsidian-rs & sleep 12
+env -u WAYLAND_DISPLAY DISPLAY=:95 ./target/release/obsy & sleep 12
 grep -E 'VmRSS|VmHWM' /proc/$!/status
 ```

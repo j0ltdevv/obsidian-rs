@@ -470,11 +470,7 @@ mod tests {
             let base = Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("target")
                 .join("test-tmp");
-            let path = base.join(format!(
-                "obsidian-rs-properties-{}-{}",
-                std::process::id(),
-                count
-            ));
+            let path = base.join(format!("obsy-properties-{}-{}", std::process::id(), count));
             fs::create_dir_all(&path).expect("création du vault temporaire");
             Self { path }
         }

@@ -7,7 +7,7 @@ personnalisation.
 ## Démarrage
 
 ```sh
-cargo run --bin obsidian-rs
+cargo run --bin obsy
 ```
 
 L'application ouvre le vault de démonstration (`demo-vault`). Pour ouvrir un
@@ -76,7 +76,7 @@ structure attendue est un dossier contenant des `.md`.
 ## CLI compagnon
 
 ```sh
-cargo run --bin obsidian-cli -- notes
-cargo run --bin obsidian-cli -- grep "motif"
-cargo run --bin obsidian-cli -- stats
+cargo run --bin obsy-cli -- notes
+cargo run --bin obsy-cli -- grep "motif"
+cargo run --bin obsy-cli -- stats
 ```

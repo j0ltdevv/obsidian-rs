@@ -1,7 +1,7 @@
 # MODE-COMPAT — L'interface réelle d'Obsidian sur notre moteur Rust
 
 **Date :** 2026-10-21 · **Boîte de test :** instabox `hermes` (Debian 13,
-Electron 45, moteur `obsidian-engine` compilé)
+Electron 45, moteur `obsy-engine` compilé)
 **État :** fonctionnel — voir « Preuves » plus bas.
 
 > **Ce qui est prouvé, exactement** : leur renderer réel (extrait de l'ASAR
@@ -23,7 +23,7 @@ Electron 45, moteur `obsidian-engine` compilé)
 
 1. résout l'ASAR d'Obsidian **installé chez l'utilisateur** (argument
    `--asar`, sinon détection système) — rien n'est copié dans le dépôt ;
-2. lance **notre moteur Rust** (`obsidian-engine --root <vault> --port N`) et
+2. lance **notre moteur Rust** (`obsy-engine --root <vault> --port N`) et
    attend `/health` ;
 3. sert le renderer d'Obsidian **en HTTP local** (un `file://` ne permet pas
    les XHR synchrones du shim vers le moteur), en réécrivant `index.html` pour
@@ -138,14 +138,14 @@ Aucun n'était visible à la lecture du code ; tous sont apparus à l'exécution
 
 ```sh
 # 1. moteur
-cargo build --bin obsidian-engine
+cargo build --bin obsy-engine
 # 2. Electron (installé par l'utilisateur) + leur application
 Xvfb :90 -screen 0 1400x900x24 &
 DISPLAY=:90 electron shim/electron-main-compat.js \
   --vault /chemin/du/vault \
   --asar ~/.config/obsidian/obsidian.asar \
-  --engine-bin ./target/debug/obsidian-engine
+  --engine-bin ./target/debug/obsy-engine
 ```
 
 Le test automatisé du shim (41 vérifications) :
-`OBSIDIAN_ENGINE_BIN=./target/debug/obsidian-engine node shim/test-sync.mjs`.
+`OBSIDIAN_ENGINE_BIN=./target/debug/obsy-engine node shim/test-sync.mjs`.

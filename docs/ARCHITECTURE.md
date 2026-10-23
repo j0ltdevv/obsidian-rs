@@ -1,4 +1,4 @@
-# Architecture — obsidian-rs
+# Architecture — obsy
 
 Client Obsidian-like en Rust + iced (clean-room). Ce document décrit le
 découpage actuel du dépôt.

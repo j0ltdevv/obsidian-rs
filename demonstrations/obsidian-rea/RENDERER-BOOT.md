@@ -67,7 +67,7 @@ Faits relevés dans les bundles (lecture seule) :
 (28 Mo), `app.js` (copie de travail), les journaux REA, **le shim du dépôt
 copié** (`/data/home/obsidian-rea/shim/browser-shim.js`, 29 501 octets, sha256
 identique à `shim/browser-shim.js`) et le **binaire du moteur Rust**
-`/data/home/obsidian-rea/bin/obsidian-engine` (5,3 Mo, compilé sur `pour-omp`
+`/data/home/obsidian-rea/bin/obsy-engine` (5,3 Mo, compilé sur `pour-omp`
 à partir de l'état du dépôt du 2026-10-21).
 
 ---
@@ -173,7 +173,7 @@ l'exécution** (regex sur le fichier), jamais recopiée dans le dépôt.
 ### E — Chromium + shim + moteur Rust (voie « sans Electron ») ❌
 
 ```sh
-/data/home/obsidian-rea/bin/obsidian-engine --root /data/home/obsidian-rea/vault --port 27123
+/data/home/obsidian-rea/bin/obsy-engine --root /data/home/obsidian-rea/vault --port 27123
 # → {"notes":3,"ok":true,"root":"/data/home/obsidian-rea/vault"}
 cd asar-x1 && python3 -m http.server 8898 --bind 127.0.0.1 &
 chromium --user-data-dir=/tmp/chr --no-sandbox --disable-gpu \
@@ -196,7 +196,7 @@ complète la surface `electron.remote` absente avec un stub permissif et
 
 Résultat : le renderer passe les portes 1 à 4 et construit le DOM (7 037
 octets, texte « Obsidian », classe `is-frameless`), puis s'arrête sur
-`module non supporté par le shim obsidian-rs : url`.
+`module non supporté par le shim obsy : url`.
 
 **Inventaire des membres manquants** (journal du harnais, dans l'ordre) :
 
@@ -263,7 +263,7 @@ Lecture pour la décision :
 | 1 | Le shim envoie le **chemin absolu** de la racine du vault au moteur, qui refuse les chemins absolus | `shim/browser-shim.js` (adaptateur `fs`) + `src/engine/paths.rs` | porte 1 fermée → le renderer ferme la fenêtre | le shim traduit un chemin absolu situé sous la racine en chemin relatif ; le moteur expose une opération « racine » | 30–60 min |
 | 2 | `sendSync('terms')` renvoie `''` au lieu de la **chaîne d'acceptation de 284 caractères** | `shim/browser-shim.js` (`SYNC_CHANNELS.terms`) | porte 3 fermée → `window.close()` | **décision du propriétaire** : servir leur interface suppose d'accepter leurs conditions ; sinon, extraction runtime comme dans le harnais (ne pas recopier la chaîne dans le dépôt) | décision + 30 min |
 | 3 | `sendSync('vault')` renvoie `{path, name, open}` **sans `id`** | `shim/browser-shim.js` (`SYNC_CHANNELS.vault`) | le renderer et le processus principal attendent `{id, path}` | ajouter `id` | 10 min |
-| 4 | Module `url` **non supporté** par le shim | `shim/browser-shim.js` (table des modules) | exception au boot : `module non supporté par le shim obsidian-rs : url` | implémenter `url.parse` / `fileURLToPath` / `pathToFileURL` (sous-ensemble réellement utilisé) | 30–60 min |
+| 4 | Module `url` **non supporté** par le shim | `shim/browser-shim.js` (table des modules) | exception au boot : `module non supporté par le shim obsy : url` | implémenter `url.parse` / `fileURLToPath` / `pathToFileURL` (sous-ensemble réellement utilisé) | 30–60 min |
 | 5 | `os.version()` absent | `shim/browser-shim.js` (`osModule`) | `TypeError: r.version is not a function` | ajouter `version()` | 5 min |
 | 6 | Surface `electron.remote` absente : `app.getPreferredSystemLanguages`, `getCurrentWindow()` (+ `webContents.getZoomFactor`), `minimizable()`, `maximizable()`, `closable()`, `isFullScreen()`, `isMaximized()`, `isFocused()`, et `nativeTheme.removeAllListeners()` **chaînable** | `shim/browser-shim.js` (`electronShim.remote`) | exception au boot | implémenter un `remote` minimal (fenêtre courante : état, géométrie, zoom) | 1 h |
 | 7 | Le moteur Rust **ne sait pas lister la racine** du vault (`fs.readdirSync('')` refusé : « chemin relatif vide ») | `src/engine/sync.rs` (`readdir_sync`) | l'explorateur racine ne peut pas être alimenté par `fs.readdirSync` | opération « lister la racine » côté moteur, ou chemin sentinelle | 30 min |
@@ -298,7 +298,7 @@ Référence : `tools/main-harness.js` + `tools/preload-harness.js` (box
 
 ### 8.2 Démarrer leur interface avec notre moteur Rust (Chromium simple) — **non atteint**
 
-1. `obsidian-engine --root <vault> --port 27123` (le moteur sert `POST /sync`).
+1. `obsy-engine --root <vault> --port 27123` (le moteur sert `POST /sync`).
 2. Servir l'ASAR extrait en HTTP local.
 3. Charger `index.html` **après** `shim/browser-shim.js` (script classique, pas
    `defer`), sur une page **http://** (une page `file://` ne peut pas émettre

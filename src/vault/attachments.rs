@@ -147,7 +147,7 @@ mod tests {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            dir.push(format!("obsidian-rs-att-{unique}"));
+            dir.push(format!("obsy-att-{unique}"));
             fs::create_dir_all(&dir).unwrap();
             Self { dir }
         }

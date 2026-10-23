@@ -884,7 +884,7 @@ fn assembler(pages: Vec<Vec<u8>>, titre: &str) -> Vec<u8> {
     let mut titre_echappe: Vec<u8> = Vec::new();
     pousser_chaine_echappee(&mut titre_echappe, titre);
     let mut corps_info: Vec<u8> = Vec::new();
-    corps_info.extend(b"<< /Producer (obsidian-rs) /Title ");
+    corps_info.extend(b"<< /Producer (obsy) /Title ");
     corps_info.extend_from_slice(&titre_echappe);
     corps_info.extend(b" >>");
     pousser(&mut doc, &mut offsets, info, &corps_info);

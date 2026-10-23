@@ -5,9 +5,9 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 
-use obsidian_rs::app::palette_commands;
-use obsidian_rs::vault::keymap::{self, KeyAction, KeyMap};
-use obsidian_rs::vault::settings::Hotkey;
+use obsy::app::palette_commands;
+use obsy::vault::keymap::{self, KeyAction, KeyMap};
+use obsy::vault::settings::Hotkey;
 
 /// Vault temporaire, supprimé à la fin du test.
 struct Sandbox {
@@ -21,7 +21,7 @@ impl Sandbox {
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        dir.push(format!("obsidian-rs-keymap-{unique}"));
+        dir.push(format!("obsy-keymap-{unique}"));
         fs::create_dir_all(&dir).unwrap();
         Self { dir }
     }

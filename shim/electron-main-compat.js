@@ -1,5 +1,5 @@
 /*
- * Lanceur du mode « compat » (Electron) : démarre le moteur Rust obsidian-rs,
+ * Lanceur du mode « compat » (Electron) : démarre le moteur Rust obsy,
  * ouvre une BrowserWindow avec nodeIntegration, sert le renderer réel
  * d'Obsidian (index.html extrait de l'ASAR) en HTTP local en injectant
  * `shim/browser-shim.js` avant `app.js`, et répond aux canaux IPC du boot.
@@ -15,7 +15,7 @@
  *   --asar <chemin>       dossier d'ASAR extrait / fichier .asar (sinon détecté
  *                         via ~/.config/obsidian/obsidian.asar)
  *   --engine-bin <fichier> binaire du moteur Rust (sinon OBSIDIAN_ENGINE_BIN,
- *                         puis `obsidian-engine` dans PATH)
+ *                         puis `obsy-engine` dans PATH)
  *   --engine-port <N>     port du moteur (défaut 27123)
  *   --static-port <N>     port du serveur statique local (défaut 8823)
  */
@@ -228,11 +228,11 @@ let engineChild = null;
 function resoudreEngineBin() {
   if (opt['engine-bin']) return path.resolve(opt['engine-bin']);
   if (process.env.OBSIDIAN_ENGINE_BIN) return process.env.OBSIDIAN_ENGINE_BIN;
-  const cherche = ['obsidian-engine'];
+  const cherche = ['obsy-engine'];
   if (process.env.PATH) {
     for (const dir of process.env.PATH.split(path.delimiter)) {
       if (!dir) continue;
-      const p = path.join(dir, 'obsidian-engine');
+      const p = path.join(dir, 'obsy-engine');
       if (fs.existsSync(p)) return p;
     }
   }

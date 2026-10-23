@@ -1,4 +1,4 @@
-# Rapport Phase 0 — obsidian-rs
+# Rapport Phase 0 — obsy
 
 Date : 2026-10-20
 État : Phase 0 exécutée — 0.1 ✓, 0.2 partielle (cartographie REA, analyse JS bloquée par timeout MCP), 0.3 ✓.

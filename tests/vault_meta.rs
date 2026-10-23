@@ -7,10 +7,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use obsidian_rs::vault::meta::{
-    read_frontmatter, remove_frontmatter_property, set_frontmatter_property,
-};
-use obsidian_rs::vault::ops::create_note;
+use obsy::vault::meta::{read_frontmatter, remove_frontmatter_property, set_frontmatter_property};
+use obsy::vault::ops::create_note;
 
 /// Génère un suffixe unique par vault (pid + compteur atomique).
 fn unique_suffix() -> String {
@@ -26,7 +24,7 @@ struct TempVault {
 
 impl TempVault {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!("obsidian-rs-vault-meta-{}", unique_suffix()));
+        let root = std::env::temp_dir().join(format!("obsy-vault-meta-{}", unique_suffix()));
         fs::create_dir_all(&root).expect("création du vault temporaire");
         Self { root }
     }

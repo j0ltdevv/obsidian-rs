@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-   obsidian-rs — comportement du front HTML.
+   obsy — comportement du front HTML.
    Vanilla JS, sans dépendance ni étape de construction.
 
    Règle absolue : le front ne touche jamais le disque. Toute lecture,
@@ -26,7 +26,7 @@ function resolveEngineBase() {
   const candidates = [
     fromQuery,
     window.OBSIDIAN_ENGINE_URL,
-    (() => { try { return window.localStorage.getItem('obsidian-rs:engine'); } catch (_) { return null; } })(),
+    (() => { try { return window.localStorage.getItem('obsy:engine'); } catch (_) { return null; } })(),
     'http://127.0.0.1:27123',
   ];
   for (const candidate of candidates) {
@@ -1230,9 +1230,9 @@ async function boot() {
   try {
     const health = await api.health();
     const root = health && health.root ? health.root : '';
-    dom.vaultName.textContent = basename(root) || 'obsidian-rs';
+    dom.vaultName.textContent = basename(root) || 'obsy';
   } catch (error) {
-    dom.vaultName.textContent = 'obsidian-rs';
+    dom.vaultName.textContent = 'obsy';
     showError(`moteur injoignable : ${error.message}`);
   }
   await refreshFiles();
@@ -1352,7 +1352,7 @@ function wireSplitter() {
 /* ============================ Thème clair / sombre ============================ */
 
 state.theme = (() => {
-  try { return window.localStorage.getItem('obsidian-rs:theme') === 'light' ? 'light' : 'dark'; }
+  try { return window.localStorage.getItem('obsy:theme') === 'light' ? 'light' : 'dark'; }
   catch (_) { return 'dark'; }
 })();
 
@@ -1361,7 +1361,7 @@ function applyTheme(theme) {
   document.body.classList.toggle('theme-light', state.theme === 'light');
   document.body.classList.toggle('theme-dark', state.theme === 'dark');
   if (dom.statusTheme) dom.statusTheme.textContent = state.theme === 'light' ? 'Clair' : 'Sombre';
-  try { window.localStorage.setItem('obsidian-rs:theme', state.theme); } catch (_) { /* stockage refusé */ }
+  try { window.localStorage.setItem('obsy:theme', state.theme); } catch (_) { /* stockage refusé */ }
 }
 
 function toggleTheme() {
@@ -1398,14 +1398,14 @@ function updateNavButtons() {
 
 state.recent = (() => {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem('obsidian-rs:recent') || '[]');
+    const parsed = JSON.parse(window.localStorage.getItem('obsy:recent') || '[]');
     return Array.isArray(parsed) ? parsed.filter((p) => typeof p === 'string') : [];
   } catch (_) { return []; }
 })();
 
 function touchRecent(path) {
   state.recent = [path].concat(state.recent.filter((p) => p !== path)).slice(0, 20);
-  try { window.localStorage.setItem('obsidian-rs:recent', JSON.stringify(state.recent)); } catch (_) { /* stockage refusé */ }
+  try { window.localStorage.setItem('obsy:recent', JSON.stringify(state.recent)); } catch (_) { /* stockage refusé */ }
 }
 
 /* ============================ Lecture / édition ============================ */

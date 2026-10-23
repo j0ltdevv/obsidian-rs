@@ -1,7 +1,7 @@
-# Shim navigateur — pont synchrone vers le moteur `obsidian-rs`
+# Shim navigateur — pont synchrone vers le moteur `obsy`
 
 Ce dossier contient le **pont synchrone** entre le renderer d'Obsidian (le
-bundle `app.js` de l'ASAR 1.14.4) et le moteur Rust `obsidian-rs`
+bundle `app.js` de l'ASAR 1.14.4) et le moteur Rust `obsy`
 (`src/engine`).
 
 - `browser-shim.js` — script **non-module** à charger dans la page **avant**
@@ -216,14 +216,14 @@ opération `fs.*`, qui est, elle, confinée.
 
 ```sh
 # sur la box de compilation (le binaire du moteur est requis)
-cargo build --bin obsidian-engine
+cargo build --bin obsy-engine
 node shim/test-sync.mjs
 ```
 
 `test-sync.mjs` :
 
 1. crée un vault temporaire (`Note.md`, `dossier/Autre.md`) ;
-2. démarre le binaire `obsidian-engine` sur ce vault (port éphémère) ;
+2. démarre le binaire `obsy-engine` sur ce vault (port éphémère) ;
 3. charge `browser-shim.js` dans un contexte `vm` node, avec un
    `XMLHttpRequest` factice qui interroge **réellement** le moteur (la requête
    part dans un *worker* : le fil principal est bloqué par `Atomics.wait`,
@@ -237,7 +237,7 @@ node shim/test-sync.mjs
 ### Test manuel (navigateur)
 
 ```sh
-obsidian-engine --root <vault> --port 27123
+obsy-engine --root <vault> --port 27123
 # puis ouvrir shim/test.html?port=27123
 ```
 

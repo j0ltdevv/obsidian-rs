@@ -1,15 +1,15 @@
-//! Coquille de bureau d'`obsidian-rs`.
+//! Coquille de bureau d'`obsy`.
 //!
 //! La fenêtre est un **webview** qui charge le front `web/` (notre HTML/CSS),
-//! et les données viennent du **moteur Rust** `obsidian-engine`, lancé ici
+//! et les données viennent du **moteur Rust** `obsy-engine`, lancé ici
 //! comme processus enfant : il n'écoute que sur `127.0.0.1` et confine tous
 //! les chemins au vault.
 //!
 //! # Choix du chemin du moteur
 //!
-//! Le binaire `obsidian-engine` est cherché, dans cet ordre :
+//! Le binaire `obsy-engine` est cherché, dans cet ordre :
 //! 1. la variable d'environnement `OBSIDIAN_RS_ENGINE` ;
-//! 2. à côté de l'exécutable courant (`<exe-dir>/obsidian-engine`) — c'est le
+//! 2. à côté de l'exécutable courant (`<exe-dir>/obsy-engine`) — c'est le
 //!    cas d'un binaire installé à côté ;
 //! 3. dans le `PATH`.
 //!
@@ -38,7 +38,7 @@ fn main() {
     let mut moteur = match demarrer_moteur(&racine_vault, port) {
         Ok(moteur) => moteur,
         Err(erreur) => {
-            eprintln!("obsidian-rs : impossible de démarrer le moteur : {erreur}");
+            eprintln!("obsy : impossible de démarrer le moteur : {erreur}");
             std::process::exit(1);
         }
     };
@@ -55,11 +55,11 @@ fn main() {
             if let Some(fenetre) = application.get_webview_window("main") {
                 let _ = fenetre.eval(&format!("window.OBSIDIAN_ENGINE_URL = {adresse:?};"));
             }
-            println!("obsidian-rs : moteur prêt sur {adresse}");
+            println!("obsy : moteur prêt sur {adresse}");
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("fenêtre obsidian-rs")
+        .expect("fenêtre obsy")
         .run(move |_application, evenement| {
             // La fenêtre se ferme : on arrête le moteur — uniquement à la
             // sortie de l'application, pas au premier événement.
@@ -73,7 +73,7 @@ fn main() {
 /// Démarre le moteur et attend qu'il réponde.
 fn demarrer_moteur(racine: &Path, port: u16) -> Result<Child, String> {
     let binaire = trouver_moteur().ok_or_else(|| {
-        "binaire `obsidian-engine` introuvable (OBSIDIAN_RS_ENGINE, à côté de \
+        "binaire `obsy-engine` introuvable (OBSIDIAN_RS_ENGINE, à côté de \
          l'exécutable, ou dans le PATH)"
             .to_string()
     })?;
@@ -139,13 +139,13 @@ fn trouver_moteur() -> Option<PathBuf> {
     }
     if let Ok(executable) = std::env::current_exe() {
         if let Some(dossier) = executable.parent() {
-            let candidat = dossier.join("obsidian-engine");
+            let candidat = dossier.join("obsy-engine");
             if candidat.is_file() {
                 return Some(candidat);
             }
         }
     }
-    let chemin = which("obsidian-engine")?;
+    let chemin = which("obsy-engine")?;
     if chemin.is_file() {
         Some(chemin)
     } else {

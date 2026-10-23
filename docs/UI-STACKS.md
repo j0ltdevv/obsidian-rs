@@ -1,4 +1,4 @@
-# Choix du stack d'interface — obsidian-rs
+# Choix du stack d'interface — obsy
 
 Comparaison des quatre voies possibles pour une interface fidèle à Obsidian,
 avec les **coûts mémoire mesurés ou sourcés**. Le projet a deux contraintes :

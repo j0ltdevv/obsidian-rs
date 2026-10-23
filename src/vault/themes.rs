@@ -778,7 +778,7 @@ mod tests {
 
     #[test]
     fn css_theme_variables_sans_fichier_retourne_none() {
-        let dossier = std::env::temp_dir().join("obsidian-rs-theme-absent");
+        let dossier = std::env::temp_dir().join("obsy-theme-absent");
         assert_eq!(
             css_theme_variables(&dossier, "nonexistent", ThemeMode::Dark),
             None

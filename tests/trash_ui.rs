@@ -9,12 +9,12 @@
 
 use std::path::{Path, PathBuf};
 
-use obsidian_rs::app::{
+use obsy::app::{
     boot, format_deleted_at, human_size, restore_conflict_message, should_open_trash_confirm,
     update, Message, SidebarTab,
 };
-use obsidian_rs::ui::trash_view::trash_rows;
-use obsidian_rs::vault::trash::{list_trash, TrashEntry};
+use obsy::ui::trash_view::trash_rows;
+use obsy::vault::trash::{list_trash, TrashEntry};
 
 /// Construit une entrée de corbeille pour les tests.
 fn entry(path: &str, deleted_at: u64, size: u64) -> TrashEntry {
@@ -28,7 +28,7 @@ fn entry(path: &str, deleted_at: u64, size: u64) -> TrashEntry {
 /// Vault temporaire isolé (nettoyé à la fin du test).
 fn temp_vault(nom: &str) -> PathBuf {
     let mut dir = std::env::temp_dir();
-    dir.push(format!("obsidian-rs-{nom}-{}", std::process::id()));
+    dir.push(format!("obsy-{nom}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("création du vault temporaire");
     dir
@@ -76,7 +76,7 @@ fn date_suppression_civile() {
 
 #[test]
 fn message_conflit_restauration() {
-    use obsidian_rs::vault::trash::TrashError;
+    use obsy::vault::trash::TrashError;
 
     let destination = TrashError::DestinationExists("notes/a.md".to_string());
     let message = restore_conflict_message(&destination).expect("message attendu");

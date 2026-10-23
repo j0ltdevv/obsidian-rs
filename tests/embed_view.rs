@@ -2,10 +2,10 @@
 //! et de son intégration avec la lecture des dimensions (`image_dimensions`).
 //! On teste les fonctions pures, pas l'affichage iced lui-même.
 
-use obsidian_rs::ui::embed_view::{
+use obsy::ui::embed_view::{
     decide_display, display_size, within_size_limit, DisplayKind, MAX_IMAGE_BYTES, MAX_IMAGE_WIDTH,
 };
-use obsidian_rs::vault::embeds::{image_dimensions, EmbedType, ImageDimensions};
+use obsy::vault::embeds::{image_dimensions, EmbedType, ImageDimensions};
 use std::path::PathBuf;
 
 /// Crée un répertoire temporaire unique et vide.
@@ -15,7 +15,7 @@ fn temp_dir(tag: &str) -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|t| t.as_nanos())
         .unwrap_or(0);
-    d.push(format!("obsidian-rs-embed-view-{tag}-{unique}"));
+    d.push(format!("obsy-embed-view-{tag}-{unique}"));
     std::fs::create_dir_all(&d).unwrap();
     d
 }

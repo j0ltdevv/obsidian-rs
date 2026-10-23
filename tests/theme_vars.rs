@@ -10,11 +10,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use iced::Color;
 
-use obsidian_rs::ui::theme::theme_vars::{
-    extract_declarations, load_theme_vars, ThemeMode, ThemeVars,
-};
-use obsidian_rs::ui::theme::{colors_from_vars, font, font_from_vars, palette_from_vars};
-use obsidian_rs::vault::themes::theme_css_source;
+use obsy::ui::theme::theme_vars::{extract_declarations, load_theme_vars, ThemeMode, ThemeVars};
+use obsy::ui::theme::{colors_from_vars, font, font_from_vars, palette_from_vars};
+use obsy::vault::themes::theme_css_source;
 
 /// Suffixe unique par vault temporaire (pid + compteur atomique).
 fn unique_suffix() -> String {
@@ -30,7 +28,7 @@ struct TempVault {
 
 impl TempVault {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!("obsidian-rs-theme-vars-{}", unique_suffix()));
+        let root = std::env::temp_dir().join(format!("obsy-theme-vars-{}", unique_suffix()));
         fs::create_dir_all(&root).expect("création du vault temporaire");
         Self { root }
     }
@@ -273,7 +271,7 @@ fn nom_de_theme_avec_chemin_refuse() {
     let vault = TempVault::new();
     vault.write(".obsidian/themes/mon-theme.css", ":root { --a: 1px; }");
 
-    let path = obsidian_rs::vault::themes::theme_css_path(&vault.root, "../themes/mon-theme.css");
+    let path = obsy::vault::themes::theme_css_path(&vault.root, "../themes/mon-theme.css");
     assert!(
         path.is_none(),
         "un nom de thème ne doit pas sortir du vault"

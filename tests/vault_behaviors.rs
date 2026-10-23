@@ -28,13 +28,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{anyhow, Result};
-use obsidian_rs::engine::Engine;
-use obsidian_rs::vault::frontmatter::parse_frontmatter;
-use obsidian_rs::vault::index::NoteIndex;
-use obsidian_rs::vault::outline::extract_outline;
-use obsidian_rs::vault::tags::parse_tags;
-use obsidian_rs::vault::wikilinks::parse_wikilinks;
-use obsidian_rs::vault::{scan_vault, Note};
+use obsy::engine::Engine;
+use obsy::vault::frontmatter::parse_frontmatter;
+use obsy::vault::index::NoteIndex;
+use obsy::vault::outline::extract_outline;
+use obsy::vault::tags::parse_tags;
+use obsy::vault::wikilinks::parse_wikilinks;
+use obsy::vault::{scan_vault, Note};
 
 /// Suffixe unique par vault temporaire (pid + compteur atomique).
 fn unique_suffix() -> String {
@@ -53,8 +53,7 @@ struct TempVault {
 
 impl TempVault {
     fn new() -> Result<Self> {
-        let root =
-            std::env::temp_dir().join(format!("obsidian-rs-vault-behaviors-{}", unique_suffix()));
+        let root = std::env::temp_dir().join(format!("obsy-vault-behaviors-{}", unique_suffix()));
         fs::create_dir_all(&root)?;
         Ok(Self { root })
     }

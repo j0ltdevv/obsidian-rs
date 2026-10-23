@@ -32,7 +32,7 @@ Occurrences de chaînes littérales dans `app.js` :
 
 Clusters d'offsets (fenêtre ±150 car., nœuds lexicaux voisins) — traduction fonctionnelle :
 
-### 1. Frontmatter ✅ (charge maximale pour obsidian-rs)
+### 1. Frontmatter ✅ (charge maximale pour obsy)
 Deux familles de zones :
 - **zone pipeline markdown** (~763 000 ; ~1 455 000) : nœuds voisins `addTransformer`, `hProperties`, `position`, `children`, `plugins`, `getInfo` → un *transformer* de pipeline remark/unified expose le frontmatter comme métadonnées structurées du document (descripteurs de propriétés, positions d'AST).
 - **zone éditeur HyperMD** (~2 143 000) : littéraux `FRONT_MATTER`, `FRONT_MATTER_END`, modalités d'état éditeur (`fallbackMode`, `exitChecker`, `startsWith`) → reconnaissance de la délimitation du bloc frontmatter dans l'éditeur (début/fin), mode de repli.
@@ -58,7 +58,7 @@ Pas de « cluster parseur wikilinks » sous ce nom : les 6 occurrences sont des 
 
 1. Frontmatter = bloc YAML délimité en tête ; reconnaissable par indices début/fin distincts (états éditeur séparés), exposé ensuite aux métadonnées via un transformer de pipeline.
 2. Tags d'une note = union corps (hashtag inline) + frontmatter ; mécanisme explicite de fusion depuis le frontmatter.
-3. Index metadata par fichier **avec mtime** et triggers — invalide/enrichit de façon incrémentale (modèle exact de la fonctionnalité backlinks/tags de `obsidian-rs`).
+3. Index metadata par fichier **avec mtime** et triggers — invalide/enrichit de façon incrémentale (modèle exact de la fonctionnalité backlinks/tags de `obsy`).
 4. Résolution de lien : `linkpath` + `subpath` (ancre) → destination ; chemin de revers : fichier → texte de lien. Le message « file or folder not found » est distinct.
 5. Wikilink : pas un parseur dédié nommé ; l'UI fournit une commande d'insertion, les réglages portent sur le style d'insertion (embed vs lien, chemin complet vs basename ? non tranché — inconnu).
 
@@ -74,7 +74,7 @@ Pas de « cluster parseur wikilinks » sous ce nom : les 6 occurrences sont des 
 
 - Box instabox `hermes` : `/data/home/obsidian-rea/` ({`obsidian-1.14.4.asar`, `app.js`, `rea-focused-evidence.json`, `rea-evidence-89mo-partiel.json` (95 Mo partiel du run full + `provider_timeout` sur mermaid.min.js, scripts d'extraction `extract-keypoints.js`, `map-modules.js`, `cluster-summary.js`)}).
 - Local : preuve gz + logs ; le vieux JSON tronqué local (142 Mo, sessions fantômes) reste à purger.
-- Aucun code de `obsidian-rs` modifié par cette analyse ; aucun build/test à repasser (pas de fichier Rust touché).
+- Aucun code de `obsy` modifié par cette analyse ; aucun build/test à repasser (pas de fichier Rust touché).
 
 ## Traces sémantiques (post-rapport) — exécutées, résultats
 

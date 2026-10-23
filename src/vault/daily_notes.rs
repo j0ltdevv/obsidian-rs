@@ -106,7 +106,7 @@ mod tests {
         fn new() -> Self {
             let count = COUNTER.fetch_add(1, Ordering::SeqCst);
             let path = std::env::temp_dir().join(format!(
-                "obsidian-rs-daily-notes-{}-{}",
+                "obsy-daily-notes-{}-{}",
                 std::process::id(),
                 count
             ));
@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn racine_absente_refuse_l_ecriture() {
-        let absent = std::env::temp_dir().join("obsidian-rs-dn-racine-absente");
+        let absent = std::env::temp_dir().join("obsy-dn-racine-absente");
         let _ = fs::remove_dir_all(&absent);
         let erreur = create_daily_note(&absent, "2026-10-20", None).expect_err("racine absente");
         assert!(matches!(erreur, Write(_)), "erreur : {erreur:?}");

@@ -5,8 +5,8 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use obsidian_rs::vault::scan::duplicate_names;
-use obsidian_rs::vault::{scan_vault, Note, Wikilink};
+use obsy::vault::scan::duplicate_names;
+use obsy::vault::{scan_vault, Note, Wikilink};
 
 /// Racine du vault de test.
 fn fixture_root() -> &'static Path {

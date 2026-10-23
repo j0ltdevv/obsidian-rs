@@ -1,6 +1,6 @@
 orchestrate
 
-Continuité du projet obsidian-rs. Tu es en Phase 1 terminée / Phase 2 démarrée. Applique les règles suivantes PRIORITAIREMENT sur ton rythme actuel.
+Continuité du projet obsy. Tu es en Phase 1 terminée / Phase 2 démarrée. Applique les règles suivantes PRIORITAIREMENT sur ton rythme actuel.
 
 ## 1. RÈGLE DE PARALLÉLISME — elle prime sur tout le reste
 

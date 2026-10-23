@@ -6,7 +6,7 @@ semver.
 ## [Non publié] — 2026-10-21
 
 ### Ajouté
-- **Moteur Rust en service HTTP** : binaire `obsidian-engine` exposant les
+- **Moteur Rust en service HTTP** : binaire `obsy-engine` exposant les
   endpoints `/health`, `/files`, `/file`, `/metadata`, `/backlinks`,
   `/search`, `/graph` et `POST /sync` (23 opérations fs/path/crypto/ipc,
   confinement des chemins) ; 21 tests d'intégration.
@@ -25,7 +25,7 @@ semver.
   Markdown avec sa syntaxe colorée (style Live Preview) dans le panneau
   central, bascule Lecture/Édition, ouverture automatique d'une note au
   démarrage (note persistée en priorité, sinon la première du vault), état
-  persisté dans `<vault>/.obsidian/obsidian-rs-state.json` (écriture
+  persisté dans `<vault>/.obsidian/obsy-state.json` (écriture
   atomique).
 - **Front HTML/CSS (interface primaire)** : `web/` (index.html, style.css,
   app.js — vanilla, sans dépendance ni build step) reproduisant l'apparence

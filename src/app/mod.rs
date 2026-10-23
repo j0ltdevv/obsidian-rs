@@ -776,7 +776,7 @@ fn save_pane_ratios(root: &Path, ratios: &[f32]) {
 /// Chemin du fichier d'état du vault (note ouverte persistée). Suit la même
 /// convention que `window_size_path` / `pane_layout_path` : sous `.obsidian/`.
 fn open_note_state_path(root: &Path) -> PathBuf {
-    root.join(".obsidian").join("obsidian-rs-state.json")
+    root.join(".obsidian").join("obsy-state.json")
 }
 
 /// État persisté du vault : chemin relatif de la note ouverte.
@@ -813,7 +813,7 @@ fn save_open_note(root: &Path, note: Option<&Path>) {
         Ok(json) => json,
         Err(_) => return,
     };
-    let tmp = parent.join(format!("obsidian-rs-state.{}.tmp", std::process::id()));
+    let tmp = parent.join(format!("obsy-state.{}.tmp", std::process::id()));
     if fs::write(&tmp, json).is_err() {
         let _ = fs::remove_file(&tmp);
         return;
@@ -3579,7 +3579,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        dir.push(format!("obsidian-rs-settings-{unique}"));
+        dir.push(format!("obsy-settings-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
 
         let (mut app, _task) = boot();
@@ -3636,7 +3636,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        dir.push(format!("obsidian-rs-ignore-{unique}"));
+        dir.push(format!("obsy-ignore-{unique}"));
         std::fs::create_dir_all(dir.join("Templates")).unwrap();
         std::fs::write(dir.join("a.md"), "x").unwrap();
         std::fs::write(dir.join("Templates/modele.md"), "y").unwrap();
@@ -3718,7 +3718,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        dir.push(format!("obsidian-rs-sel-{unique}"));
+        dir.push(format!("obsy-sel-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.md"), "a").unwrap();
         std::fs::write(dir.join("b.md"), "b").unwrap();
@@ -3745,7 +3745,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        dir.push(format!("obsidian-rs-snap-{unique}"));
+        dir.push(format!("obsy-snap-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.md"), "contenu a").unwrap();
         std::fs::write(dir.join("b.md"), "contenu b").unwrap();
@@ -3809,7 +3809,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        dir.push(format!("obsidian-rs-tabs-{unique}"));
+        dir.push(format!("obsy-tabs-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.md"), "a").unwrap();
         std::fs::write(dir.join("b.md"), "b").unwrap();
@@ -3837,7 +3837,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        dir.push(format!("obsidian-rs-tabs-dirty-{unique}"));
+        dir.push(format!("obsy-tabs-dirty-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.md"), "original a").unwrap();
         std::fs::write(dir.join("b.md"), "original b").unwrap();
@@ -3867,7 +3867,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        dir.push(format!("obsidian-rs-tabs-close-{unique}"));
+        dir.push(format!("obsy-tabs-close-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.md"), "a").unwrap();
         std::fs::write(dir.join("b.md"), "b").unwrap();
@@ -3898,7 +3898,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        dir.push(format!("obsidian-rs-tabs-rename-{unique}"));
+        dir.push(format!("obsy-tabs-rename-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.md"), "a").unwrap();
         std::fs::write(dir.join("b.md"), "b").unwrap();
@@ -3929,7 +3929,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        dir.push(format!("obsidian-rs-tabs-del-{unique}"));
+        dir.push(format!("obsy-tabs-del-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.md"), "a").unwrap();
         let (notes, _index) = App::rescan(&dir, "Templates");
@@ -3955,7 +3955,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        dir.push(format!("obsidian-rs-tabs-save-{unique}"));
+        dir.push(format!("obsy-tabs-save-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.md"), "a").unwrap();
         std::fs::write(dir.join("b.md"), "b").unwrap();
@@ -3998,7 +3998,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        dir.push(format!("obsidian-rs-lock-{unique}"));
+        dir.push(format!("obsy-lock-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         assert!(
             acquire_write_lock(&dir),
@@ -4022,7 +4022,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        dir.push(format!("obsidian-rs-bench-{unique}"));
+        dir.push(format!("obsy-bench-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         for i in 0..10_000 {
             std::fs::write(dir.join(format!("note_{i}.md")), "# T\nTexte\n").unwrap();
@@ -4042,7 +4042,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        dir.push(format!("obsidian-rs-reopen-{unique}"));
+        dir.push(format!("obsy-reopen-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.md"), "a").unwrap();
         let (notes, _index) = App::rescan(&dir, "Templates");
@@ -4102,7 +4102,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        dir.push(format!("obsidian-rs-keys-{unique}"));
+        dir.push(format!("obsy-keys-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.md"), "a").unwrap();
         std::fs::write(dir.join("b.md"), "b").unwrap();
@@ -4141,7 +4141,7 @@ mod tests {
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        dir.push(format!("obsidian-rs-nav-{unique}"));
+        dir.push(format!("obsy-nav-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.md"), "a").unwrap();
         std::fs::write(dir.join("b.md"), "b").unwrap();
@@ -4172,7 +4172,7 @@ mod tests {
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        dir.push(format!("obsidian-rs-saveas-{unique}"));
+        dir.push(format!("obsy-saveas-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.md"), "contenu").unwrap();
         let (notes, _index) = App::rescan(&dir, "Templates");
@@ -4244,7 +4244,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        dir.push(format!("obsidian-rs-bench-ft-{unique}"));
+        dir.push(format!("obsy-bench-ft-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         let mut queries = Vec::new();
         for i in 0..5_000 {
@@ -4286,7 +4286,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        dir.push(format!("obsidian-rs-test-{}-{unique}", std::process::id()));
+        dir.push(format!("obsy-test-{}-{unique}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         for nom in noms {
             std::fs::write(dir.join(format!("{nom}.md")), format!("# {nom}\n")).unwrap();

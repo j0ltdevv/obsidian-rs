@@ -312,7 +312,7 @@ impl Engine {
                     // Une note illisible ne casse pas la recherche : elle est
                     // indexée vide.
                     eprintln!(
-                        "[obsidian-engine] lecture impossible de {} : {err}",
+                        "[obsy-engine] lecture impossible de {} : {err}",
                         note.path.display()
                     );
                     String::new()
@@ -450,7 +450,7 @@ impl Engine {
                 Ok(content) => content,
                 Err(err) => {
                     eprintln!(
-                        "[obsidian-engine] lecture impossible de {} : {err}",
+                        "[obsy-engine] lecture impossible de {} : {err}",
                         note.path.display()
                     );
                     continue;
@@ -536,7 +536,7 @@ pub fn serve(engine: Engine, listener: TcpListener) -> Result<(), EngineError> {
         let engine = Arc::clone(&engine);
         std::thread::spawn(move || {
             if let Err(err) = handle_connection(&engine, stream) {
-                eprintln!("[obsidian-engine] connexion interrompue : {err}");
+                eprintln!("[obsy-engine] connexion interrompue : {err}");
             }
         });
     }

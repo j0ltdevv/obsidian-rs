@@ -1,9 +1,9 @@
-//! Binaire `obsidian-engine` : sert le moteur de vault d'obsidian-rs en HTTP
+//! Binaire `obsy-engine` : sert le moteur de vault d'obsy en HTTP
 //! JSON local, pour qu'un front end non Rust (moteur de rendu d'Obsidian,
 //! Ignis) puisse consommer le cœur Rust du vault.
 //!
 //! ```sh
-//! obsidian-engine --root <chemin du vault> [--port N]
+//! obsy-engine --root <chemin du vault> [--port N]
 //! ```
 //!
 //! Le port peut également être fourni par la variable d'environnement
@@ -15,11 +15,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use obsidian_rs::engine::{serve, Engine, DEFAULT_PORT, PORT_ENV};
+use obsy::engine::{serve, Engine, DEFAULT_PORT, PORT_ENV};
 
 /// Affiche l'usage et quitte avec le code 2.
 fn usage() -> ! {
-    eprintln!("Usage : obsidian-engine --root <chemin du vault> [--port N]");
+    eprintln!("Usage : obsy-engine --root <chemin du vault> [--port N]");
     eprintln!("  --root <chemin>  racine du vault (obligatoire)");
     eprintln!("  --port <N>       port d'écoute (défaut : {DEFAULT_PORT}, variable {PORT_ENV})");
     std::process::exit(2);
@@ -29,7 +29,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("[obsidian-engine] erreur : {err:#}");
+            eprintln!("[obsy-engine] erreur : {err:#}");
             ExitCode::FAILURE
         }
     }
@@ -81,7 +81,7 @@ fn run() -> Result<()> {
     let listener = TcpListener::bind(&address).with_context(|| format!("écoute sur {address}"))?;
     let bound = listener.local_addr().context("adresse d'écoute")?;
     println!(
-        "obsidian-engine : http://{bound} (vault : {})",
+        "obsy-engine : http://{bound} (vault : {})",
         engine.root().display()
     );
     serve(engine, listener).context("service HTTP")?;

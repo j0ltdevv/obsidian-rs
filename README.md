@@ -1,4 +1,4 @@
-# obsidian-rs
+# obsy
 
 Client de prise de notes **Obsidian-like** écrit en **Rust + iced**
 (clean-room : aucune ligne reprise d'Obsidian ou d'un autre client).
@@ -36,7 +36,7 @@ Le comportement se déduit du format Markdown et des conventions Obsidian
   `.obsidian/hotkeys.json` lus/écrits de façon atomique.
 - **Gabarits / notes du jour** : `{{title}}`/`{{date}}`, dossier
   `Templates` ou `templates`, note `AAAA-MM-JJ.md`.
-- **CLI compagnon** : `obsidian-cli` (`notes`, `grep`, `stats`).
+- **CLI compagnon** : `obsy-cli` (`notes`, `grep`, `stats`).
 
 ## Compiler / tester
 
@@ -48,7 +48,7 @@ cargo clippy --all-targets -- -D warnings
 ```
 
 L'application démarre sur `demo-vault` (dossier fourni). Lancez :
-`cargo run --bin obsidian-rs` (ou `cargo run --bin obsidian-cli -- --help`).
+`cargo run --bin obsy` (ou `cargo run --bin obsy-cli -- --help`).
 
 ## Architecture
 

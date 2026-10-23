@@ -1,4 +1,4 @@
-//! Tests d'intégration de la corbeille (`obsidian_rs::vault::trash`).
+//! Tests d'intégration de la corbeille (`obsy::vault::trash`).
 //!
 //! Le format testé reproduit exactement celui produit par l'application dans
 //! `src/app/mod.rs` (`Message::DeleteConfirm` / `Message::DeleteSelected`) :
@@ -9,7 +9,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use obsidian_rs::vault::trash::{empty_trash, list_trash, restore_trash, TrashEntry, TrashError};
+use obsy::vault::trash::{empty_trash, list_trash, restore_trash, TrashEntry, TrashError};
 
 /// Construit un vault de test isolé dans le répertoire temporaire.
 fn temp_vault(nom: &str) -> PathBuf {

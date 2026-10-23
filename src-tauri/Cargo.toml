@@ -1,8 +1,8 @@
 [package]
-name = "obsidian-rs-desktop"
+name = "obsy-desktop"
 version = "0.2.0"
 edition = "2021"
-description = "Coquille de bureau (Tauri) d'obsidian-rs : front HTML/CSS + moteur Rust"
+description = "Coquille de bureau (Tauri) d'obsy : front HTML/CSS + moteur Rust"
 license = "MIT"
 
 # Paquet autonome : il ne fait pas partie d'un espace de travail parent.
