@@ -97,6 +97,9 @@ pub struct Segment {
     /// Cible brute d'un wikilink (`[[cible]]` ou `[[cible|alias]]`), sans
     /// l'alias ni les crochets. `None` pour tous les autres styles.
     pub target: Option<String>,
+    /// Niveau d'indentation d'une liste (deux espaces par niveau).
+    /// Zéro pour tout ce qui n'est pas un élément de liste.
+    pub indent: u8,
 }
 
 /// Rend un contenu Markdown en segments.
@@ -156,6 +159,7 @@ pub fn render_markdown(content: &str) -> Vec<Segment> {
                 text: m.source.clone(),
                 line: m.start_line,
                 target: None,
+                indent: 0,
             });
             index = m.end_line + 1;
             continue;
@@ -200,6 +204,7 @@ fn push_code_block(
         text: body.join("\n"),
         line: start,
         target: None,
+        indent: 0,
     });
 
     if index < lines.len() {
@@ -252,9 +257,21 @@ fn push_line_segments(line: &str, line_no: usize, out: &mut Vec<Segment>) {
     }
 
     // Préfixe de bloc (citation, liste, tâche) : le style s'applique au
-    // texte restant, produit en un seul segment.
+    // texte restant, produit en un seul segment. Les listes et tâches
+    // portent leur niveau d'indentation (deux espaces par niveau).
     if let Some((reste, style)) = parse_prefixe_bloc(line) {
-        push_texte(style, reste.trim_start(), line_no, out);
+        let reste = reste.trim_start();
+        if matches!(
+            style,
+            SegmentStyle::ListBullet
+                | SegmentStyle::ListNumbered
+                | SegmentStyle::TaskCheckboxTodo
+                | SegmentStyle::TaskCheckboxDone
+        ) {
+            push_texte_indente(style, reste, line_no, indent_liste(line), out);
+        } else {
+            push_texte(style, reste, line_no, out);
+        }
         return;
     }
 
@@ -299,28 +316,62 @@ fn push_marqueur(style: SegmentStyle, line_no: usize, out: &mut Vec<Segment>) {
         text: String::new(),
         line: line_no,
         target: None,
+        indent: 0,
     });
 }
 
 /// Empile un segment de texte stylisé.
 fn push_texte(style: SegmentStyle, texte: &str, line_no: usize, out: &mut Vec<Segment>) {
+    push_texte_indente(style, texte, line_no, 0, out);
+}
+
+/// Empile un segment de liste indenté : deux espaces (ou une tabulation)
+/// par niveau d'indentation.
+fn push_texte_indente(
+    style: SegmentStyle,
+    texte: &str,
+    line_no: usize,
+    indent: u8,
+    out: &mut Vec<Segment>,
+) {
     out.push(Segment {
         style,
         text: texte.to_string(),
         line: line_no,
         target: None,
+        indent,
     });
+}
+
+/// Niveau d'indentation d'une ligne de liste : deux espaces par niveau,
+/// une tabulation vaut un niveau, plafonné à huit.
+fn indent_liste(line: &str) -> u8 {
+    let mut niveaux = 0usize;
+    let mut espaces = 0usize;
+    for b in line.bytes() {
+        match b {
+            b' ' => espaces += 1,
+            b'\t' => {
+                niveaux += 1;
+                espaces = 0;
+            }
+            _ => break,
+        }
+        if espaces == 2 {
+            niveaux += 1;
+            espaces = 0;
+        }
+    }
+    niveaux.min(8) as u8
 }
 
 /// Empile le segment d'une ligne de tableau (cellules join-es par un
 /// espace, bordures `|` retirées).
+/// Empile le segment d'une ligne de tableau : la ligne brute (barres
+/// `|` conservées) — l'interface en découpe les cellules pour dessiner
+/// la grille.
 fn push_table(line: &str, line_no: usize, out: &mut Vec<Segment>) {
-    push_texte(
-        SegmentStyle::Table,
-        &nettoyer_ligne_tableau(line),
-        line_no,
-        out,
-    );
+    push_texte(SegmentStyle::Table, line.trim(), line_no, out);
 }
 
 /// `true` si la ligne est une règle horizontale (`---`, `***`, `___`).
@@ -387,20 +438,6 @@ fn est_ligne_separation_tableau(line: &str) -> bool {
         any_dash |= c.contains('-');
     }
     any_dash
-}
-
-/// Nettoie une ligne de tableau : bordures `|` retirées, cellules
-/// jointes par un espace.
-fn nettoyer_ligne_tableau(line: &str) -> String {
-    let trim = line.trim();
-    let corps = trim.strip_prefix('|').unwrap_or(trim);
-    let corps = corps.strip_suffix('|').unwrap_or(corps);
-    corps
-        .split('|')
-        .map(|c| c.trim())
-        .filter(|c| !c.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// Détecte un titre en début de ligne : renvoie le niveau et le reste.
@@ -707,6 +744,7 @@ fn push_inline(ligne: &str, line_no: usize, out: &mut Vec<Segment>) {
                     text: texte,
                     line: line_no,
                     target: Some(cible),
+                    indent: 0,
                 });
                 i = fin;
                 continue;
@@ -746,6 +784,7 @@ fn vider_tampon(tampon: &mut String, line_no: usize, out: &mut Vec<Segment>) {
         text: texte,
         line: line_no,
         target: None,
+        indent: 0,
     });
 }
 
@@ -923,6 +962,7 @@ mod tests {
             text: text.to_string(),
             line,
             target: None,
+            indent: 0,
         }
     }
 
@@ -1265,10 +1305,34 @@ mod tests {
         assert_eq!(
             render_markdown("| a | b |\n|---|---|\n| 1 | 2 |"),
             segs(&[
-                ("a b", SegmentStyle::Table, 0),
-                ("1 2", SegmentStyle::Table, 2), // séparateur ignoré
+                ("| a | b |", SegmentStyle::Table, 0),
+                ("| 1 | 2 |", SegmentStyle::Table, 2), // séparateur ignoré
             ])
         );
+    }
+
+    #[test]
+    fn liste_imbriquee_porte_son_indentation() {
+        let segs = render_markdown("- niv1\n  - niv2\n    - niv3");
+        assert_eq!(segs.len(), 3);
+        assert_eq!(segs[0].indent, 0);
+        assert_eq!(segs[1].indent, 1);
+        assert_eq!(segs[2].indent, 2);
+    }
+
+    #[test]
+    fn indentation_plafonnee_a_huit_niveaux() {
+        let beaucoup = format!("{}- profond", " ".repeat(40));
+        let segs = render_markdown(&beaucoup);
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].indent, 8);
+    }
+
+    #[test]
+    fn hors_liste_indentation_nulle() {
+        let segs = render_markdown("# Titre indenté\n  - item");
+        assert_eq!(segs[0].indent, 0);
+        assert_eq!(segs[1].indent, 1);
     }
 
     #[test]
@@ -1555,8 +1619,8 @@ mod tests {
         assert_eq!(
             segs,
             [
-                ("a b", SegmentStyle::Table, 0),
-                ("1 2", SegmentStyle::Table, 2)
+                ("| a | b |", SegmentStyle::Table, 0),
+                ("| 1 | 2 |", SegmentStyle::Table, 2)
             ]
             .iter()
             .map(|&(t, s, l)| seg(s, t, l))

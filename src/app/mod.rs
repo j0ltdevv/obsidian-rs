@@ -307,6 +307,8 @@ pub enum Message {
     PublishRun,
     /// Restaure un élément de la corbeille à son emplacement d'origine.
     TrashRestore(TrashEntry),
+    /// Replie ou déplie le callout commencé à la ligne donnée (preview).
+    ToggleCallout(usize),
     /// Demande à vider la corbeille (ouvre la confirmation).
     TrashEmptyRequest,
     /// Annule le vidage de la corbeille.
@@ -650,6 +652,8 @@ pub struct App {
     pub trash_error: Option<String>,
     /// Confirmation de vidage de la corbeille en attente.
     pub trash_empty_confirm: bool,
+    /// Lignes de début des callouts repliés dans le preview.
+    pub callout_folded: std::collections::HashSet<usize>,
     /// Dialogue d'export statique ouvert (destination), si présent.
     pub publish_dialog: Option<PublishDraft>,
     /// Message d'état du dernier export statique (succès), affiché en barre
@@ -968,6 +972,7 @@ pub fn boot() -> (App, Task<Message>) {
         pane_state,
         attachments: Vec::new(),
         trash_entries: Vec::new(),
+        callout_folded: std::collections::HashSet::new(),
         trash_error: None,
         trash_empty_confirm: false,
         publish_dialog: None,
@@ -2323,6 +2328,11 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 );
             }
         },
+        Message::ToggleCallout(debut) => {
+            if !app.callout_folded.remove(&debut) {
+                app.callout_folded.insert(debut);
+            }
+        }
         Message::TrashEmptyRequest => {
             if should_open_trash_confirm(app.trash_entries.len(), app.trash_empty_confirm) {
                 app.trash_empty_confirm = true;

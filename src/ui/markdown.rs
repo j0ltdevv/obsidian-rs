@@ -181,3 +181,29 @@ pub fn render_source(source: &str) -> Element<'static, Message> {
         .width(Length::Fill)
         .into()
 }
+
+/// Découpe les lignes d'un tableau (barres `|` conservées) en grille de
+/// cellules. Les lignes de séparation (`| --- | --- |`) sont ignorées.
+///
+/// Une ligne sans bordure d'entrée (`|`) n'est pas une ligne de tableau :
+/// elle est ignorée plutôt que déstructurée.
+pub fn table_grid(lignes: &[String]) -> Vec<Vec<String>> {
+    lignes
+        .iter()
+        .filter_map(|ligne| {
+            let trim = ligne.trim();
+            let interieur = trim.strip_prefix('|')?;
+            let interieur = interieur.strip_suffix('|').unwrap_or(interieur);
+            let cellules: Vec<String> =
+                interieur.split('|').map(|c| c.trim().to_string()).collect();
+            if cellules.is_empty() {
+                return None;
+            }
+            let separateur = cellules.iter().all(|c| {
+                let corps = c.trim_matches(':');
+                !corps.is_empty() && corps.chars().all(|ch| ch == '-')
+            });
+            (!separateur).then_some(cellules)
+        })
+        .collect()
+}

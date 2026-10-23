@@ -1797,8 +1797,12 @@ fn preview_panel<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
 
     // Rendu Markdown stylisé (live preview).
     let rendered = scrollable(
-        container(live_preview_column(&app.vault_root, &open.content.text()))
-            .padding([8, READING_MARGIN_PX as u16]),
+        container(live_preview_column(
+            app,
+            &app.vault_root,
+            &open.content.text(),
+        ))
+        .padding([8, READING_MARGIN_PX as u16]),
     )
     .height(Length::FillPortion(3));
     preview = preview.push(rendered);
@@ -1872,7 +1876,13 @@ fn segment_widget(root: &Path, seg: &Segment) -> Element<'static, Message> {
                 ..Font::default()
             })
             .into(),
-        SegmentStyle::Strikethrough => text(seg.text.clone()).color(UNRESOLVED_COLOR).into(),
+        SegmentStyle::Strikethrough => {
+            // iced 0.14 n'a pas de décoration de texte : barré réel via le
+            // caractère combinant U+0336 (court trait superposé), rendu par
+            // Inter. La couleur du texte reste normale.
+            let barre: String = seg.text.chars().map(|c| format!("{c}\u{0336}")).collect();
+            text(barre).into()
+        }
         SegmentStyle::InlineCode => container(
             text(seg.text.clone())
                 .font(Font::MONOSPACE)
@@ -1942,10 +1952,19 @@ fn segment_widget(root: &Path, seg: &Segment) -> Element<'static, Message> {
             } else {
                 "☐ "
             };
-            row![text(check), text(seg.text.clone())].spacing(4).into()
+            indenter(
+                seg.indent,
+                row![text(check), text(seg.text.clone())].spacing(4),
+            )
         }
-        SegmentStyle::ListBullet => row![text("• "), text(seg.text.clone())].spacing(4).into(),
-        SegmentStyle::ListNumbered => row![text("· "), text(seg.text.clone())].spacing(4).into(),
+        SegmentStyle::ListBullet => indenter(
+            seg.indent,
+            row![text("• "), text(seg.text.clone())].spacing(4),
+        ),
+        SegmentStyle::ListNumbered => indenter(
+            seg.indent,
+            row![text("· "), text(seg.text.clone())].spacing(4),
+        ),
         SegmentStyle::HorizontalRule => container(text(""))
             .width(Length::Fill)
             .height(2)
@@ -2021,16 +2040,161 @@ fn segment_widget(root: &Path, seg: &Segment) -> Element<'static, Message> {
     }
 }
 
+/// Décale un élément de liste de `niveaux * 14 px` vers la droite.
+fn indenter<'a>(niveaux: u8, contenu: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    container(contenu.into())
+        .padding([f32::from(niveaux) * 14.0, 0.0])
+        .width(Length::Fill)
+        .into()
+}
+
 /// Rend le contenu Markdown en colonne de segments stylisés.
-fn live_preview_column(root: &Path, content: &str) -> Element<'static, Message> {
+///
+/// Les segments consécutifs de tableau sont regroupés en une grille
+/// cellulaire ; les groupes de callouts (titre + corps) sont repliables
+/// via `app.callout_folded`.
+fn live_preview_column(app: &App, root: &Path, content: &str) -> Element<'static, Message> {
     let segments = render_markdown(content);
     let mut column = Column::new().spacing(4);
-    for seg in &segments {
+    let mut index = 0usize;
+    while index < segments.len() {
+        let seg = &segments[index];
+
+        // Tableau : regrouper les segments consécutifs de lignes contiguës.
+        if seg.style == SegmentStyle::Table {
+            let mut lignes: Vec<String> = vec![seg.text.clone()];
+            let mut fin = index + 1;
+            while fin < segments.len()
+                && segments[fin].style == SegmentStyle::Table
+                && segments[fin].line == segments[fin - 1].line + 1
+            {
+                lignes.push(segments[fin].text.clone());
+                fin += 1;
+            }
+            column = column.push(table_grid_widget(&lignes));
+            index = fin;
+            continue;
+        }
+
+        // Callout : le groupe commence au titre (ou à la première ligne de
+        // corps sans titre) et se poursuit tant que les segments `Callout`
+        // se suivent ligne à ligne.
+        if matches!(
+            seg.style,
+            SegmentStyle::Callout | SegmentStyle::CalloutTitle
+        ) {
+            let debut = seg.line;
+            let titre = (seg.style == SegmentStyle::CalloutTitle)
+                .then(|| seg.text.trim_start_matches(['>', ' ']).to_string());
+            let mut fin = index + 1;
+            let mut corps: Vec<String> = Vec::new();
+            while fin < segments.len()
+                && segments[fin].style == SegmentStyle::Callout
+                && segments[fin].line == segments[fin - 1].line + 1
+            {
+                corps.push(segments[fin].text.clone());
+                fin += 1;
+            }
+            column = column.push(callout_widget(app, debut, titre, corps));
+            index = fin;
+            continue;
+        }
+
         column = column.push(segment_widget(root, seg));
+        index += 1;
     }
     container(column)
         .max_width(READING_LINE_WIDTH_PX)
         .center_x(Length::Fill)
+        .into()
+}
+
+/// Grille d'un tableau : ligne d'en-tête en gras, bordures externes et
+/// séparateurs de lignes.
+fn table_grid_widget(lignes: &[String]) -> Element<'static, Message> {
+    let grille = crate::ui::markdown::table_grid(lignes);
+    let mut rows: Vec<Element<'static, Message>> = Vec::new();
+    for (index, cells) in grille.iter().enumerate() {
+        let mut row_widgets: Vec<Element<'static, Message>> = Vec::new();
+        for cell in cells {
+            let mut t = text(cell.clone()).size(12);
+            if index == 0 {
+                t = t.font(bold_font());
+            }
+            row_widgets.push(
+                container(t)
+                    .width(Length::Fill)
+                    .padding([4, 8])
+                    .style(move |_theme| container::Style {
+                        background: (index % 2 == 1)
+                            .then_some(Background::Color(Color::from_rgb(0.97, 0.97, 0.99))),
+                        border: Border {
+                            color: PANEL_BORDER,
+                            width: 0.5,
+                            radius: Radius::from(0.0),
+                        },
+                        ..container::Style::default()
+                    })
+                    .into(),
+            );
+        }
+        rows.push(Row::with_children(row_widgets).into());
+    }
+    container(Column::with_children(rows))
+        .width(Length::Fill)
+        .style(|_theme| container::Style {
+            border: Border {
+                color: PANEL_BORDER,
+                width: 1.0,
+                radius: Radius::from(4.0),
+            },
+            ..container::Style::default()
+        })
+        .into()
+}
+
+/// Callout repliable : bandeau de titre cliquable (flèche), corps masqué
+/// quand le groupe est replié (`app.callout_folded` contient la ligne de
+/// début du groupe).
+fn callout_widget(
+    app: &App,
+    debut: usize,
+    titre: Option<String>,
+    corps: Vec<String>,
+) -> Element<'static, Message> {
+    let replie = app.callout_folded.contains(&debut);
+    let fleche = if replie { "▸" } else { "▾" };
+    let libelle = titre.unwrap_or_else(|| "Note".to_string());
+    let mut contenu = Column::new().spacing(2);
+    contenu = contenu.push(
+        button(
+            row![
+                text(fleche).size(12).color(Color::from_rgb(0.45, 0.3, 0.7)),
+                text(libelle).size(13).font(bold_font())
+            ]
+            .spacing(6),
+        )
+        .padding([2, 4])
+        .style(ghost_button_style)
+        .on_press(Message::ToggleCallout(debut)),
+    );
+    if !replie {
+        for ligne in corps {
+            contenu = contenu.push(text(ligne).size(13).width(Length::Fill));
+        }
+    }
+    container(contenu)
+        .width(Length::Fill)
+        .padding([6, 10])
+        .style(|_theme| container::Style {
+            background: Some(Background::Color(Color::from_rgb(0.96, 0.94, 0.99))),
+            border: Border {
+                color: Color::from_rgb(0.65, 0.5, 0.9),
+                width: 2.0,
+                radius: Radius::from(4.0),
+            },
+            ..container::Style::default()
+        })
         .into()
 }
 
