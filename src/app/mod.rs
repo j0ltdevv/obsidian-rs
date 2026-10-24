@@ -2942,14 +2942,13 @@ pub fn subscription(app: &App) -> iced::Subscription<Message> {
         if matches!(
             key_ref,
             iced::keyboard::Key::Named(iced::keyboard::key::Named::Tab)
-        ) {
-            if !EDITING.load(std::sync::atomic::Ordering::Relaxed) {
-                return Some(if modifiers.shift() {
-                    Message::FocusPrevious
-                } else {
-                    Message::FocusNext
-                });
-            }
+        ) && !EDITING.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return Some(if modifiers.shift() {
+                Message::FocusPrevious
+            } else {
+                Message::FocusNext
+            });
         }
 
         // Combinaisons du catalogue : la table résolue fait foi.
