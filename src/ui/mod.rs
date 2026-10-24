@@ -2138,6 +2138,14 @@ fn live_preview_column(app: &App, root: &Path, content: &str) -> Element<'static
             continue;
         }
 
+        // Transclusion : un embed de note rend son contenu (profondeur 1,
+        // les embeds internes restent des placeholders — pas de récursion).
+        if seg.style == SegmentStyle::Embed {
+            column = column.push(embed_note_widget(app, root, &seg.text));
+            index += 1;
+            continue;
+        }
+
         column = column.push(segment_widget(root, seg));
         index += 1;
     }
@@ -2145,6 +2153,67 @@ fn live_preview_column(app: &App, root: &Path, content: &str) -> Element<'static
         .max_width(READING_LINE_WIDTH_PX)
         .center_x(Length::Fill)
         .into()
+}
+
+/// Transclusion d'une note (`![[cible]]`) : contenu rendu dans un cadre
+/// décalé, avec un en-tête de provenance. Cible non résolue ou illisible :
+/// placeholder discret (comportement historique).
+fn embed_note_widget(app: &App, root: &Path, target: &str) -> Element<'static, Message> {
+    let note_path: Option<std::path::PathBuf> =
+        crate::app::resolve_link(&app.index, &app.aliases, target)
+            .first()
+            .map(|note| note.path.clone());
+    let contenu = note_path
+        .as_ref()
+        .and_then(|chemin| std::fs::read_to_string(root.join(chemin)).ok());
+    let Some(contenu) = contenu else {
+        return segment_widget(
+            root,
+            &crate::vault::live_preview::Segment {
+                style: SegmentStyle::Embed,
+                text: target.to_string(),
+                line: 0,
+                target: None,
+                indent: 0,
+            },
+        );
+    };
+
+    let mut corps = Column::new().spacing(4);
+    for seg in render_markdown(&contenu) {
+        corps = corps.push(segment_widget(root, &seg));
+    }
+    container(
+        column![
+            text(
+                note_path
+                    .as_ref()
+                    .map(|chemin| {
+                        std::path::Path::new(chemin)
+                            .file_stem()
+                            .map(|stem| stem.to_string_lossy().into_owned())
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default()
+            )
+            .size(11)
+            .color(UNRESOLVED_COLOR),
+            corps,
+        ]
+        .spacing(4),
+    )
+    .width(Length::Fill)
+    .padding([8, 12])
+    .style(|_theme| container::Style {
+        background: Some(Background::Color(Color::from_rgb(0.97, 0.96, 1.0))),
+        border: Border {
+            color: Color::from_rgb(0.75, 0.68, 0.92),
+            width: 1.0,
+            radius: Radius::from(6.0),
+        },
+        ..container::Style::default()
+    })
+    .into()
 }
 
 /// Grille d'un tableau : ligne d'en-tête en gras, bordures externes et

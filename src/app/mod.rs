@@ -3352,7 +3352,7 @@ fn focus_current_occurrence(app: &mut App) {
 /// Résout une cible de lien (`[[cible]]` ou alias) vers les notes
 /// correspondantes. Combine l'index des wikilinks puis l'index des alias,
 /// en dédupliquant par chemin (l'ordre de l'index prime).
-fn resolve_link<'a>(
+pub(crate) fn resolve_link<'a>(
     index: &'a Option<NoteIndex>,
     aliases: &'a Option<AliasIndex>,
     target: &str,
