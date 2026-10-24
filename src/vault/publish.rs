@@ -445,6 +445,7 @@ fn push_inline(
                 out.push_str(&esc);
                 out.push_str("</code>");
             }
+
             SegmentStyle::Link => out.push_str(&esc),
             SegmentStyle::ExternalUrl => {
                 out.push_str("<a href=\"");

@@ -207,3 +207,18 @@ pub fn table_grid(lignes: &[String]) -> Vec<Vec<String>> {
         })
         .collect()
 }
+
+/// Convertit une source LaTeX en Unicode affichable (délègue au moteur
+/// math de la couche vault).
+pub fn math_to_display(source: &str) -> String {
+    crate::vault::math::latex_to_unicode(source)
+}
+
+#[cfg(test)]
+mod tests_maths {
+    #[test]
+    fn math_to_display_convertit() {
+        assert_eq!(super::math_to_display("E=mc^2"), "E=mc\u{00B2}");
+        assert_eq!(super::math_to_display("\\frac{a}{b}"), "a\u{2044}b");
+    }
+}

@@ -2030,27 +2030,16 @@ fn segment_widget(root: &Path, seg: &Segment) -> Element<'static, Message> {
                 })
                 .into()
         }
-        SegmentStyle::MathInline => text(seg.text.clone())
-            .font(Font::MONOSPACE)
-            .size(13)
-            .color(Color::from_rgb(0.1, 0.45, 0.4))
-            .into(),
+        SegmentStyle::MathInline => text(markdown::math_to_display(&seg.text)).into(),
         SegmentStyle::MathDisplay => container(
-            text(seg.text.clone())
-                .font(Font::MONOSPACE)
-                .size(14)
-                .color(Color::from_rgb(0.1, 0.45, 0.4))
+            text(markdown::math_to_display(&seg.text))
+                .size(17)
                 .width(Length::Fill),
         )
         .width(Length::Fill)
+        .center_x(Length::Fill)
         .padding(8)
         .style(|_theme| container::Style {
-            background: Some(Background::Color(Color::from_rgb(0.92, 0.96, 0.95))),
-            border: Border {
-                color: Color::from_rgb(0.6, 0.8, 0.75),
-                width: 1.0,
-                radius: Radius::from(4.0),
-            },
             ..container::Style::default()
         })
         .into(),
