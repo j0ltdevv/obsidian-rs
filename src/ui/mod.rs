@@ -1932,24 +1932,41 @@ fn segment_widget(root: &Path, seg: &Segment) -> Element<'static, Message> {
             ..container::Style::default()
         })
         .into(),
-        SegmentStyle::CodeBlock => container(
-            text(seg.text.clone())
-                .font(Font::MONOSPACE)
-                .size(12)
-                .width(Length::Fill),
-        )
-        .width(Length::Fill)
-        .padding(8)
-        .style(|_theme| container::Style {
-            background: Some(Background::Color(Color::from_rgb(0.9, 0.92, 0.95))),
-            border: Border {
-                color: Color::from_rgb(0.8, 0.83, 0.88),
-                width: 1.0,
-                radius: Radius::from(4.0),
-            },
-            ..container::Style::default()
-        })
-        .into(),
+        SegmentStyle::CodeBlock => {
+            // Coloration syntaxique par langue (cible = langue de la fence,
+            // transportée par le moteur de preview).
+            let lignes = markdown::highlight_spans(seg.target.as_deref(), &seg.text);
+            let mut colonne = Column::new().spacing(0);
+            for ligne in lignes {
+                if ligne.is_empty() {
+                    colonne = colonne.push(text(" ").font(Font::MONOSPACE).size(12));
+                    continue;
+                }
+                let mut rangee = Row::new();
+                for span in ligne {
+                    rangee = rangee.push(
+                        text(span.text)
+                            .font(Font::MONOSPACE)
+                            .size(12)
+                            .color(Color::from_rgb8(span.rgb[0], span.rgb[1], span.rgb[2])),
+                    );
+                }
+                colonne = colonne.push(rangee);
+            }
+            container(colonne)
+                .width(Length::Fill)
+                .padding(8)
+                .style(|_theme| container::Style {
+                    background: Some(Background::Color(Color::from_rgb(0.9, 0.92, 0.95))),
+                    border: Border {
+                        color: Color::from_rgb(0.8, 0.83, 0.88),
+                        width: 1.0,
+                        radius: Radius::from(4.0),
+                    },
+                    ..container::Style::default()
+                })
+                .into()
+        }
         SegmentStyle::Blockquote => container(text(seg.text.clone()))
             .width(Length::Fill)
             .padding([2, 10])

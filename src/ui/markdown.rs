@@ -222,3 +222,124 @@ mod tests_maths {
         assert_eq!(super::math_to_display("\\frac{a}{b}"), "a\u{2044}b");
     }
 }
+
+/* ======================= Coloration syntaxique des blocs ======================= */
+use std::sync::OnceLock;
+
+/// Jeu de syntaxes chargé une seule fois (dump intégré à syntect,
+/// moteur regex Rust pur : aucune dépendance C).
+fn syntaxes() -> &'static syntect::parsing::SyntaxSet {
+    static JEUX: OnceLock<syntect::parsing::SyntaxSet> = OnceLock::new();
+    JEUX.get_or_init(syntect::parsing::SyntaxSet::load_defaults_newlines)
+}
+
+/// Thème de coloration (sombre, conventions d'éditeur).
+fn theme() -> syntect::highlighting::Theme {
+    static THEMES: OnceLock<Option<syntect::highlighting::Theme>> = OnceLock::new();
+    THEMES
+        .get_or_init(|| {
+            syntect::highlighting::ThemeSet::load_defaults()
+                .themes
+                .remove("base16-ocean.dark")
+        })
+        .clone()
+        .unwrap_or_default()
+}
+
+/// Une span colorée : texte et couleur RGB 8 bits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeSpan {
+    pub text: String,
+    pub rgb: [u8; 3],
+}
+
+/// Colorise un bloc de code selon sa langue (```rust, ```python, …) et
+/// renvoie une liste de lignes, chacune découpée en spans colorées.
+///
+/// Langue inconnue ou absente : texte simple en couleur par défaut — le
+/// bloc reste lisible, sans effet exotique.
+pub fn highlight_spans(lang: Option<&str>, code: &str) -> Vec<Vec<CodeSpan>> {
+    let syntax = lang
+        .and_then(|nom| syntaxes().find_syntax_by_token(nom))
+        .unwrap_or_else(|| syntaxes().find_syntax_plain_text());
+    let theme = theme();
+    let mut highlighter = syntect::easy::HighlightLines::new(syntax, &theme);
+    let regions = match highlighter.highlight_line(code, syntaxes()) {
+        Ok(regions) => regions,
+        Err(_) => {
+            return vec![vec![CodeSpan {
+                text: code.to_string(),
+                rgb: [0xD8, 0xD8, 0xD8],
+            }]];
+        }
+    };
+
+    // Découpe chaque région aux retours à la ligne : un saut interne ferme
+    // la ligne courante (les spans syntect peuvent traverser les lignes).
+    let mut lignes: Vec<Vec<CodeSpan>> = Vec::new();
+    let mut courante: Vec<CodeSpan> = Vec::new();
+    for (style, texte) in regions {
+        let rgb = [style.foreground.r, style.foreground.g, style.foreground.b];
+        let morceaux: Vec<&str> = texte.split('\n').collect();
+        let dernier = morceaux.len() - 1;
+        for (index, morceau) in morceaux.iter().enumerate() {
+            if !morceau.is_empty() {
+                courante.push(CodeSpan {
+                    text: (*morceau).to_string(),
+                    rgb,
+                });
+            }
+            if index < dernier {
+                lignes.push(std::mem::take(&mut courante));
+            }
+        }
+    }
+    if !courante.is_empty() {
+        lignes.push(courante);
+    }
+    lignes
+}
+
+#[cfg(test)]
+mod tests_highlight {
+    use super::*;
+
+    #[test]
+    fn rust_colore_les_mots_cles() {
+        let lignes = highlight_spans(Some("rust"), "fn main() { }");
+        assert_eq!(lignes.len(), 1);
+        // Le mot-clé `fn` a une span dédiée d'une couleur différente des
+        // identifiants.
+        let cles: Vec<&CodeSpan> = lignes[0].iter().filter(|s| s.text.contains("fn")).collect();
+        assert!(!cles.is_empty());
+        let plain: Vec<&CodeSpan> = lignes[0].iter().filter(|s| s.text == "main").collect();
+        assert!(!plain.is_empty());
+        assert_ne!(cles[0].rgb, plain[0].rgb);
+    }
+
+    #[test]
+    fn langue_inconnue_texte_simple() {
+        let lignes = highlight_spans(Some("langueinexistante"), "du texte");
+        assert_eq!(lignes.len(), 1);
+        assert_eq!(
+            lignes[0]
+                .iter()
+                .map(|s| s.text.as_str())
+                .collect::<String>(),
+            "du texte"
+        );
+    }
+
+    #[test]
+    fn multiligne_est_decoupe() {
+        let lignes = highlight_spans(Some("python"), "x = 1\ny = 2");
+        assert_eq!(lignes.len(), 2);
+    }
+
+    #[test]
+    fn sans_langue_reste_lisible() {
+        let lignes = highlight_spans(None, "juste du texte");
+        assert_eq!(lignes.len(), 1);
+        assert!(!lignes[0].is_empty());
+    }
+}

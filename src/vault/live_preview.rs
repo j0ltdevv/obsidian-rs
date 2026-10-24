@@ -203,7 +203,9 @@ fn push_code_block(
         style: SegmentStyle::CodeBlock,
         text: body.join("\n"),
         line: start,
-        target: None,
+        // Langue de la fence (```rust) : transportée dans `target` pour la
+        // coloration syntaxique de l'interface (aucune autre réutilisation).
+        target: open.lang.clone(),
         indent: 0,
     });
 

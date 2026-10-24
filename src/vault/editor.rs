@@ -222,10 +222,12 @@ fn unindent_upto3(line: &str) -> Option<&str> {
 }
 
 /// Une fence ouvrante : caractère et longueur (```` ``` ```` ou `~~~`).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct Fence {
     char: char,
     len: usize,
+    /// Langue déclarée après le marqueur (```` ```rust ````), en minuscules.
+    pub(crate) lang: Option<String>,
 }
 
 /// Reconnaît une fence ouvrante (au moins trois backticks ou tildes).
@@ -239,7 +241,13 @@ pub(crate) fn fence_open(line: &str) -> Option<Fence> {
     if len < 3 {
         None
     } else {
-        Some(Fence { char, len })
+        let info: String = body.chars().skip(len).collect();
+        let lang = info
+            .trim()
+            .split_whitespace()
+            .next()
+            .map(|word| word.to_lowercase());
+        Some(Fence { char, len, lang })
     }
 }
 
@@ -846,7 +854,7 @@ fn colorize_line(
     }
 
     // Bloc de code ouvert : tout le contenu est du code, fence comprise.
-    if let Some(open) = state.fence {
+    if let Some(open) = state.fence.clone() {
         push_token(out, SourceKind::CodeFence, context.text, context.line, 0);
         if fence_close(context.text, &open) {
             state.fence = None;
