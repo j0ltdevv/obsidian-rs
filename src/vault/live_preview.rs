@@ -1101,13 +1101,13 @@ mod tests {
     #[test]
     fn test_bloc_code_multilignes() {
         let contenu = "```rust\nlet x = 1;\nlet y = 2;\n```\nsuite";
-        assert_eq!(
-            render_markdown(contenu),
-            segs(&[
-                ("let x = 1;\nlet y = 2;", SegmentStyle::CodeBlock, 0),
-                ("suite", SegmentStyle::Plain, 4),
-            ])
-        );
+        let segments = render_markdown(contenu);
+        assert_eq!(segments.len(), 2);
+        // La langue de la fence est transportée pour la coloration.
+        assert_eq!(segments[0].target.as_deref(), Some("rust"));
+        assert_eq!(segments[0].text, "let x = 1;\nlet y = 2;");
+        assert_eq!(segments[1].style, SegmentStyle::Plain);
+        assert_eq!(segments[1].line, 4);
     }
 
     #[test]

@@ -243,7 +243,6 @@ pub(crate) fn fence_open(line: &str) -> Option<Fence> {
     } else {
         let info: String = body.chars().skip(len).collect();
         let lang = info
-            .trim()
             .split_whitespace()
             .next()
             .map(|word| word.to_lowercase());
