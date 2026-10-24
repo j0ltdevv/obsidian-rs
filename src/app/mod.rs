@@ -93,13 +93,24 @@ pub enum Message {
     /// Sélectionne un thème par nom.
     SelectTheme(String),
     /// Définit/remplace une propriété du frontmatter.
-    SetProperty { key: String, value: String },
+    SetProperty {
+        key: String,
+        value: String,
+    },
     /// Supprime une propriété du frontmatter.
-    RemoveProperty { key: String },
+    RemoveProperty {
+        key: String,
+    },
     /// Ajoute une nouvelle propriété du frontmatter.
-    AddProperty { key: String, value: String },
+    AddProperty {
+        key: String,
+        value: String,
+    },
     /// Édite la valeur brouillon d'une propriété existante.
-    PropertyValueChanged { key: String, value: String },
+    PropertyValueChanged {
+        key: String,
+        value: String,
+    },
     /// Édite la clé brouillon de la nouvelle propriété.
     NewPropertyKeyChanged(String),
     /// Édite la valeur brouillon de la nouvelle propriété.
@@ -184,13 +195,23 @@ pub enum Message {
     /// Efface tous les filtres du graphe.
     GraphClearFilters,
     /// Début d'un glisser-déposer de nœud du graphe.
-    GraphDragStart { node: usize, origin: (f32, f32) },
+    GraphDragStart {
+        node: usize,
+        origin: (f32, f32),
+    },
     /// Mouvement de curseur pendant un glisser-déposer.
-    GraphDragMove { x: f32, y: f32 },
+    GraphDragMove {
+        x: f32,
+        y: f32,
+    },
     /// Fin du glisser-déposer.
     GraphDragEnd,
     /// Applique un décalage persistant à un nœud du graphe.
-    GraphDragApply { node: usize, dx: f32, dy: f32 },
+    GraphDragApply {
+        node: usize,
+        dx: f32,
+        dy: f32,
+    },
     /// Ouvre le panneau recherche/remplacement.
     FindOpen,
     /// Ferme le panneau recherche/remplacement.
@@ -212,9 +233,15 @@ pub enum Message {
     /// Arme ou désarme le mode liaison (source = carte sélectionnée).
     CanvasLinkToggle,
     /// Édite le titre d'une carte du canvas.
-    CanvasEditTitle { id: CardId, text: String },
+    CanvasEditTitle {
+        id: CardId,
+        text: String,
+    },
     /// Édite le contenu d'une carte du canvas.
-    CanvasEditText { id: CardId, text: String },
+    CanvasEditText {
+        id: CardId,
+        text: String,
+    },
     /// Ouvre le dialogue de nouvelle note.
     NewNoteOpen,
     /// Ferme le dialogue de nouvelle note.
@@ -224,7 +251,10 @@ pub enum Message {
     /// Crée la note (ops atomique) et rafraîchit l'index.
     NewNoteCreate,
     /// Change le groupe d'une carte du canvas.
-    CanvasSetGroup { id: CardId, group: String },
+    CanvasSetGroup {
+        id: CardId,
+        group: String,
+    },
     /// Réorganise automatiquement les cartes du canvas.
     CanvasAutoLayout,
     /// Exporte le canvas en JSON (`.obsidian/canvas.json`).
@@ -288,7 +318,10 @@ pub enum Message {
     /// Zoom du graphe (delta de molette).
     GraphZoom(f32),
     /// Pan du graphe.
-    GraphPan { dx: f32, dy: f32 },
+    GraphPan {
+        dx: f32,
+        dy: f32,
+    },
     /// Bascule l'affichage des noms de nœuds.
     GraphToggleLabels,
     /// Bascule le quadrillage.
@@ -315,6 +348,9 @@ pub enum Message {
     ToggleCallout(usize),
     /// Un fichier a été déposé sur la fenêtre : import en pièce jointe.
     FileDropped(std::path::PathBuf),
+    /// Cycle le focus au widget suivant / précédent (Tab / Shift+Tab).
+    FocusNext,
+    FocusPrevious,
     /// Demande à vider la corbeille (ouvre la confirmation).
     TrashEmptyRequest,
     /// Annule le vidage de la corbeille.
@@ -2377,6 +2413,12 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 );
             }
         },
+        Message::FocusNext => {
+            return iced::widget::operation::focus_next();
+        }
+        Message::FocusPrevious => {
+            return iced::widget::operation::focus_previous();
+        }
         Message::FileDropped(source) => {
             match crate::vault::attachments::import_attachment(&app.vault_root, &source, None) {
                 Ok(dest) => {
@@ -2882,8 +2924,10 @@ pub fn subscription(app: &App) -> iced::Subscription<Message> {
     use iced::event::{self, Event};
 
     // La subscription n'accepte qu'un pointeur de fonction : la table
-    // résolue est donc publiée dans le magasin partagé.
+    // résolue et le mode édition sont donc publiés dans les magasins
+    // partagés.
     publish_keymap(&app.keymap);
+    EDITING.store(app.editing, std::sync::atomic::Ordering::Relaxed);
 
     let keys = event::listen_raw(|event, _status, _window| {
         let Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) = event
@@ -2891,8 +2935,24 @@ pub fn subscription(app: &App) -> iced::Subscription<Message> {
             return None;
         };
 
-        // Combinaisons du catalogue : la table résolue fait foi.
         let key_ref = key.as_ref();
+
+        // Tab / Shift+Tab : cycle du focus entre les panneaux, hors
+        // édition (l'éditeur garde Tab pour lui).
+        if matches!(
+            key_ref,
+            iced::keyboard::Key::Named(iced::keyboard::key::Named::Tab)
+        ) {
+            if !EDITING.load(std::sync::atomic::Ordering::Relaxed) {
+                return Some(if modifiers.shift() {
+                    Message::FocusPrevious
+                } else {
+                    Message::FocusNext
+                });
+            }
+        }
+
+        // Combinaisons du catalogue : la table résolue fait foi.
         if let Some(key_name) = canonical_key_name(&key_ref) {
             let modifier_names = canonical_modifiers(modifiers);
             if let Some(action) = action_for_key(&modifier_names, &key_name) {
@@ -2926,6 +2986,10 @@ pub fn subscription(app: &App) -> iced::Subscription<Message> {
 /// `iced::event::listen_raw` n'accepte qu'un pointeur de fonction (aucune
 /// capture) : la table résolue est donc publiée dans un magasin partagé,
 /// resynchronisé à chaque appel de [`subscription`].
+/// Mode édition publié pour la subscription clavier (pointeur de
+/// fonction : pas de capture d'app).
+static EDITING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 static KEYMAP: std::sync::LazyLock<std::sync::RwLock<KeyMap>> =
     std::sync::LazyLock::new(|| std::sync::RwLock::new(KeyMap::defaults()));
 
