@@ -970,9 +970,28 @@ fn workspace_view<'a>(app: &'a App, notes: &'a [Note]) -> Element<'a, Message> {
     }
 
     if app.show_history && app.open.is_some() {
-        let history = history_view(&app.history_snapshots, None, |index| {
-            Message::RestoreSnapshot(index)
-        });
+        let total = app.history_snapshots.len();
+        let position = app
+            .history_cursor
+            .map(|index| format!("{} / {}", index + 1, total))
+            .unwrap_or_else(|| format!("— / {}", total));
+        let history = column![
+            row![
+                button(text("‹ Plus ancien").size(12))
+                    .on_press(Message::HistoryStep(-1))
+                    .style(ghost_button_style),
+                text(position).size(12).width(Length::Fill),
+                button(text("Plus récent ›").size(12))
+                    .on_press(Message::HistoryStep(1))
+                    .style(ghost_button_style),
+            ]
+            .spacing(6)
+            .padding([0, 4]),
+            history_view(&app.history_snapshots, app.history_cursor, |index| {
+                Message::RestoreSnapshot(index)
+            }),
+        ]
+        .spacing(6);
         return row![
             left_el,
             container(history)

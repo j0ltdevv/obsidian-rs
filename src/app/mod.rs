@@ -351,6 +351,8 @@ pub enum Message {
     /// Cycle le focus au widget suivant / précédent (Tab / Shift+Tab).
     FocusNext,
     FocusPrevious,
+    /// Déplace le curseur temporel de l'historique (négatif = plus ancien).
+    HistoryStep(i32),
     /// Demande à vider la corbeille (ouvre la confirmation).
     TrashEmptyRequest,
     /// Annule le vidage de la corbeille.
@@ -571,6 +573,8 @@ pub struct App {
     pub current_theme: String,
     /// Snapshots de la note ouverte (chargés pour la vue historique).
     pub history_snapshots: Vec<PathBuf>,
+    /// Curseur temporel : indice du snapshot affiché, s'il y en a un.
+    pub history_cursor: Option<usize>,
     /// Affiche la vue Canvas à la place de l'éditeur/prévisualisation.
     pub show_canvas: bool,
     /// Planche Canvas (une carte par note, arêtes = wikilinks résolus).
@@ -966,6 +970,7 @@ pub fn boot() -> (App, Task<Message>) {
         dataview_error: None,
         dataview_indices: Vec::new(),
         current_theme: settings.theme.clone(),
+        history_cursor: None,
         history_snapshots: Vec::new(),
         show_canvas: false,
         canvas,
@@ -2413,6 +2418,16 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 );
             }
         },
+        Message::HistoryStep(delta) => {
+            if app.history_snapshots.is_empty() {
+                return iced::Task::none();
+            }
+            let dernier = app.history_snapshots.len() - 1;
+            let courant = app.history_cursor.unwrap_or(dernier);
+            let cible = (courant as i64 + i64::from(delta)).clamp(0, dernier as i64) as usize;
+            app.history_cursor = Some(cible);
+            return update(app, Message::RestoreSnapshot(cible));
+        }
         Message::FocusNext => {
             return iced::widget::operation::focus_next();
         }
@@ -2659,6 +2674,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::RestoreSnapshot(index) => {
             app.editing = false;
+            app.history_cursor = Some(index);
             if let Some(open) = &app.open {
                 if let Some(snap) = app.history_snapshots.get(index) {
                     match restore_snapshot(&app.vault_root, &open.path, snap) {
