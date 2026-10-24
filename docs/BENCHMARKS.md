@@ -177,3 +177,33 @@ Xvfb :95 -screen 0 1400x900x24 & sleep 2
 env -u WAYLAND_DISPLAY DISPLAY=:95 ./target/release/obsy & sleep 12
 grep -E 'VmRSS|VmHWM' /proc/$!/status
 ```
+
+## Mesures de performance (24 octobre 2026)
+
+Temps d'exécution des opérations du moteur, vault synthétique généré par
+`tests/benchmarks.rs` (40 dossiers, frontmatter, tags, 6 wikilinks croisés
+par note, ~1,5 Ko par note). Machine de référence en tête de document,
+build `--release`.
+
+| Opération | Vault 5 000 notes (~7,5 Mo) | Vault 10 000 notes (~15 Mo) |
+|---|---|---|
+| Scan + frontmatter | 219 ms | 210 ms |
+| Index NoteIndex (liens, tags) | 20 ms | — |
+| Index full-text | 503 ms | — |
+| Graphe (nœuds + arêtes + composantes) | 1,95 s | — |
+| Recherche full-text (200 requêtes) | **moyenne 663 µs · max 1,2 ms** | — |
+| Dataview `SELECT … SORT … LIMIT 50` | 6,9 ms | — |
+| Export PDF d'une note | **0,74 ms** | — |
+| Export ZIP du coffre | 383 ms | — |
+
+Points à retenir : la recherche répond en dessous de la milliseconde sur
+5 000 notes ; le scan reste sous le quart de seconde et ne dégrade pas à
+10 000 notes ; l'export PDF d'une note coûte moins d'une milliseconde.
+Le graphe est l'opération la plus coûteuse (calcul des composantes) :
+c'est la prochaine optimisation identifiée.
+
+Reproduction :
+
+```sh
+cargo test --test benchmarks --release -- --ignored --nocapture
+```

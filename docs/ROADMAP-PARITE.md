@@ -70,11 +70,18 @@ création manuelle de cartes et d'arêtes canvas, projection `SELECT`
 Dataview, thème du vault appliqué à l'UI, corbeille (restauration +
 vidage confirmé), publication HTML.
 
-### Absente
-- Navigation clavier complète (keymap + raccourcis globaux branchés ;
-  le focus par tabulation entre panneaux iced reste à câbler).
+### Absente (au 24 octobre, après la passe de fin)
 - Chiffrement optionnel du vault.
 - i18n fr/en.
+- Toggles vim / orthographe fonctionnels.
+
+Livré dans la passe du 24 octobre : maths LaTeX converties en Unicode
+(inline et display), coloration syntaxique des blocs de code par langue
+(syntect, Rust pur), glisser-déposer de fichiers (import en pièce
+jointe + insertion d'embed), transclusion des notes `![[cible]]`
+(profondeur 1), Tab / Shift+Tab pour le focus entre widgets, curseur
+temporel précédent/suivant dans l'historique. Les raccourcis globaux
+et le keymap étaient déjà branchés.
 
 ### Absente
 - Navigation clavier complète (le keymap existe, le focus iced n'est pas câblé).
