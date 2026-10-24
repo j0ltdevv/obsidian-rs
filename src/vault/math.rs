@@ -338,7 +338,7 @@ pub fn latex_to_unicode(source: &str) -> String {
             "cdots" | "cdotp" => out.push('⋯'),
             "prime" => out.push('′'),
             autre => {
-                if let Some(symbole) = symbole(&autre) {
+                if let Some(symbole) = symbole(autre) {
                     out.push(symbole);
                 } else {
                     // Commande inconnue : garder le nom sans la barre.
