@@ -313,6 +313,8 @@ pub enum Message {
     TrashRestore(TrashEntry),
     /// Replie ou déplie le callout commencé à la ligne donnée (preview).
     ToggleCallout(usize),
+    /// Un fichier a été déposé sur la fenêtre : import en pièce jointe.
+    FileDropped(std::path::PathBuf),
     /// Demande à vider la corbeille (ouvre la confirmation).
     TrashEmptyRequest,
     /// Annule le vidage de la corbeille.
@@ -2375,6 +2377,30 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 );
             }
         },
+        Message::FileDropped(source) => {
+            match crate::vault::attachments::import_attachment(&app.vault_root, &source, None) {
+                Ok(dest) => {
+                    let nom = dest
+                        .file_name()
+                        .map(|nom| nom.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    if let Some(open) = &mut app.open {
+                        open.content
+                            .perform(text_editor::Action::Edit(text_editor::Edit::Paste(
+                                std::sync::Arc::new(format!("![[{nom}]]")),
+                            )));
+                        app.open_dirty = true;
+                        app.edits_since_save = app.edits_since_save.saturating_add(1);
+                    }
+                    app.attachments = crate::vault::attachments::scan_attachments(&app.vault_root)
+                        .unwrap_or_default();
+                    app.error = None;
+                }
+                Err(error) => {
+                    app.error = Some(format!("Pièce jointe impossible : {error}"));
+                }
+            }
+        }
         Message::ToggleCallout(debut) => {
             if !app.callout_folded.remove(&debut) {
                 app.callout_folded.insert(debut);
@@ -2879,13 +2905,17 @@ pub fn subscription(app: &App) -> iced::Subscription<Message> {
     });
 
     let windows = event::listen_raw(|event, _status, _window| {
-        let Event::Window(iced::window::Event::Resized(size)) = event else {
+        let Event::Window(fenetre) = event else {
             return None;
         };
-        Some(Message::WindowResized(
-            size.width as u32,
-            size.height as u32,
-        ))
+        match fenetre {
+            iced::window::Event::Resized(size) => Some(Message::WindowResized(
+                size.width as u32,
+                size.height as u32,
+            )),
+            iced::window::Event::FileDropped(chemin) => Some(Message::FileDropped(chemin)),
+            _ => None,
+        }
     });
 
     iced::Subscription::batch([keys, windows])
